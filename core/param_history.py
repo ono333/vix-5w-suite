@@ -346,3 +346,254 @@ def get_history_summary() -> pd.DataFrame:
             })
     
     return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+
+# ============================================================
+# LBR-Grade Profile Management
+# ============================================================
+
+REGIME_NAMES = ["ULTRA_LOW", "LOW", "MEDIUM", "HIGH", "EXTREME"]
+
+# Default regime configurations
+DEFAULT_PROFILES = {
+    "ULTRA_LOW": {
+        "entry_percentile": 0.08,
+        "sigma_mult": 1.0,
+        "otm_pts": 8,
+        "long_dte_weeks": 26,
+        "target_mult": 1.3,
+        "exit_mult": 0.4,
+        "mode": "diagonal",
+        "description": "Aggressive entry, max premium harvest",
+    },
+    "LOW": {
+        "entry_percentile": 0.15,
+        "sigma_mult": 1.0,
+        "otm_pts": 10,
+        "long_dte_weeks": 26,
+        "target_mult": 1.3,
+        "exit_mult": 0.4,
+        "mode": "diagonal",
+        "description": "Standard entry, balanced approach",
+    },
+    "MEDIUM": {
+        "entry_percentile": 0.30,
+        "sigma_mult": 1.0,
+        "otm_pts": 12,
+        "long_dte_weeks": 20,
+        "target_mult": 1.3,
+        "exit_mult": 0.4,
+        "mode": "diagonal",
+        "description": "Cautious, selective entries",
+    },
+    "HIGH": {
+        "entry_percentile": 0.60,
+        "sigma_mult": 0.8,
+        "otm_pts": 15,
+        "long_dte_weeks": 13,
+        "target_mult": 1.5,
+        "exit_mult": 0.3,
+        "mode": "long_only",
+        "description": "Defensive, reduced exposure",
+    },
+    "EXTREME": {
+        "entry_percentile": 0.90,
+        "sigma_mult": 0.5,
+        "otm_pts": 20,
+        "long_dte_weeks": 8,
+        "target_mult": 2.0,
+        "exit_mult": 0.2,
+        "mode": "long_only",
+        "description": "No new positions, wait for calm",
+    },
+}
+
+
+def get_profile(regime_name: str, mode: str = "diagonal") -> Dict[str, Any]:
+    """
+    Get profile for a specific regime with metadata.
+    
+    Returns dict with:
+        - params: dict of parameters
+        - last_optimized: timestamp or None
+        - is_edited: bool
+        - sample_count: int (weeks tested)
+        - score: float or None
+    """
+    strategy_id = f"{mode}__{regime_name}"
+    rec = get_best_for_strategy(strategy_id)
+    
+    if rec and "row" in rec:
+        row = rec["row"]
+        return {
+            "params": {
+                "entry_percentile": row.get("entry_percentile"),
+                "sigma_mult": row.get("sigma_mult"),
+                "otm_pts": row.get("otm_pts"),
+                "long_dte_weeks": row.get("long_dte_weeks"),
+                "target_mult": row.get("target_mult"),
+                "exit_mult": row.get("exit_mult"),
+                "mode": row.get("mode", mode),
+            },
+            "last_optimized": rec.get("timestamp"),
+            "is_edited": rec.get("is_edited", False),
+            "sample_count": row.get("weeks_tested", rec.get("weeks_tested", 0)),
+            "score": row.get("Score"),
+            "cagr": row.get("CAGR"),
+            "max_dd": row.get("MaxDD"),
+            "criteria": rec.get("criteria"),
+        }
+    
+    # Return defaults
+    defaults = DEFAULT_PROFILES.get(regime_name, {})
+    return {
+        "params": defaults.copy(),
+        "last_optimized": None,
+        "is_edited": False,
+        "sample_count": 0,
+        "score": None,
+        "cagr": None,
+        "max_dd": None,
+        "criteria": None,
+    }
+
+
+def get_all_profiles(mode: str = "diagonal") -> Dict[str, Dict[str, Any]]:
+    """
+    Get profiles for all regimes.
+    
+    Returns dict mapping regime_name -> profile dict
+    """
+    return {regime: get_profile(regime, mode) for regime in REGIME_NAMES}
+
+
+def save_profile(
+    regime_name: str,
+    params: Dict[str, Any],
+    mode: str = "diagonal",
+    is_edited: bool = True,
+    sample_count: int = 0,
+    score: float = None,
+    cagr: float = None,
+    max_dd: float = None,
+    criteria: str = "manual",
+) -> None:
+    """
+    Save or update a profile for a specific regime.
+    
+    This is for manual edits - use record_best_from_grid for optimization results.
+    """
+    strategy_id = f"{mode}__{regime_name}"
+    
+    hist = _load_history()
+    strategies = hist.setdefault("strategies", {})
+    strat_hist = strategies.setdefault(strategy_id, [])
+    
+    row = {
+        "entry_percentile": params.get("entry_percentile"),
+        "sigma_mult": params.get("sigma_mult"),
+        "otm_pts": params.get("otm_pts"),
+        "long_dte_weeks": params.get("long_dte_weeks"),
+        "target_mult": params.get("target_mult"),
+        "exit_mult": params.get("exit_mult"),
+        "mode": params.get("mode", mode),
+        "Score": score,
+        "CAGR": cagr,
+        "MaxDD": max_dd,
+        "weeks_tested": sample_count,
+    }
+    
+    entry = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "criteria": criteria,
+        "row": row,
+        "params": params,
+        "is_edited": is_edited,
+        "weeks_tested": sample_count,
+    }
+    
+    strat_hist.append(entry)
+    _save_history(hist)
+
+
+def reset_profile_to_default(regime_name: str, mode: str = "diagonal") -> None:
+    """Reset a profile to default values."""
+    if regime_name in DEFAULT_PROFILES:
+        save_profile(
+            regime_name=regime_name,
+            params=DEFAULT_PROFILES[regime_name].copy(),
+            mode=mode,
+            is_edited=False,
+            criteria="default_reset",
+        )
+
+
+def get_profile_summary_df(mode: str = "diagonal") -> pd.DataFrame:
+    """
+    Get a summary DataFrame of all profiles for display.
+    
+    Returns DataFrame with columns:
+        - Profile (regime name)
+        - Sample Count
+        - Last Optimized
+        - Is Edited
+        - Entry %
+        - OTM
+        - DTE
+        - Score
+    """
+    profiles = get_all_profiles(mode)
+    
+    rows = []
+    for regime_name, profile in profiles.items():
+        params = profile.get("params", {})
+        last_opt = profile.get("last_optimized")
+        if last_opt:
+            try:
+                # Format timestamp nicely
+                dt_obj = datetime.fromisoformat(last_opt.replace('Z', '+00:00'))
+                last_opt_str = dt_obj.strftime("%Y-%m-%d %H:%M")
+            except:
+                last_opt_str = last_opt[:16] if last_opt else "Never"
+        else:
+            last_opt_str = "Never"
+        
+        rows.append({
+            "Profile": regime_name,
+            "Sample Count": profile.get("sample_count", 0),
+            "Last Optimized": last_opt_str,
+            "Is Edited": "✏️ Yes" if profile.get("is_edited") else "No",
+            "Entry %": f"{params.get('entry_percentile', 0):.0%}",
+            "OTM": params.get("otm_pts", 0),
+            "DTE (wks)": params.get("long_dte_weeks", 0),
+            "Mode": params.get("mode", "diagonal"),
+            "Score": f"{profile.get('score', 0):.3f}" if profile.get('score') else "—",
+        })
+    
+    return pd.DataFrame(rows)
+
+
+def export_all_profiles(mode: str = "diagonal") -> str:
+    """Export all profiles as JSON string."""
+    profiles = get_all_profiles(mode)
+    return json.dumps(_to_jsonable(profiles), indent=2)
+
+
+def import_profiles(json_str: str, mode: str = "diagonal") -> bool:
+    """Import profiles from JSON string. Returns True on success."""
+    try:
+        profiles = json.loads(json_str)
+        for regime_name, profile in profiles.items():
+            if regime_name in REGIME_NAMES:
+                params = profile.get("params", profile)
+                save_profile(
+                    regime_name=regime_name,
+                    params=params,
+                    mode=mode,
+                    is_edited=True,
+                    sample_count=profile.get("sample_count", 0),
+                    criteria="imported",
+                )
+        return True
+    except Exception:
+        return False

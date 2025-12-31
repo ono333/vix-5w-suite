@@ -61,7 +61,68 @@ from core.param_history import (
     get_all_regime_params,
     get_history_summary,
     get_best_for_regime,
+    get_all_profiles,
+    get_profile,
+    save_profile,
+    reset_profile_to_default,
+    get_profile_summary_df,
+    export_all_profiles,
+    import_profiles,
+    DEFAULT_PROFILES,
+    REGIME_NAMES,
 )
+
+
+# =============================================================================
+# 5 PAPER TRADING VARIANTS - Parallel Comparison
+# =============================================================================
+PAPER_VARIANTS = {
+    "Existing Conservative": {
+        "description": "Baseline — DTE 20-26 weeks, entry 0.1-0.2, OTM 8-12",
+        "long_dte_weeks": 26,
+        "entry_percentile": 0.15,
+        "otm_pts": 10,
+        "target_mult": 1.3,
+        "exit_mult": 0.4,
+        "use_regime": True,
+    },
+    "DTE 1 Week Aggressive": {
+        "description": "Ultra-short theta burn — max decay in contango",
+        "long_dte_weeks": 1,
+        "entry_percentile": 0.15,
+        "otm_pts": 6,
+        "target_mult": 1.3,
+        "exit_mult": 0.4,
+        "use_regime": True,
+    },
+    "DTE 3 Weeks Aggressive": {
+        "description": "Short-term sweet spot — high harvest with vega buffer",
+        "long_dte_weeks": 3,
+        "entry_percentile": 0.15,
+        "otm_pts": 6,
+        "target_mult": 1.3,
+        "exit_mult": 0.4,
+        "use_regime": True,
+    },
+    "Exit 1.5x Profit": {
+        "description": "Tighter profit target — faster capital turnover",
+        "long_dte_weeks": 26,
+        "entry_percentile": 0.15,
+        "otm_pts": 10,
+        "target_mult": 1.5,
+        "exit_mult": 0.3,
+        "use_regime": True,
+    },
+    "Static No-Regime": {
+        "description": "Benchmark — fixed conservative params, no adaptive switching",
+        "long_dte_weeks": 26,
+        "entry_percentile": 0.15,
+        "otm_pts": 10,
+        "target_mult": 1.3,
+        "exit_mult": 0.4,
+        "use_regime": False,  # No regime adaptation
+    },
+}
 
 
 # ---------------------------------------------------------------------
@@ -547,125 +608,393 @@ def page_adaptive_backtester(vix_weekly: pd.Series, params: Dict[str, Any]):
 
 
 # ---------------------------------------------------------------------
-# Page: Per-Regime Optimizer
+# Page: Profile Management (LBR-Grade)
 # ---------------------------------------------------------------------
 
-def page_per_regime_optimizer(vix_weekly: pd.Series, params: Dict[str, Any]):
-    """Per-regime parameter optimization."""
-    st.title("⚡ VIX 5% Weekly – Per-Regime Optimizer")
+def page_profile_management(vix_weekly: pd.Series, params: Dict[str, Any]):
+    """
+    LBR-Grade Profile Management with 3 tabs:
+    - Optimize: Run per-regime optimization
+    - Visualize: Sample count chart + summary table
+    - Edit: Manual parameter editing per profile
+    """
+    st.title("📊 Profile Management")
+    st.markdown("**LBR-grade regime profile system** — Optimize, visualize, and edit parameters per market regime")
     
-    st.markdown("""
-    This tool runs separate grid scans for each market regime, optimizing parameters
-    specifically for the historical periods that fell into each regime category.
-    The optimized parameters are saved and can be used by the Adaptive Backtester.
-    """)
+    # Get current mode
+    mode = params.get("mode", "diagonal")
     
-    # Show current regime configs
-    st.markdown("### Current Regime Definitions")
+    # Create 3 tabs
+    tab_optimize, tab_visualize, tab_edit = st.tabs(["🚀 Optimize", "📈 Visualize", "✏️ Edit"])
     
-    config_rows = []
-    for regime_name, config in REGIME_CONFIGS.items():
-        config_rows.append({
-            "Regime": config.name,
-            "Percentile Range": f"{config.percentile_range[0]:.0%} – {config.percentile_range[1]:.0%}",
-            "Default Entry %ile": config.entry_percentile,
-            "Default OTM": config.otm_pts,
-            "Default Mode": config.mode,
-            "Description": config.description,
+    # =========================================================================
+    # TAB 1: OPTIMIZE
+    # =========================================================================
+    with tab_optimize:
+        st.subheader("Per-Regime Optimization")
+        st.markdown("Run separate grid scans for each market regime, optimizing parameters specifically for historical periods in each regime.")
+        
+        # Regime definitions table
+        st.markdown("---")
+        st.markdown("#### Current Regime Definitions")
+        
+        default_regimes = pd.DataFrame([
+            {"Regime": "ULTRA_LOW", "Pct_Min": 0, "Pct_Max": 10, "Entry_Pct": 0.08, "OTM": 8, "Mode": "diagonal", "Description": "Aggressive entry, max premium harvest"},
+            {"Regime": "LOW", "Pct_Min": 10, "Pct_Max": 25, "Entry_Pct": 0.15, "OTM": 10, "Mode": "diagonal", "Description": "Standard entry, balanced approach"},
+            {"Regime": "MEDIUM", "Pct_Min": 25, "Pct_Max": 50, "Entry_Pct": 0.30, "OTM": 12, "Mode": "diagonal", "Description": "Cautious, selective entries"},
+            {"Regime": "HIGH", "Pct_Min": 50, "Pct_Max": 75, "Entry_Pct": 0.60, "OTM": 15, "Mode": "long_only", "Description": "Defensive, reduced exposure"},
+            {"Regime": "EXTREME", "Pct_Min": 75, "Pct_Max": 100, "Entry_Pct": 0.90, "OTM": 20, "Mode": "long_only", "Description": "No new positions, wait for calm"},
+        ])
+        
+        if "regime_definitions" not in st.session_state:
+            st.session_state.regime_definitions = default_regimes.copy()
+        
+        edited_regimes = st.data_editor(
+            st.session_state.regime_definitions,
+            column_config={
+                "Regime": st.column_config.TextColumn("Regime", disabled=True, width="small"),
+                "Pct_Min": st.column_config.NumberColumn("Min %ile", min_value=0, max_value=100, step=1, width="small"),
+                "Pct_Max": st.column_config.NumberColumn("Max %ile", min_value=0, max_value=100, step=1, width="small"),
+                "Entry_Pct": st.column_config.NumberColumn("Entry %ile", min_value=0.01, max_value=1.0, step=0.01, format="%.2f", width="small"),
+                "OTM": st.column_config.NumberColumn("OTM pts", min_value=1, max_value=50, step=1, width="small"),
+                "Mode": st.column_config.SelectboxColumn("Mode", options=["diagonal", "long_only"], width="small"),
+                "Description": st.column_config.TextColumn("Description", width="large"),
+            },
+            use_container_width=True,
+            hide_index=True,
+            key="regime_editor"
+        )
+        
+        # Optimization parameters
+        st.markdown("---")
+        st.markdown("#### Optimization Parameters")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            entry_str = st.text_input(
+                "Entry percentiles to test",
+                value="0.05,0.10,0.15,0.20,0.25",
+                key="opt_entry_percentiles",
+            )
+            entry_grid = _parse_float_list(entry_str) if entry_str else [0.05, 0.10, 0.15, 0.20, 0.25]
+            
+            sigma_str = st.text_input(
+                "Sigma multipliers to test",
+                value="0.5,0.8,1.0,1.2,1.5",
+                key="opt_sigma_mult",
+            )
+            sigma_grid = _parse_float_list(sigma_str) if sigma_str else [0.5, 0.8, 1.0, 1.2, 1.5]
+        
+        with col2:
+            otm_str = st.text_input(
+                "OTM distances to test",
+                value="5,8,10,12,15,20",
+                key="opt_otm_distances",
+            )
+            otm_grid = [int(x) for x in _parse_float_list(otm_str)] if otm_str else [5, 8, 10, 12, 15, 20]
+            
+            dte_str = st.text_input(
+                "DTE weeks to test",
+                value="8,13,20,26",
+                key="opt_dte_weeks",
+            )
+            dte_grid = [int(x) for x in _parse_float_list(dte_str)] if dte_str else [8, 13, 20, 26]
+        
+        criteria = st.selectbox(
+            "Optimization criteria",
+            options=["balanced", "cagr", "sharpe", "maxdd"],
+            index=0,
+            key="opt_criteria",
+        )
+        
+        min_weeks = st.slider(
+            "Minimum weeks per regime",
+            min_value=26, max_value=156, value=52,
+            key="opt_min_weeks",
+        )
+        
+        st.markdown("---")
+        
+        if st.button("🚀 Run Per-Regime Optimization", type="primary", use_container_width=True):
+            with st.spinner("Running per-regime grid scans..."):
+                progress_bar = st.progress(0)
+                progress_text = st.empty()
+                
+                regime_count = len(edited_regimes)
+                
+                def progress_cb(regime_name, current, total):
+                    regime_idx = list(edited_regimes['Regime']).index(regime_name) if regime_name in list(edited_regimes['Regime']) else 0
+                    overall_progress = (regime_idx * total + current) / (regime_count * total)
+                    progress_bar.progress(min(overall_progress, 1.0))
+                    progress_text.text(f"Optimizing {regime_name}: {current}/{total} combinations")
+                
+                grid_df, best_by_regime = run_per_regime_grid_scan(
+                    vix_weekly=vix_weekly,
+                    base_params=params,
+                    criteria=criteria,
+                    entry_grid=entry_grid,
+                    sigma_grid=sigma_grid,
+                    otm_grid=otm_grid,
+                    dte_grid=dte_grid,
+                    min_weeks_per_regime=min_weeks,
+                    progress_cb=progress_cb,
+                )
+                
+                progress_bar.empty()
+                progress_text.empty()
+                
+                st.session_state["regime_grid_df"] = grid_df
+                st.session_state["best_by_regime"] = best_by_regime
+                
+                st.success("✅ Optimization complete!")
+                st.rerun()
+        
+        # Display results if available
+        grid_df = st.session_state.get("regime_grid_df")
+        best_by_regime = st.session_state.get("best_by_regime")
+        
+        if best_by_regime:
+            st.markdown("---")
+            st.markdown("#### Optimization Results")
+            
+            comparison_df = create_regime_comparison_df(best_by_regime)
+            st.dataframe(comparison_df, use_container_width=True)
+            
+            # Per-regime expandable sections
+            for regime_name, regime_result in best_by_regime.items():
+                row = regime_result.get("row", {})
+                weeks_tested = regime_result.get("weeks_tested", 0)
+                cagr_val = row.get('CAGR', 0) or 0
+                maxdd_val = row.get('MaxDD', 0) or 0
+                
+                with st.expander(f"🔹 {regime_name} — CAGR: {cagr_val*100:.1f}%, MaxDD: {maxdd_val*100:.1f}% ({weeks_tested} weeks)"):
+                    st.success(f"""
+                    **Best Parameters:**
+                    - Entry: {row.get('entry_percentile', 'N/A')} | Sigma: {row.get('sigma_mult', 'N/A')} | OTM: {row.get('otm_pts', 'N/A')} | DTE: {row.get('long_dte_weeks', 'N/A')}
+                    - Score: {row.get('Score', 0):.3f} | Trades: {row.get('Trades', 0)} | Win Rate: {(row.get('Win_rate', 0) or 0)*100:.1f}%
+                    """)
+                    
+                    if st.button(f"💾 Save {regime_name} Profile", key=f"save_opt_{regime_name}"):
+                        from core.param_history import record_best_from_grid
+                        strategy_id = f"{mode}__{regime_name}"
+                        best_df = pd.DataFrame([row])
+                        record_best_from_grid(strategy_id, best_df, params, criteria)
+                        st.success(f"✅ Saved {regime_name} profile!")
+            
+            # Save all button
+            if st.button("💾 Save All Profiles", type="primary"):
+                from core.param_history import record_best_from_grid
+                for regime_name, regime_result in best_by_regime.items():
+                    strategy_id = f"{mode}__{regime_name}"
+                    row = regime_result.get("row", {})
+                    best_df = pd.DataFrame([row])
+                    record_best_from_grid(strategy_id, best_df, params, criteria)
+                st.success("✅ All profiles saved!")
+    
+    # =========================================================================
+    # TAB 2: VISUALIZE
+    # =========================================================================
+    with tab_visualize:
+        st.subheader("Profile Visualization")
+        st.markdown("View sample counts and profile status across all regimes")
+        
+        # Get all profiles
+        profiles = get_all_profiles(mode)
+        
+        # Sample count bar chart
+        st.markdown("---")
+        st.markdown("#### Sample Count by Profile")
+        
+        sample_data = {regime: profiles[regime].get("sample_count", 0) for regime in REGIME_NAMES}
+        sample_df = pd.DataFrame({
+            "Profile": list(sample_data.keys()),
+            "Sample Count (weeks)": list(sample_data.values())
         })
-    st.dataframe(pd.DataFrame(config_rows), use_container_width=True)
-    
-    st.markdown("---")
-    
-    # Grid parameters
-    st.markdown("### Optimization Parameters")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        ep_str = st.text_input("Entry percentiles to test", "0.05,0.10,0.15,0.20,0.25")
-        sigma_str = st.text_input("Sigma multipliers to test", "0.5,0.8,1.0,1.2,1.5")
-    
-    with col2:
-        otm_str = st.text_input("OTM distances to test", "5,8,10,12,15,20")
-        dte_str = st.text_input("DTE weeks to test", "8,13,20,26")
-    
-    criteria = st.selectbox(
-        "Optimization criteria",
-        ["balanced", "cagr", "maxdd"],
-        index=0,
-        help="balanced = CAGR + low drawdown, cagr = max returns, maxdd = min risk"
-    )
-    
-    min_weeks = st.slider(
-        "Minimum weeks per regime",
-        min_value=26, max_value=104, value=52,
-        help="Regimes with fewer weeks will be skipped"
-    )
-    
-    if st.button("🚀 Run Per-Regime Optimization", type="primary"):
-        with st.spinner("Running per-regime grid scans... This may take a few minutes."):
-            progress_text = st.empty()
-            
-            def progress_cb(regime_name, current, total):
-                progress_text.text(f"Optimizing {regime_name}: {current}/{total} combinations")
-            
-            grid_df, best_by_regime = run_per_regime_grid_scan(
-                vix_weekly=vix_weekly,
-                base_params=params,
-                criteria=criteria,
-                entry_grid=_parse_float_list(ep_str),
-                sigma_grid=_parse_float_list(sigma_str),
-                otm_grid=_parse_float_list(otm_str),
-                dte_grid=_parse_int_list(dte_str),
-                min_weeks_per_regime=min_weeks,
-                progress_cb=progress_cb,
-            )
-            
-            progress_text.empty()
-            
-            st.session_state["regime_grid_df"] = grid_df
-            st.session_state["best_by_regime"] = best_by_regime
-    
-    # Display results
-    grid_df = st.session_state.get("regime_grid_df")
-    best_by_regime = st.session_state.get("best_by_regime")
-    
-    if best_by_regime:
-        st.success("✅ Per-regime optimization complete! Parameters saved.")
         
-        st.markdown("### Best Parameters by Regime")
-        comparison_df = create_regime_comparison_df(best_by_regime)
-        st.dataframe(comparison_df, use_container_width=True)
+        st.bar_chart(sample_df.set_index("Profile"))
         
-        st.markdown("### Full Grid Scan Results")
-        if grid_df is not None and not grid_df.empty:
-            # Filter by regime
-            regime_filter = st.selectbox(
-                "Filter by regime",
-                ["All"] + list(best_by_regime.keys())
-            )
-            
-            if regime_filter != "All":
-                config = REGIME_CONFIGS.get(regime_filter)
-                display_df = grid_df[grid_df["Regime"] == (config.name if config else regime_filter)]
-            else:
-                display_df = grid_df
-            
-            st.dataframe(display_df, use_container_width=True)
-            
-            # Download button
-            buf = io.BytesIO()
-            with pd.ExcelWriter(buf, engine="xlsxwriter") as writer:
-                grid_df.to_excel(writer, index=False, sheet_name="per_regime_scan")
-            buf.seek(0)
+        # Profile summary table
+        st.markdown("---")
+        st.markdown("#### Profile Summary")
+        
+        summary_df = get_profile_summary_df(mode)
+        st.dataframe(summary_df, use_container_width=True, hide_index=True)
+        
+        # Quick stats
+        st.markdown("---")
+        col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
+        
+        total_samples = sum(p.get("sample_count", 0) for p in profiles.values())
+        optimized_count = sum(1 for p in profiles.values() if p.get("last_optimized"))
+        edited_count = sum(1 for p in profiles.values() if p.get("is_edited"))
+        
+        col_stat1.metric("Total Profiles", len(REGIME_NAMES))
+        col_stat2.metric("Optimized", optimized_count)
+        col_stat3.metric("Manually Edited", edited_count)
+        col_stat4.metric("Total Samples", total_samples)
+        
+        # Export profiles
+        st.markdown("---")
+        st.markdown("#### Export / Import")
+        
+        col_exp1, col_exp2 = st.columns(2)
+        
+        with col_exp1:
+            profiles_json = export_all_profiles(mode)
             st.download_button(
-                "Download Full Results as XLSX",
-                data=buf,
-                file_name="per_regime_optimization.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                "📥 Export All Profiles (JSON)",
+                data=profiles_json,
+                file_name=f"VIX_Profiles_{mode}_{date.today()}.json",
+                mime="application/json"
             )
+        
+        with col_exp2:
+            uploaded = st.file_uploader("Import Profiles (JSON)", type=["json"], key="profile_import")
+            if uploaded:
+                json_str = uploaded.read().decode("utf-8")
+                if import_profiles(json_str, mode):
+                    st.success("✅ Profiles imported!")
+                    st.rerun()
+                else:
+                    st.error("Import failed")
+    
+    # =========================================================================
+    # TAB 3: EDIT
+    # =========================================================================
+    with tab_edit:
+        st.subheader("Edit Profile Parameters")
+        st.markdown("Manually adjust parameters for individual regime profiles")
+        
+        # Select profile to edit
+        selected_regime = st.selectbox(
+            "Select Profile to Edit",
+            options=REGIME_NAMES,
+            key="edit_regime_select"
+        )
+        
+        # Get current profile
+        profile = get_profile(selected_regime, mode)
+        profile_params = profile.get("params", {})
+        
+        st.markdown("---")
+        
+        # Display current status
+        col_status1, col_status2, col_status3 = st.columns(3)
+        col_status1.metric("Last Optimized", profile.get("last_optimized", "Never")[:10] if profile.get("last_optimized") else "Never")
+        col_status2.metric("Sample Count", profile.get("sample_count", 0))
+        col_status3.metric("Is Edited", "Yes" if profile.get("is_edited") else "No")
+        
+        st.markdown("---")
+        st.markdown("#### Parameters")
+        
+        # Parameter editing form
+        with st.form(f"edit_profile_form_{selected_regime}"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                edit_entry = st.number_input(
+                    "Entry Percentile",
+                    min_value=0.01, max_value=1.0,
+                    value=float(profile_params.get("entry_percentile", 0.15)),
+                    step=0.01, format="%.2f",
+                    key=f"edit_entry_{selected_regime}"
+                )
+                
+                edit_sigma = st.number_input(
+                    "Sigma Multiplier",
+                    min_value=0.1, max_value=3.0,
+                    value=float(profile_params.get("sigma_mult", 1.0)),
+                    step=0.1, format="%.1f",
+                    key=f"edit_sigma_{selected_regime}"
+                )
+                
+                edit_otm = st.number_input(
+                    "OTM Points",
+                    min_value=1, max_value=50,
+                    value=int(profile_params.get("otm_pts", 10)),
+                    step=1,
+                    key=f"edit_otm_{selected_regime}"
+                )
+            
+            with col2:
+                edit_dte = st.number_input(
+                    "DTE Weeks",
+                    min_value=1, max_value=52,
+                    value=int(profile_params.get("long_dte_weeks", 26)),
+                    step=1,
+                    key=f"edit_dte_{selected_regime}"
+                )
+                
+                edit_target = st.number_input(
+                    "Target Multiplier",
+                    min_value=1.0, max_value=5.0,
+                    value=float(profile_params.get("target_mult", 1.3)),
+                    step=0.1, format="%.1f",
+                    key=f"edit_target_{selected_regime}"
+                )
+                
+                edit_exit = st.number_input(
+                    "Exit Multiplier",
+                    min_value=0.1, max_value=1.0,
+                    value=float(profile_params.get("exit_mult", 0.4)),
+                    step=0.1, format="%.1f",
+                    key=f"edit_exit_{selected_regime}"
+                )
+            
+            edit_mode = st.selectbox(
+                "Mode",
+                options=["diagonal", "long_only"],
+                index=0 if profile_params.get("mode", "diagonal") == "diagonal" else 1,
+                key=f"edit_mode_{selected_regime}"
+            )
+            
+            col_btn1, col_btn2 = st.columns(2)
+            
+            with col_btn1:
+                save_clicked = st.form_submit_button("💾 Save Changes", type="primary", use_container_width=True)
+            
+            with col_btn2:
+                reset_clicked = st.form_submit_button("🔄 Reset to Default", use_container_width=True)
+        
+        if save_clicked:
+            new_params = {
+                "entry_percentile": edit_entry,
+                "sigma_mult": edit_sigma,
+                "otm_pts": edit_otm,
+                "long_dte_weeks": edit_dte,
+                "target_mult": edit_target,
+                "exit_mult": edit_exit,
+                "mode": edit_mode,
+            }
+            save_profile(
+                regime_name=selected_regime,
+                params=new_params,
+                mode=mode,
+                is_edited=True,
+                sample_count=profile.get("sample_count", 0),
+                criteria="manual_edit",
+            )
+            st.success(f"✅ {selected_regime} profile saved!")
+            st.rerun()
+        
+        if reset_clicked:
+            reset_profile_to_default(selected_regime, mode)
+            st.success(f"✅ {selected_regime} reset to default!")
+            st.rerun()
+        
+        # Show default values for reference
+        st.markdown("---")
+        with st.expander("📋 Default Values Reference"):
+            if selected_regime in DEFAULT_PROFILES:
+                defaults = DEFAULT_PROFILES[selected_regime]
+                st.json(defaults)
 
+
+# Keep the old function name as an alias for backward compatibility
+def page_per_regime_optimizer(vix_weekly: pd.Series, params: Dict[str, Any]):
+    """Alias for page_profile_management for backward compatibility."""
+    page_profile_management(vix_weekly, params)
 
 # ---------------------------------------------------------------------
 # Page: Live Signals
@@ -812,6 +1141,27 @@ def find_best_expirations(weeks_out_short: int = 1, weeks_out_long: int = 26) ->
         
     except Exception as e:
         return {"error": str(e)}
+
+
+def get_uvxy_expirations(target_long_weeks: int = 26, target_short_weeks: int = 1) -> Dict[str, Any]:
+    """
+    Alias for find_best_expirations with configurable long DTE.
+    Used by variant signal generation.
+    """
+    return find_best_expirations(weeks_out_short=target_short_weeks, weeks_out_long=target_long_weeks)
+
+
+def get_uvxy_diagonal_signal(
+    spot: float,
+    regime: str,
+    expirations: Dict[str, Any],
+    params: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Alias for generate_diagonal_signal.
+    Used by variant signal generation.
+    """
+    return generate_diagonal_signal(spot, regime, expirations, params)
 
 
 def generate_diagonal_signal(
@@ -1315,6 +1665,74 @@ def page_live_signals(vix_weekly: pd.Series, params: Dict[str, Any]):
     
     # Risk warnings
     st.markdown("---")
+    
+    # =================================================================
+    # 5 VARIANT SIGNALS COMPARISON
+    # =================================================================
+    st.subheader("📊 5 Variant Signal Comparison")
+    st.markdown("**Compare signals across all paper trading variants**")
+    
+    # Get signals for all variants
+    variant_signals = {}
+    for variant_name, variant_config in PAPER_VARIANTS.items():
+        # Build variant-specific params
+        variant_params = dict(params)
+        variant_params['long_dte_weeks'] = variant_config['long_dte_weeks']
+        variant_params['entry_percentile'] = variant_config['entry_percentile']
+        variant_params['otm_pts'] = variant_config['otm_pts']
+        variant_params['target_mult'] = variant_config['target_mult']
+        variant_params['exit_mult'] = variant_config['exit_mult']
+        
+        # Get expirations for this variant
+        variant_exps = get_uvxy_expirations(target_long_weeks=variant_config['long_dte_weeks'])
+        
+        if variant_exps and "error" not in variant_exps:
+            variant_signal = get_uvxy_diagonal_signal(
+                spot=uvxy_spot if uvxy_spot else 0,
+                regime=regime_name,
+                expirations=variant_exps,
+                params=variant_params,
+            )
+            variant_signals[variant_name] = variant_signal
+        else:
+            variant_signals[variant_name] = {"error": "No expirations available"}
+    
+    # Display variant signals in columns
+    for variant_name, variant_config in PAPER_VARIANTS.items():
+        v_signal = variant_signals.get(variant_name, {})
+        
+        with st.expander(f"**{variant_name}** — {variant_config['description'][:40]}...", expanded=False):
+            if "error" in v_signal:
+                st.error(f"Error: {v_signal.get('error')}")
+            else:
+                col_v1, col_v2, col_v3 = st.columns(3)
+                
+                with col_v1:
+                    st.markdown("**Long Leg**")
+                    st.write(f"UVXY {v_signal.get('long_exp', 'N/A')} ${v_signal.get('long_strike', 0):.0f}C")
+                    st.write(f"Mid: ${v_signal.get('long_mid', 0):.2f}")
+                    st.write(f"DTE: {v_signal.get('long_dte', 0)} days")
+                
+                with col_v2:
+                    st.markdown("**Short Leg**")
+                    st.write(f"UVXY {v_signal.get('short_exp', 'N/A')} ${v_signal.get('short_strike', 0):.0f}C")
+                    st.write(f"Mid: ${v_signal.get('short_mid', 0):.2f}")
+                    st.write(f"DTE: {v_signal.get('short_dte', 0)} days")
+                
+                with col_v3:
+                    st.markdown("**Net Position**")
+                    net_mid = v_signal.get('net_debit_mid', 0)
+                    st.write(f"Net Debit: ${net_mid:.2f}")
+                    st.write(f"Target ({variant_config['target_mult']}x): ${net_mid * variant_config['target_mult']:.2f}")
+                    st.write(f"Stop ({variant_config['exit_mult']}x): ${net_mid * variant_config['exit_mult']:.2f}")
+                
+                # Quick sizing
+                risk_budget = float(params.get("initial_capital", 250000)) * 0.01
+                suggested = int(risk_budget // (net_mid * 100)) if net_mid > 0 else 1
+                suggested = max(1, min(suggested, 50))
+                st.info(f"**Suggested: {suggested} contracts** (1% risk = ${suggested * net_mid * 100:,.0f})")
+    
+    st.markdown("---")
     st.warning("""
     ⚠️ **Risk Warnings:**
     - This is a **paper trading / research tool** — not financial advice
@@ -1357,21 +1775,21 @@ def page_trade_explorer(vix_weekly: pd.Series, params: Dict[str, Any]):
 
 
 # ---------------------------------------------------------------------
-# Page: Trading Log
+# Page: Trading Log (Multi-Variant Paper Trading)
 # ---------------------------------------------------------------------
 
-def get_open_long_position(trade_log: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+def get_open_long_position(trade_log: List[Dict[str, Any]], variant: str = None) -> Optional[Dict[str, Any]]:
     """
-    Check if there's an open long position.
+    Check if there's an open long position for a specific variant.
     
     Returns the open position dict if found, None otherwise.
-    An entry is considered "open" if:
-    - Action was "Entry"
-    - No subsequent "Exit" action for the same long leg
-    - Long expiration hasn't passed
     """
     if not trade_log:
         return None
+    
+    # Filter by variant if specified
+    if variant:
+        trade_log = [t for t in trade_log if t.get('variant') == variant]
     
     # Sort by date
     sorted_log = sorted(trade_log, key=lambda x: x.get('date', ''))
@@ -1382,7 +1800,6 @@ def get_open_long_position(trade_log: List[Dict[str, Any]]) -> Optional[Dict[str
         action = trade.get('action', '')
         
         if action == 'Entry':
-            # New entry - track it
             open_position = {
                 'long_exp': trade.get('long_exp'),
                 'long_strike': trade.get('long_strike'),
@@ -1390,9 +1807,9 @@ def get_open_long_position(trade_log: List[Dict[str, Any]]) -> Optional[Dict[str
                 'entry_date': trade.get('date'),
                 'entry_fill': trade.get('long_fill'),
                 'regime': trade.get('regime'),
+                'variant': trade.get('variant'),
             }
         elif 'Exit' in action and open_position:
-            # Exit closes the position
             open_position = None
     
     # Check if position has expired
@@ -1409,19 +1826,20 @@ def get_open_long_position(trade_log: List[Dict[str, Any]]) -> Optional[Dict[str
 
 def page_trading_log(vix_weekly: pd.Series, params: Dict[str, Any]):
     """
-    Trading Log page for logging actual trades and comparing to backtest.
-    Persists trades to a JSON file for tracking real performance.
+    Multi-Variant Trading Log for parallel paper trading comparison.
+    Track 5 variants simultaneously with full logging.
     """
-    st.title("📓 Trading Log & Real Performance")
-    st.markdown("**Log actual fills vs synthetic backtest — track your real edge**")
+    st.title("📓 Multi-Variant Paper Trading Log")
+    st.markdown("**Track 5 strategy variants in parallel — compare real fills, fees, slippage across variants**")
     
     import json
     from pathlib import Path
     
     # Trade log file path
     log_file = Path(__file__).parent / "core" / "trading_log.json"
+    regime_log_file = Path(__file__).parent / "core" / "regime_transitions.json"
     
-    # Load existing log
+    # Load existing logs
     def load_trade_log() -> List[Dict[str, Any]]:
         if log_file.exists():
             try:
@@ -1435,68 +1853,78 @@ def page_trading_log(vix_weekly: pd.Series, params: Dict[str, Any]):
         with open(log_file, "w") as f:
             json.dump(trades, f, indent=2, default=str)
     
+    def load_regime_transitions() -> List[Dict[str, Any]]:
+        if regime_log_file.exists():
+            try:
+                with open(regime_log_file, "r") as f:
+                    return json.load(f)
+            except:
+                return []
+        return []
+    
+    def save_regime_transitions(transitions: List[Dict[str, Any]]):
+        with open(regime_log_file, "w") as f:
+            json.dump(transitions, f, indent=2, default=str)
+    
     # Initialize session state
     if "trade_log" not in st.session_state:
         st.session_state.trade_log = load_trade_log()
+    if "regime_transitions" not in st.session_state:
+        st.session_state.regime_transitions = load_regime_transitions()
     
-    # Account settings
     initial_capital = float(params.get("initial_capital", 250000))
     
-    # Check for open long position
-    open_long = get_open_long_position(st.session_state.trade_log)
+    # =================================================================
+    # VARIANT OVERVIEW
+    # =================================================================
+    st.markdown("---")
+    st.subheader("📊 5 Variants Being Tracked")
+    
+    variant_cols = st.columns(5)
+    for i, (variant_name, variant_config) in enumerate(PAPER_VARIANTS.items()):
+        with variant_cols[i]:
+            # Count trades for this variant
+            variant_trades = [t for t in st.session_state.trade_log if t.get('variant') == variant_name]
+            total_pnl = sum(t.get('realized_pnl', 0) for t in variant_trades)
+            num_trades = len([t for t in variant_trades if t.get('action') == 'Entry'])
+            
+            # Check for open position
+            open_pos = get_open_long_position(st.session_state.trade_log, variant_name)
+            status = "🟢 OPEN" if open_pos else "⚪ FLAT"
+            
+            st.markdown(f"**{variant_name}**")
+            st.caption(variant_config['description'][:50] + "...")
+            st.metric("P&L", f"${total_pnl:,.0f}", delta=f"{num_trades} trades")
+            st.write(status)
     
     st.markdown("---")
     
-    # Position Status Section
-    st.subheader("📍 Current Position Status")
-    
-    if open_long:
-        days_to_exp = None
-        if open_long.get('long_exp'):
-            try:
-                exp_date = dt.datetime.strptime(open_long['long_exp'], '%Y-%m-%d').date()
-                days_to_exp = (exp_date - date.today()).days
-            except:
-                pass
-        
-        st.success(f"""
-        ✅ **OPEN LONG POSITION**
-        - **Long Leg**: UVXY {open_long.get('long_exp')} ${open_long.get('long_strike')} Call
-        - **Contracts**: {open_long.get('contracts')}
-        - **Entry Date**: {open_long.get('entry_date')}
-        - **Entry Fill**: ${open_long.get('entry_fill', 0):.2f}
-        - **Regime at Entry**: {open_long.get('regime')}
-        - **Days to Expiration**: {days_to_exp if days_to_exp else 'N/A'}
-        """)
-        
-        st.info("💡 **Action**: Roll short leg weekly, or exit when target/stop hit.")
-    else:
-        st.warning("⚠️ **NO OPEN POSITION** — Ready for new entry when signal fires.")
-    
-    st.markdown("---")
-    
-    # Trade entry form
+    # =================================================================
+    # LOG NEW TRADE
+    # =================================================================
     st.subheader("➕ Log New Trade")
     
     with st.form("log_trade_form", clear_on_submit=True):
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
         
         with col1:
+            variant = st.selectbox("📋 Variant", list(PAPER_VARIANTS.keys()))
             trade_date = st.date_input("Trade Date", value=date.today())
             action = st.selectbox(
                 "Action",
                 ["Entry", "Roll Short Leg", "Exit - Target Hit", "Exit - Stop Hit", 
                  "Exit - Manual", "Adjustment", "Assignment"]
             )
-            regime = st.selectbox(
-                "Regime at Entry",
-                ["ULTRA_LOW", "LOW", "MEDIUM", "HIGH", "EXTREME"]
-            )
         
         with col2:
+            regime = st.selectbox("Regime at Entry", ["ULTRA_LOW", "LOW", "MEDIUM", "HIGH", "EXTREME"])
             contracts = st.number_input("Contracts", min_value=1, max_value=100, value=1)
             underlying_price = st.number_input("UVXY Spot Price", min_value=0.0, value=0.0, step=0.01)
+        
+        with col3:
             vix_level = st.number_input("VIX Level", min_value=0.0, value=0.0, step=0.01)
+            fees = st.number_input("Fees ($)", min_value=0.0, value=1.30, step=0.65, help="Total fees for this action")
+            slippage = st.number_input("Slippage ($ vs mid)", min_value=0.0, value=0.0, step=0.01, help="Actual fill vs mid price")
         
         st.markdown("**Long Leg Details**")
         col_long1, col_long2, col_long3 = st.columns(3)
@@ -1531,26 +1959,22 @@ def page_trading_log(vix_weekly: pd.Series, params: Dict[str, Any]):
                 help="Total realized P&L for this trade action"
             )
         
-        notes = st.text_area("Notes", placeholder="e.g., Filled at mid, quick execution...")
+        notes = st.text_area("Notes", placeholder="e.g., Filled at mid, quick execution, regime transition...")
         
         submitted = st.form_submit_button("📝 Log Trade", use_container_width=True)
     
-    # Validation and submission handling OUTSIDE the form
     if submitted:
-        # Check if trying to enter when already have open position
-        if action == "Entry" and open_long:
-            st.error(f"""
-            ❌ **Cannot enter new position** — You already have an open long leg:
-            - UVXY {open_long.get('long_exp')} ${open_long.get('long_strike')} Call
-            - Use "Roll Short Leg" to roll the short, or "Exit" to close first.
-            """)
+        open_pos = get_open_long_position(st.session_state.trade_log, variant)
+        
+        if action == "Entry" and open_pos:
+            st.error(f"❌ **Cannot enter new position** — {variant} already has an open long leg. Exit first.")
         else:
             # For roll/adjustment, inherit the existing long leg info
-            if action == "Roll Short Leg" and open_long:
-                effective_long_exp = open_long.get('long_exp')
-                effective_long_strike = open_long.get('long_strike')
-                effective_long_fill = open_long.get('entry_fill', 0)
-                effective_contracts = open_long.get('contracts', contracts)
+            if action == "Roll Short Leg" and open_pos:
+                effective_long_exp = open_pos.get('long_exp')
+                effective_long_strike = open_pos.get('long_strike')
+                effective_long_fill = open_pos.get('entry_fill', 0)
+                effective_contracts = open_pos.get('contracts', contracts)
             else:
                 effective_long_exp = long_exp
                 effective_long_strike = long_strike
@@ -1559,6 +1983,7 @@ def page_trading_log(vix_weekly: pd.Series, params: Dict[str, Any]):
             
             new_trade = {
                 "id": len(st.session_state.trade_log) + 1,
+                "variant": variant,
                 "date": str(trade_date),
                 "action": action,
                 "regime": regime,
@@ -1573,119 +1998,189 @@ def page_trading_log(vix_weekly: pd.Series, params: Dict[str, Any]):
                 "short_fill": short_fill,
                 "net_debit_credit": net_debit_credit,
                 "realized_pnl": realized_pnl,
+                "fees": fees,
+                "slippage": slippage,
                 "notes": notes,
                 "logged_at": dt.datetime.now().isoformat(),
             }
             
             st.session_state.trade_log.append(new_trade)
             save_trade_log(st.session_state.trade_log)
-            st.success(f"✅ Trade logged: {action} on {trade_date}")
+            st.success(f"✅ Trade logged for **{variant}**: {action} on {trade_date}")
             st.rerun()
     
+    # =================================================================
+    # PER-VARIANT TRADE LOGS
+    # =================================================================
     st.markdown("---")
+    st.subheader("📋 Trade History by Variant")
     
-    # Display trade log
-    st.subheader("📋 Trade History")
+    for variant_name in PAPER_VARIANTS.keys():
+        variant_trades = [t for t in st.session_state.trade_log if t.get('variant') == variant_name]
+        
+        with st.expander(f"**{variant_name}** ({len(variant_trades)} actions)", expanded=len(variant_trades) > 0):
+            if variant_trades:
+                df = pd.DataFrame(variant_trades)
+                
+                # Summary metrics
+                total_realized = df['realized_pnl'].sum()
+                total_fees = df['fees'].sum()
+                total_slippage = df['slippage'].sum()
+                entries = len(df[df['action'] == 'Entry'])
+                exits = len(df[df['action'].str.contains('Exit')])
+                
+                col_m1, col_m2, col_m3, col_m4, col_m5 = st.columns(5)
+                col_m1.metric("Net P&L", f"${total_realized - total_fees:,.0f}")
+                col_m2.metric("Gross P&L", f"${total_realized:,.0f}")
+                col_m3.metric("Total Fees", f"${total_fees:,.2f}")
+                col_m4.metric("Total Slippage", f"${total_slippage:,.2f}")
+                col_m5.metric("Entries/Exits", f"{entries}/{exits}")
+                
+                # Cumulative P&L chart
+                if total_realized != 0:
+                    df['date'] = pd.to_datetime(df['date'])
+                    df_sorted = df.sort_values('date')
+                    df_sorted['net_pnl'] = df_sorted['realized_pnl'] - df_sorted['fees']
+                    df_sorted['cumulative_pnl'] = df_sorted['net_pnl'].cumsum()
+                    
+                    st.line_chart(df_sorted.set_index('date')['cumulative_pnl'])
+                
+                # Trade table
+                display_cols = ['date', 'action', 'regime', 'contracts', 'uvxy_spot', 
+                               'long_strike', 'short_strike', 'net_debit_credit', 
+                               'realized_pnl', 'fees', 'slippage']
+                display_cols = [c for c in display_cols if c in df.columns]
+                st.dataframe(df[display_cols].sort_values('date', ascending=False), use_container_width=True)
+                
+                # Export button
+                csv = df.to_csv(index=False)
+                st.download_button(
+                    f"📥 Export {variant_name} to CSV",
+                    data=csv,
+                    file_name=f"Paper_{variant_name.replace(' ', '_')}_{date.today()}.csv",
+                    mime="text/csv",
+                    key=f"export_{variant_name}"
+                )
+            else:
+                st.info(f"No trades logged for {variant_name} yet.")
+    
+    # =================================================================
+    # REGIME TRANSITIONS LOG
+    # =================================================================
+    st.markdown("---")
+    st.subheader("🔄 Regime Transitions During Paper Trade")
+    
+    with st.expander("Log Regime Transition", expanded=False):
+        with st.form("regime_transition_form", clear_on_submit=True):
+            col_r1, col_r2, col_r3, col_r4 = st.columns(4)
+            with col_r1:
+                trans_date = st.date_input("Date", value=date.today(), key="trans_date")
+            with col_r2:
+                from_regime = st.selectbox("From Regime", ["ULTRA_LOW", "LOW", "MEDIUM", "HIGH", "EXTREME"], key="from_regime")
+            with col_r3:
+                to_regime = st.selectbox("To Regime", ["ULTRA_LOW", "LOW", "MEDIUM", "HIGH", "EXTREME"], key="to_regime")
+            with col_r4:
+                trans_vix = st.number_input("VIX at Transition", min_value=0.0, value=15.0, step=0.1, key="trans_vix")
+            
+            trans_notes = st.text_input("Notes", placeholder="e.g., VIX spike on earnings...", key="trans_notes")
+            trans_submitted = st.form_submit_button("Log Transition")
+        
+        if trans_submitted:
+            new_transition = {
+                "date": str(trans_date),
+                "from_regime": from_regime,
+                "to_regime": to_regime,
+                "vix_level": trans_vix,
+                "notes": trans_notes,
+                "logged_at": dt.datetime.now().isoformat(),
+            }
+            st.session_state.regime_transitions.append(new_transition)
+            save_regime_transitions(st.session_state.regime_transitions)
+            st.success(f"✅ Transition logged: {from_regime} → {to_regime}")
+            st.rerun()
+    
+    if st.session_state.regime_transitions:
+        trans_df = pd.DataFrame(st.session_state.regime_transitions)
+        st.dataframe(trans_df.sort_values('date', ascending=False), use_container_width=True)
+    else:
+        st.info("No regime transitions logged yet.")
+    
+    # =================================================================
+    # VARIANT COMPARISON SUMMARY
+    # =================================================================
+    st.markdown("---")
+    st.subheader("📊 Variant Performance Comparison")
     
     if st.session_state.trade_log:
-        log_df = pd.DataFrame(st.session_state.trade_log)
+        comparison_data = []
+        for variant_name in PAPER_VARIANTS.keys():
+            variant_trades = [t for t in st.session_state.trade_log if t.get('variant') == variant_name]
+            if variant_trades:
+                df = pd.DataFrame(variant_trades)
+                total_realized = df['realized_pnl'].sum()
+                total_fees = df['fees'].sum()
+                entries = len(df[df['action'] == 'Entry'])
+                exits = len(df[df['action'].str.contains('Exit')])
+                
+                comparison_data.append({
+                    "Variant": variant_name,
+                    "Net P&L": total_realized - total_fees,
+                    "Gross P&L": total_realized,
+                    "Fees": total_fees,
+                    "Entries": entries,
+                    "Exits": exits,
+                    "Open": "Yes" if get_open_long_position(st.session_state.trade_log, variant_name) else "No",
+                })
         
-        # Summary metrics
-        total_trades = len(log_df)
-        entries = len(log_df[log_df['action'] == 'Entry'])
-        exits = len(log_df[log_df['action'].str.contains('Exit')])
-        total_realized = log_df['realized_pnl'].sum()
-        
-        col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-        col_m1.metric("Total Actions", total_trades)
-        col_m2.metric("Entries", entries)
-        col_m3.metric("Exits", exits)
-        col_m4.metric("Total Realized P&L", f"${total_realized:,.0f}")
-        
-        # Cumulative P&L chart
-        if total_realized != 0:
-            log_df['date'] = pd.to_datetime(log_df['date'])
-            log_df_sorted = log_df.sort_values('date')
-            log_df_sorted['cumulative_pnl'] = log_df_sorted['realized_pnl'].cumsum()
+        if comparison_data:
+            comp_df = pd.DataFrame(comparison_data)
+            st.dataframe(comp_df, use_container_width=True)
             
-            st.markdown("### 📈 Cumulative Realized P&L")
-            
-            chart_df = log_df_sorted[['date', 'cumulative_pnl']].set_index('date')
-            st.line_chart(chart_df)
-            
-            # Equity curve
-            log_df_sorted['equity'] = initial_capital + log_df_sorted['cumulative_pnl']
-            
-            st.markdown("### 💰 Real Equity Curve")
-            equity_df = log_df_sorted[['date', 'equity']].set_index('date')
-            st.line_chart(equity_df)
-        
-        # Trade table
-        st.markdown("### 📊 All Trades")
-        
-        # Display columns
-        display_cols = ['date', 'action', 'regime', 'contracts', 'uvxy_spot', 
-                       'long_strike', 'long_fill', 'short_strike', 'short_fill',
-                       'net_debit_credit', 'realized_pnl']
-        
-        st.dataframe(
-            log_df[display_cols].sort_values('date', ascending=False),
-            use_container_width=True
-        )
-        
-        # Export options
-        st.markdown("### 📤 Export")
-        col_exp1, col_exp2 = st.columns(2)
-        
-        with col_exp1:
-            # CSV export
-            csv = log_df.to_csv(index=False)
+            # Bar chart comparison
+            st.bar_chart(comp_df.set_index('Variant')['Net P&L'])
+    else:
+        st.info("Start logging trades to see comparison.")
+    
+    # =================================================================
+    # EXPORT ALL & DANGER ZONE
+    # =================================================================
+    st.markdown("---")
+    col_exp1, col_exp2 = st.columns(2)
+    
+    with col_exp1:
+        st.subheader("📤 Export All Data")
+        if st.session_state.trade_log:
+            all_df = pd.DataFrame(st.session_state.trade_log)
+            csv_all = all_df.to_csv(index=False)
             st.download_button(
-                "📥 Download CSV",
-                data=csv,
-                file_name=f"trading_log_{date.today()}.csv",
+                "📥 Download All Trades (CSV)",
+                data=csv_all,
+                file_name=f"All_Paper_Trades_{date.today()}.csv",
                 mime="text/csv"
             )
-        
-        with col_exp2:
-            # JSON export
-            json_str = json.dumps(st.session_state.trade_log, indent=2, default=str)
+            
+            json_all = json.dumps(st.session_state.trade_log, indent=2, default=str)
             st.download_button(
-                "📥 Download JSON",
-                data=json_str,
-                file_name=f"trading_log_{date.today()}.json",
+                "📥 Download All Trades (JSON)",
+                data=json_all,
+                file_name=f"All_Paper_Trades_{date.today()}.json",
                 mime="application/json"
             )
-        
-        # Clear log option
-        st.markdown("---")
-        with st.expander("⚠️ Danger Zone"):
+    
+    with col_exp2:
+        st.subheader("⚠️ Danger Zone")
+        with st.expander("Clear Data"):
             if st.button("🗑️ Clear All Trades", type="secondary"):
                 st.session_state.trade_log = []
                 save_trade_log([])
                 st.warning("Trade log cleared!")
                 st.rerun()
-    else:
-        st.info("No trades logged yet. Use the form above to log your first trade.")
-    
-    # Backtest comparison section
-    st.markdown("---")
-    st.subheader("📊 Backtest vs Real Comparison")
-    
-    st.info("""
-    **Coming Soon:** Side-by-side comparison of:
-    - Synthetic backtest equity curve
-    - Real trading log equity curve
-    - Slippage analysis (fill vs mid)
-    - Win rate comparison by regime
-    """)
-    
-    # Quick stats if we have data
-    if st.session_state.trade_log:
-        entries_by_regime = log_df[log_df['action'] == 'Entry'].groupby('regime').size()
-        if not entries_by_regime.empty:
-            st.markdown("### 📈 Entries by Regime")
-            st.bar_chart(entries_by_regime)
+            
+            if st.button("🗑️ Clear Regime Transitions", type="secondary"):
+                st.session_state.regime_transitions = []
+                save_regime_transitions([])
+                st.warning("Regime transitions cleared!")
+                st.rerun()
 
 
 # ---------------------------------------------------------------------
@@ -1699,11 +2194,11 @@ def main():
         layout="wide",
     )
     
-    # Page selector FIRST (at top of sidebar)
+    # Page selector FIRST (at top of sidebar) - Clean LBR-style
     st.sidebar.title("VIX 5% Weekly Suite")
     page = st.sidebar.radio(
-        "📄 Page",
-        ["Dashboard", "Live Signals", "Trading Log", "Backtester", "Adaptive Backtester", "Per-Regime Optimizer", "Trade Explorer"],
+        "Page",
+        ["Dashboard", "Live Signals", "Trading Log", "Backtester", "Adaptive Backtester", "Trade Explorer", "Profile Management"],
         index=1,  # Default to Live Signals
         key="main_page_selector"
     )
@@ -1733,10 +2228,10 @@ def main():
         page_backtester(vix_weekly, params)
     elif page == "Adaptive Backtester":
         page_adaptive_backtester(vix_weekly, params)
-    elif page == "Per-Regime Optimizer":
-        page_per_regime_optimizer(vix_weekly, params)
     elif page == "Trade Explorer":
         page_trade_explorer(vix_weekly, params)
+    elif page == "Profile Management":
+        page_profile_management(vix_weekly, params)
 
 
 if __name__ == "__main__":
