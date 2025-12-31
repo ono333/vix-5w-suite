@@ -487,6 +487,8 @@ def send_signal_email(
         msg['From'] = SMTP_USER
         msg['To'] = to_email
         
+        body = body.encode('ascii', 'replace').decode('ascii')
+        
         # HTML body with embedded image
         html = f"""
         <html>
