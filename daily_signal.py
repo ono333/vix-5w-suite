@@ -465,21 +465,21 @@ def send_signal_email(
     Returns True if sent successfully.
     """
     if not SMTP_USER or not SMTP_PASS:
-        print("⚠️ SMTP credentials not configured")
-        print("   Set SMTP_USER and SMTP_PASS environment variables")
-        print("   Or configure in daily_signal.py")
+        print("[WARN] SMTP credentials not configured")
+        print("       Set SMTP_USER and SMTP_PASS environment variables")
+        print("       Or configure in daily_signal.py")
         return False
     
     try:
-        regime = vix_data.get('regime', 'UNKNOWN')
-        percentile = vix_data.get('percentile_pct', 0)
+        regime = str(vix_data.get('regime', 'UNKNOWN'))
+        percentile = float(vix_data.get('percentile_pct', 0))
         signal_active = vix_data.get('percentile', 1.0) <= threshold
         
-        # Subject line
+        # Subject line - ASCII safe version
         if signal_active:
-            subject = f"🟢 VIX Entry Signal - {regime} Regime ({percentile:.1f}%)"
+            subject = f"[ENTRY SIGNAL] VIX {regime} Regime ({percentile:.1f}%)"
         else:
-            subject = f"📊 VIX Weekly Report - {regime} Regime ({percentile:.1f}%)"
+            subject = f"[WEEKLY] VIX {regime} Regime ({percentile:.1f}%)"
         
         # Create message
         msg = MIMEMultipart('related')
@@ -487,9 +487,10 @@ def send_signal_email(
         msg['From'] = SMTP_USER
         msg['To'] = to_email
         
-        body = body.encode('ascii', 'replace').decode('ascii')
+        # HTML body with embedded image - ASCII safe, no emoji
+        signal_text = "ENTRY SIGNAL ACTIVE" if signal_active else "HOLD"
+        signal_color = "#00ff00" if signal_active else "#ff6666"
         
-        # HTML body with embedded image
         html = f"""
         <html>
         <body style="background-color: #1a1a2e; color: #ffffff; font-family: monospace; padding: 20px;">
@@ -498,7 +499,7 @@ def send_signal_email(
             
             <p><strong>Regime:</strong> <span style="color: {REGIME_COLORS.get(regime, '#888888')};">{regime}</span></p>
             <p><strong>VIX Percentile:</strong> {percentile:.1f}%</p>
-            <p><strong>Signal:</strong> {'🟢 ENTRY ACTIVE' if signal_active else '🔴 HOLD'}</p>
+            <p><strong>Signal:</strong> <span style="color: {signal_color};">{signal_text}</span></p>
             
             <hr style="border-color: #333355;">
             
@@ -508,13 +509,17 @@ def send_signal_email(
             
             <hr style="border-color: #333355;">
             <p style="color: #666666; font-size: 11px;">
-                ⚠️ This is a research tool, not financial advice. Always verify quotes with your broker.
+                Warning: This is a research tool, not financial advice. Always verify quotes with your broker.
             </p>
         </body>
         </html>
         """
         
-        html_part = MIMEText(html, 'html')
+        # Force ASCII - replace any non-breaking spaces or other oddities
+        html = html.replace('\xa0', ' ').replace('\u2009', ' ')
+        
+        # Use UTF-8 encoding for HTML part
+        html_part = MIMEText(html, 'html', 'utf-8')
         msg.attach(html_part)
         
         # Attach PNG (inline)
@@ -540,7 +545,9 @@ def send_signal_email(
         return True
         
     except Exception as e:
-        print(f"❌ Email error: {e}")
+        print(f"Email error: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 
@@ -699,36 +706,36 @@ Cron for Thursday 4:30pm ET (20:30 UTC):
     
     args = parser.parse_args()
     
-    print(f"📊 VIX 5% Weekly - Thursday Signal Check")
-    print(f"   {dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"=== VIX 5% Weekly - Thursday Signal Check ===")
+    print(f"    {dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print()
     
     # Get market data
     vix_data = get_vix_percentile()
     
     if "error" in vix_data:
-        print(f"❌ Error fetching VIX data: {vix_data['error']}")
+        print(f"[ERROR] Error fetching VIX data: {vix_data['error']}")
         sys.exit(1)
     
-    print(f"✓ VIX: ${vix_data['current_price']:.2f} ({vix_data['percentile_pct']:.1f}% percentile)")
-    print(f"✓ Regime: {vix_data['regime']}")
+    print(f"[OK] VIX: ${vix_data['current_price']:.2f} ({vix_data['percentile_pct']:.1f}% percentile)")
+    print(f"[OK] Regime: {vix_data['regime']}")
     
     # Get diagonal quote
     quote_data = get_uvxy_diagonal_quote(vix_data.get("regime", "MEDIUM"))
     
     if "error" in quote_data:
-        print(f"⚠️ Quote warning: {quote_data['error']}")
+        print(f"[WARN] Quote warning: {quote_data['error']}")
     else:
-        print(f"✓ UVXY: ${quote_data['spot']:.2f}")
+        print(f"[OK] UVXY: ${quote_data['spot']:.2f}")
     
     # Check if signal is active
     signal_active = vix_data.get("percentile", 1.0) <= args.threshold
     
     print()
     if signal_active:
-        print(f"🟢 ENTRY SIGNAL ACTIVE (≤{args.threshold*100:.0f}%)")
+        print(f">>> ENTRY SIGNAL ACTIVE <<< (percentile <= {args.threshold*100:.0f}%)")
     else:
-        print(f"🔴 HOLD - No signal (>{args.threshold*100:.0f}%)")
+        print(f"--- HOLD - No signal --- (percentile > {args.threshold*100:.0f}%)")
     print()
     
     # Quiet mode
@@ -744,7 +751,7 @@ Cron for Thursday 4:30pm ET (20:30 UTC):
         png_buffer.seek(0)
         with open(args.png, 'wb') as f:
             f.write(png_buffer.read())
-        print(f"✓ PNG saved: {args.png}")
+        print(f"[OK] PNG saved: {args.png}")
     
     # Output
     if args.json:
@@ -762,17 +769,17 @@ Cron for Thursday 4:30pm ET (20:30 UTC):
     # Send email
     if args.email and (signal_active or args.force):
         print()
-        print(f"📧 Sending email to {args.email}...")
+        print(f"[EMAIL] Sending to {args.email}...")
         png_buffer.seek(0)
         
         if send_signal_email(args.email, vix_data, quote_data, png_buffer, args.threshold):
-            print(f"✓ Email sent successfully!")
+            print(f"[OK] Email sent successfully!")
         else:
-            print(f"❌ Failed to send email")
-            print("   Check SMTP_USER and SMTP_PASS environment variables")
+            print(f"[ERROR] Failed to send email")
+            print("        Check SMTP_USER and SMTP_PASS environment variables")
     elif args.email and not signal_active:
         print()
-        print(f"📧 No signal active - email skipped (use --force to override)")
+        print(f"[INFO] No signal active - email skipped (use --force to override)")
     
     # Exit code
     sys.exit(0 if signal_active else 1)
