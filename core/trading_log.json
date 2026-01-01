@@ -1,1 +1,24 @@
-[]
+[
+  {
+    "id": 1,
+    "variant": "Existing Conservative",
+    "date": "2026-01-01",
+    "action": "Entry",
+    "regime": "ULTRA_LOW",
+    "contracts": 1,
+    "uvxy_spot": 0.0,
+    "vix_level": 0.0,
+    "long_exp": "",
+    "long_strike": 0.0,
+    "long_fill": 0.0,
+    "short_exp": "",
+    "short_strike": 0.0,
+    "short_fill": 0.0,
+    "net_debit_credit": 0.0,
+    "realized_pnl": 0.0,
+    "fees": 0.65,
+    "slippage": 0.0,
+    "notes": "",
+    "logged_at": "2026-01-01T11:01:20.640362"
+  }
+]
