@@ -1890,24 +1890,26 @@ def page_live_signals(vix_weekly: pd.Series, params: Dict[str, Any]):
                 st.error(f"Email failed: {e}")
         else:
             st.error("SMTP environment variables missing — set them first.")
+
         # --- ADD THIS TO THE END OF page_live_signals in app.py ---
-    import json
-    from pathlib import Path
+        import json
+        from pathlib import Path
 
-    # Create the data package for the emailer
-    live_data = {
-        "vix_close": float(vix_weekly.iloc[-1]), # Uses the actual VIX data from your app
-        "percentile": float(percentile * 100),
-        "regime": regime,
-        "signal_active": bool(signal_active),
-        "uvxy_spot": float(uvxy_price), # Ensure this variable name matches your app's UVXY price variable
-        "variants": variants # This should be the list of 5 diagonal variants you calculated
-    }
+        # Create the data package for the emailer
+        live_data = {
+            "vix_close": float(vix_weekly.iloc[-1]), # Uses the actual VIX data from your app
+            "percentile": float(percentile * 100),
+            "regime": regime,
+            "signal_active": bool(signal_active),
+            "uvxy_spot": float(uvxy_price), # Ensure this variable name matches your app's UVXY price variable
+            "variants": variants # This should be the list of 5 diagonal variants you calculated
+        }
 
-    # Save to the specific path the emailer expects
-    data_path = Path(__file__).parent / "live_signal_data.json"
-    with open(data_path, "w") as f:
-        json.dump(live_data, f, indent=4)
+        # Save to the specific path the emailer expects
+        data_path = Path(__file__).parent / "live_signal_data.json"
+        with open(data_path, "w") as f:
+            json.dump(live_data, f, indent=4)
+
 
 # ---------------------------------------------------------------------
 # Page: Trade Explorer
