@@ -1,26 +1,18 @@
 #!/usr/bin/env python3
 """
-VIX 5% Weekly Suite - Thursday Signal Emailer
+VIX 5% Weekly Suite - Thursday Signal Emailer (All-in-One)
 
-Generates PNG "screenshot" of Live Signals and emails it every Thursday.
-Run via cron at 4:30pm ET (20:30 UTC):
+Generates live signals data and sends formatted HTML email in ONE command.
+No separate JSON export needed.
 
-    30 20 * * 4 /home/shin/vix_suite/venv/bin/python /home/shin/vix_suite/daily_signal.py --email
+Usage:
+    python daily_signal.py --email                      # Send to default
+    python daily_signal.py --email onoshin333@gmail.com # Send to specific
+    python daily_signal.py --email --force              # Send even if no signal
+    python daily_signal.py --preview                    # Save HTML preview
 
-Or manually:
-    python daily_signal.py
-    python daily_signal.py --email
-    python daily_signal.py --email your@email.com
-    python daily_signal.py --json
-    python daily_signal.py --png signal.png  # Save PNG locally
-
-SMTP Setup (Gmail App Password):
-    export SMTP_SERVER="smtp.gmail.com"
-    export SMTP_PORT="587"
-    export SMTP_USER="your.email@gmail.com"
-    export SMTP_PASS="your-app-password"
-
-Edit DEFAULT_EMAIL below for hardcoded delivery.
+Cron (4:30pm ET = 20:30 UTC):
+    30 20 * * 4 . /home/shin/.bashrc; /home/shin/vix_suite/venv/bin/python /home/shin/vix_suite/daily_signal.py --email
 """
 
 import argparse
@@ -30,750 +22,481 @@ import os
 import sys
 import smtplib
 from pathlib import Path
-from typing import Dict, Any, Optional
-from io import BytesIO
+from typing import Dict, Any, List
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from email.mime.image import MIMEImage
+from email.header import Header
+from math import log, sqrt, exp
 
 import numpy as np
 import pandas as pd
 import yfinance as yf
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
-
-# Add parent directory to path
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-from core.param_history import get_best_for_regime, apply_regime_params
+from scipy.stats import norm
 
 # =============================================================================
-# CONFIGURATION - Edit these for your setup
+# CONFIGURATION
 # =============================================================================
-DEFAULT_EMAIL = "shin.takahama@gmail.com"  # Your email address
-ENTRY_THRESHOLD = 0.35  # Entry signal when percentile <= this (35%)
 
-# SMTP defaults (override with environment variables)
-SMTP_SERVER = os.environ.get("SMTP_SERVER", "smtp.gmail.com")
-SMTP_PORT = int(os.environ.get("SMTP_PORT", 587))
-SMTP_USER = os.environ.get("SMTP_USER", "")
-SMTP_PASS = os.environ.get("SMTP_PASS", "")
+DEFAULT_EMAIL = "onoshin333@gmail.com"
+DEFAULT_THRESHOLD = 0.35
+SCRIPT_DIR = Path(__file__).parent
 
 
 # =============================================================================
-# REGIME DEFINITIONS
+# ARGUMENT PARSING
 # =============================================================================
-REGIME_THRESHOLDS = [
-    ("ULTRA_LOW", 0.00, 0.10),
-    ("LOW", 0.10, 0.25),
-    ("MEDIUM", 0.25, 0.50),
-    ("HIGH", 0.50, 0.75),
-    ("EXTREME", 0.75, 1.00),
-]
 
-REGIME_COLORS = {
-    "ULTRA_LOW": "#00ff00",  # Bright green
-    "LOW": "#90EE90",        # Light green
-    "MEDIUM": "#FFD700",     # Gold
-    "HIGH": "#FFA500",       # Orange
-    "EXTREME": "#FF4500",    # Red-orange
-}
+def _parse_args():
+    parser = argparse.ArgumentParser(description="VIX Weekly Signal Emailer")
+    parser.add_argument("--email", nargs="?", const=DEFAULT_EMAIL, default=None)
+    parser.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD)
+    parser.add_argument("--force", action="store_true", help="Send even if no signal")
+    parser.add_argument("--preview", action="store_true", help="Save HTML preview only")
+    parser.add_argument("--json", action="store_true", help="Output JSON to stdout")
+    return parser.parse_args()
 
 
-def get_regime(percentile: float) -> str:
-    """Map percentile to regime name."""
-    for name, pct_min, pct_max in REGIME_THRESHOLDS:
-        if pct_min <= percentile < pct_max:
-            return name
+# =============================================================================
+# DATA LOADING
+# =============================================================================
+
+def _scalar(val) -> float:
+    """Extract scalar from pandas objects."""
+    if isinstance(val, (pd.Series, pd.DataFrame)):
+        return float(val.iloc[0] if isinstance(val, pd.Series) else val.iloc[0, 0])
+    elif isinstance(val, np.ndarray):
+        return float(val.flat[0])
+    return float(val)
+
+
+def load_vix_weekly() -> pd.Series:
+    """Load VIX weekly data."""
+    df = yf.download("^VIX", period="2y", progress=False)
+    if df.empty:
+        raise RuntimeError("Failed to load VIX data")
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+    col = "Adj Close" if "Adj Close" in df.columns else "Close"
+    return df[col].resample("W-FRI").last().dropna()
+
+
+def load_uvxy_spot() -> float:
+    """Load current UVXY spot."""
+    try:
+        df = yf.download("UVXY", period="5d", progress=False)
+        if df.empty:
+            return 0.0
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        col = "Adj Close" if "Adj Close" in df.columns else "Close"
+        return _scalar(df[col].iloc[-1])
+    except Exception as e:
+        print(f"[WARN] UVXY load failed: {e}")
+        return 0.0
+
+
+def compute_percentile(series: pd.Series, lookback: int = 52) -> float:
+    """Compute rolling percentile (0-1)."""
+    recent = series.iloc[-lookback:]
+    if len(recent) < 2:
+        return 0.5
+    current = _scalar(recent.iloc[-1])
+    return float((recent.values.flatten() < current).sum()) / (len(recent) - 1)
+
+
+def get_regime(pct: float) -> str:
+    """Determine VIX regime."""
+    if pct <= 0.10:
+        return "ULTRA_LOW"
+    elif pct <= 0.25:
+        return "LOW"
+    elif pct <= 0.50:
+        return "MID"
+    elif pct <= 0.75:
+        return "HIGH"
     return "EXTREME"
 
 
 # =============================================================================
-# DATA FETCHING
+# BLACK-SCHOLES PRICING
 # =============================================================================
-def get_vix_percentile(lookback_weeks: int = 52) -> Dict[str, Any]:
-    """Get current VIX price and percentile."""
-    try:
-        end_date = dt.date.today()
-        start_date = end_date - dt.timedelta(weeks=lookback_weeks + 10)
-        
-        vix = yf.download("^VIX", start=start_date, end=end_date, progress=False)
-        
-        if vix.empty:
-            return {"error": "No VIX data"}
-        
-        # Handle multi-level columns
-        if isinstance(vix.columns, pd.MultiIndex):
-            vix.columns = vix.columns.get_level_values(0)
-        
-        col = "Adj Close" if "Adj Close" in vix.columns else "Close"
-        weekly = vix[col].resample("W-FRI").last().dropna()
-        
-        if len(weekly) < 10:
-            return {"error": "Insufficient data"}
-        
-        prices = weekly.iloc[-lookback_weeks:].values.astype(float).ravel()
-        current = float(prices[-1])
-        
-        # Compute percentile
-        below = np.sum(prices[:-1] < current)
-        pct = below / (len(prices) - 1)
-        
-        regime = get_regime(pct)
-        
-        return {
-            "current_price": current,
-            "percentile": pct,
-            "percentile_pct": pct * 100,
-            "regime": regime,
-            "lookback_weeks": lookback_weeks,
-            "timestamp": dt.datetime.now().isoformat(),
-        }
-        
-    except Exception as e:
-        return {"error": str(e)}
 
-
-def get_uvxy_diagonal_quote(regime: str, params: Dict[str, Any] = None) -> Dict[str, Any]:
-    """Get current UVXY diagonal spread quotes."""
-    try:
-        uvxy = yf.Ticker("UVXY")
-        
-        # Get spot price
-        hist = uvxy.history(period="5d")
-        if hist.empty:
-            return {"error": "No UVXY price data"}
-        
-        spot = float(hist['Close'].iloc[-1])
-        
-        # Get available expirations
-        exps = uvxy.options
-        if not exps:
-            return {"error": "No options available"}
-        
-        today = dt.date.today()
-        
-        # Parse expirations
-        future_exps = []
-        for exp_str in exps:
-            try:
-                exp_date = dt.datetime.strptime(exp_str, "%Y-%m-%d").date()
-                if exp_date > today + dt.timedelta(days=2):
-                    future_exps.append(exp_date)
-            except:
-                continue
-        
-        if not future_exps:
-            return {"error": "No future expirations"}
-        
-        future_exps.sort()
-        
-        # Get regime-specific parameters
-        if params is None:
-            params = {"mode": "diagonal"}
-        
-        regime_params = apply_regime_params(params, regime)
-        otm_pts = float(regime_params.get("otm_pts", 10.0))
-        long_dte_weeks = int(regime_params.get("long_dte_weeks", 26))
-        entry_percentile = float(regime_params.get("entry_percentile", 0.15))
-        
-        # Find short expiration (~1 week)
-        target_short = today + dt.timedelta(weeks=1)
-        short_exp = min(future_exps, key=lambda e: abs((e - target_short).days))
-        
-        # Find long expiration
-        target_long = today + dt.timedelta(weeks=long_dte_weeks)
-        long_exp = min(future_exps, key=lambda e: abs((e - target_long).days))
-        
-        # Get chains
-        short_chain = uvxy.option_chain(short_exp.strftime("%Y-%m-%d")).calls
-        long_chain = uvxy.option_chain(long_exp.strftime("%Y-%m-%d")).calls
-        
-        if short_chain.empty or long_chain.empty:
-            return {"error": "Empty option chains"}
-        
-        # Find strikes
-        long_strike_target = round(spot + otm_pts + 2)
-        short_strike_target = round(spot + otm_pts)
-        
-        # Long leg
-        long_otm = long_chain[long_chain['strike'] >= long_strike_target]
-        if long_otm.empty:
-            long_otm = long_chain[long_chain['strike'] >= spot]
-        
-        if long_otm.empty:
-            return {"error": "No long strikes"}
-        
-        long_row = long_otm.iloc[0]
-        long_strike = float(long_row['strike'])
-        long_bid = float(long_row['bid']) if pd.notna(long_row['bid']) else 0.0
-        long_ask = float(long_row['ask']) if pd.notna(long_row['ask']) else 0.0
-        long_mid = (long_bid + long_ask) / 2 if long_ask > 0 else long_bid
-        
-        # Short leg
-        short_otm = short_chain[
-            (short_chain['strike'] >= short_strike_target) & 
-            (short_chain['strike'] <= spot + otm_pts + 5)
-        ]
-        if short_otm.empty:
-            short_otm = short_chain[short_chain['strike'] >= spot]
-        
-        if short_otm.empty:
-            return {"error": "No short strikes"}
-        
-        short_row = short_otm.iloc[0]
-        short_strike = float(short_row['strike'])
-        short_bid = float(short_row['bid']) if pd.notna(short_row['bid']) else 0.0
-        short_ask = float(short_row['ask']) if pd.notna(short_row['ask']) else 0.0
-        short_mid = (short_bid + short_ask) / 2 if short_ask > 0 else short_bid
-        
-        net_debit = long_ask - short_bid if (long_ask > 0 and short_bid > 0) else long_mid - short_mid
-        net_debit_mid = long_mid - short_mid
-        
-        # Sizing calculation (1% of $250k = $2,500 risk budget)
-        capital = 250000
-        risk_pct = 0.01
-        risk_budget = capital * risk_pct
-        max_loss_per_contract = net_debit * 100  # max loss = net debit paid
-        suggested_contracts = int(risk_budget / max_loss_per_contract) if max_loss_per_contract > 0 else 1
-        suggested_contracts = max(1, min(suggested_contracts, 50))  # 1-50 range
-        
-        return {
-            "spot": round(spot, 2),
-            "regime": regime,
-            
-            "long_exp": long_exp.strftime("%Y-%m-%d"),
-            "long_dte": (long_exp - today).days,
-            "long_strike": long_strike,
-            "long_bid": round(long_bid, 2),
-            "long_ask": round(long_ask, 2),
-            "long_mid": round(long_mid, 2),
-            "long_leg": f"UVXY {long_exp.strftime('%b %d')} ${long_strike:.0f}C",
-            
-            "short_exp": short_exp.strftime("%Y-%m-%d"),
-            "short_dte": (short_exp - today).days,
-            "short_strike": short_strike,
-            "short_bid": round(short_bid, 2),
-            "short_ask": round(short_ask, 2),
-            "short_mid": round(short_mid, 2),
-            "short_leg": f"UVXY {short_exp.strftime('%b %d')} ${short_strike:.0f}C",
-            
-            "net_debit": round(net_debit, 2),
-            "net_debit_mid": round(net_debit_mid, 2),
-            
-            "suggested_contracts": suggested_contracts,
-            "risk_per_contract": round(net_debit * 100, 0),
-            "total_risk": round(suggested_contracts * net_debit * 100, 0),
-            
-            "otm_pts_used": otm_pts,
-            "entry_percentile_regime": entry_percentile,
-            "timestamp": dt.datetime.now().isoformat(),
-        }
-        
-    except Exception as e:
-        import traceback
-        return {"error": str(e), "traceback": traceback.format_exc()}
+def bs_call(S: float, K: float, T: float, r: float, sig: float) -> float:
+    """Black-Scholes call price."""
+    if T <= 0 or sig <= 0 or S <= 0 or K <= 0:
+        return max(S - K, 0)
+    d1 = (log(S / K) + (r + 0.5 * sig**2) * T) / (sig * sqrt(T))
+    d2 = d1 - sig * sqrt(T)
+    return S * norm.cdf(d1) - K * exp(-r * T) * norm.cdf(d2)
 
 
 # =============================================================================
-# PNG GENERATION - Live Signals "Screenshot"
+# 5 VARIANTS (Exact match to Streamlit Live Signals)
 # =============================================================================
-def generate_signal_png(vix_data: Dict, quote_data: Dict, threshold: float = 0.35) -> BytesIO:
+
+def generate_variants(uvxy_spot: float, vix_close: float) -> List[Dict[str, Any]]:
     """
-    Generate a PNG "screenshot" of the Live Signals tab.
-    
-    Returns BytesIO buffer containing PNG image.
+    Generate 5 diagonal variants matching Streamlit Live Signals exactly.
     """
-    fig, ax = plt.subplots(figsize=(10, 8), facecolor='#1a1a2e')
-    ax.set_facecolor('#1a1a2e')
-    ax.axis('off')
+    r = 0.03
+    base_sig = vix_close / 100 * 1.5
+    base_sig = max(0.30, min(base_sig, 2.0))
     
-    # Colors
-    text_color = '#ffffff'
-    accent_color = '#00d4ff'
-    green_color = '#00ff00'
-    red_color = '#ff4444'
-    gold_color = '#ffd700'
+    configs = [
+        {"name": "Baseline (26w)", "desc": "Standard 6-month diagonal", 
+         "otm": 10, "dte_w": 26, "sig_mult": 1.0, "target": 1.20, "stop": 0.50},
+        {"name": "Aggressive (1w)", "desc": "Ultra-short for quick theta",
+         "otm": 3, "dte_w": 1, "sig_mult": 0.8, "target": 1.50, "stop": 0.30},
+        {"name": "Aggressive (3w)", "desc": "Short DTE, faster decay",
+         "otm": 5, "dte_w": 3, "sig_mult": 0.8, "target": 1.30, "stop": 0.40},
+        {"name": "Tighter Exit (1.5x)", "desc": "Quick profit target",
+         "otm": 10, "dte_w": 15, "sig_mult": 1.0, "target": 1.50, "stop": 0.60},
+        {"name": "Static Benchmark", "desc": "Conservative reference",
+         "otm": 15, "dte_w": 26, "sig_mult": 1.0, "target": 1.20, "stop": 0.50},
+    ]
     
-    regime = vix_data.get('regime', 'UNKNOWN')
-    regime_color = REGIME_COLORS.get(regime, '#888888')
-    percentile = vix_data.get('percentile', 0) * 100
-    vix_price = vix_data.get('current_price', 0)
-    signal_active = vix_data.get('percentile', 1.0) <= threshold
+    variants = []
+    today = dt.date.today()
     
-    y = 0.95
-    line_height = 0.045
+    for cfg in configs:
+        otm = cfg["otm"]
+        dte_w = cfg["dte_w"]
+        sig = base_sig * cfg["sig_mult"]
+        target_mult = cfg["target"]
+        stop_mult = cfg["stop"]
+        
+        long_dte = dte_w * 7
+        short_dte = 7
+        
+        long_K = round(uvxy_spot + otm, 0)
+        short_K = round(uvxy_spot + otm - 2, 0)
+        long_K = max(long_K, round(uvxy_spot * 1.02, 0))
+        short_K = max(short_K, round(uvxy_spot * 1.01, 0))
+        
+        long_mid = bs_call(uvxy_spot, long_K, long_dte / 365, r, sig)
+        short_mid = bs_call(uvxy_spot, short_K, short_dte / 365, r, sig)
+        
+        net_debit = long_mid - short_mid
+        risk = abs(net_debit) * 100
+        
+        target_val = long_mid * target_mult
+        stop_val = long_mid * stop_mult
+        
+        long_exp = (today + dt.timedelta(days=long_dte)).strftime("%b %d, %Y")
+        short_exp = (today + dt.timedelta(days=short_dte)).strftime("%b %d, %Y")
+        
+        # Suggested contracts based on $2500 risk budget
+        suggested = max(1, min(5, int(2500 / risk))) if risk > 0 else 2
+        
+        variants.append({
+            "name": cfg["name"],
+            "desc": cfg["desc"],
+            "long_leg": f"UVXY {long_exp} ${long_K:.0f}C @ ${long_mid:.2f} (DTE: {long_dte}d)",
+            "short_leg": f"UVXY {short_exp} ${short_K:.0f}C @ ${short_mid:.2f} (DTE: {short_dte}d)",
+            "net_position": f"Net Debit: ${net_debit:.2f} | Risk: ~${risk:.0f}/contract",
+            "target": f"Target: ${target_val:.2f} ({target_mult:.1f}x)",
+            "stop": f"Stop: ${stop_val:.2f} ({stop_mult:.1f}x)",
+            "suggested_contracts": f"{suggested} contracts (~${suggested * risk:.0f} total risk)",
+            # Raw values
+            "long_strike": long_K,
+            "long_mid": long_mid,
+            "short_strike": short_K,
+            "short_mid": short_mid,
+            "net_debit_raw": net_debit,
+            "risk_per_contract": risk,
+        })
     
-    # Title
-    ax.text(0.5, y, "VIX 5% WEEKLY SUITE", transform=ax.transAxes, fontsize=20, 
-            fontweight='bold', color=accent_color, ha='center', fontfamily='monospace')
-    y -= line_height * 1.5
+    return variants
+
+
+# =============================================================================
+# GENERATE ALL SIGNALS DATA
+# =============================================================================
+
+def generate_signals(threshold: float = 0.35) -> Dict[str, Any]:
+    """Generate complete signals data."""
+    vix_series = load_vix_weekly()
+    vix_close = _scalar(vix_series.iloc[-1])
+    uvxy_spot = load_uvxy_spot()
     
-    ax.text(0.5, y, f"Thursday Signal Report - {dt.date.today().strftime('%B %d, %Y')}", 
-            transform=ax.transAxes, fontsize=12, color='#888888', ha='center', fontfamily='monospace')
-    y -= line_height * 2
+    percentile = compute_percentile(vix_series)
+    regime = get_regime(percentile)
+    signal_active = percentile <= threshold
     
-    # Divider
-    ax.axhline(y=y + 0.01, xmin=0.1, xmax=0.9, color='#333355', linewidth=2, transform=ax.transAxes)
-    y -= line_height
+    variants = generate_variants(uvxy_spot, vix_close)
     
-    # Market State Box
-    ax.text(0.05, y, "📊 MARKET STATE", transform=ax.transAxes, fontsize=14, 
-            fontweight='bold', color=gold_color, fontfamily='monospace')
-    y -= line_height
+    return {
+        "generated_at": dt.datetime.now().isoformat(),
+        "date": dt.date.today().isoformat(),
+        "vix_close": round(vix_close, 2),
+        "percentile": round(percentile * 100, 1),
+        "percentile_raw": round(percentile, 4),
+        "regime": regime,
+        "signal_active": signal_active,
+        "threshold": threshold * 100,
+        "uvxy_spot": round(uvxy_spot, 2),
+        "variants": variants,
+    }
+
+
+# =============================================================================
+# HTML FORMATTING (White background, large font, readable)
+# =============================================================================
+
+def format_html(data: dict) -> str:
+    """Format beautiful white-background HTML email."""
+    today = dt.date.today().strftime("%B %d, %Y")
+    pct = data["percentile"]
+    active = data["signal_active"]
+    regime = data["regime"]
+    vix = data["vix_close"]
+    uvxy = data["uvxy_spot"]
     
-    ax.text(0.08, y, f"VIX Close:       ${vix_price:.2f}", transform=ax.transAxes, 
-            fontsize=13, color=text_color, fontfamily='monospace')
-    y -= line_height
-    
-    ax.text(0.08, y, f"52w Percentile:  {percentile:.1f}%", transform=ax.transAxes, 
-            fontsize=13, color=text_color, fontfamily='monospace')
-    y -= line_height
-    
-    ax.text(0.08, y, f"Current Regime:  ", transform=ax.transAxes, 
-            fontsize=13, color=text_color, fontfamily='monospace')
-    ax.text(0.30, y, f"{regime}", transform=ax.transAxes, 
-            fontsize=13, fontweight='bold', color=regime_color, fontfamily='monospace')
-    y -= line_height * 1.5
-    
-    # Signal Status
-    if signal_active:
-        signal_text = "🟢 ENTRY SIGNAL ACTIVE"
-        signal_color = green_color
-        signal_detail = f"Percentile ({percentile:.1f}%) ≤ threshold ({threshold*100:.0f}%)"
+    # Signal styling
+    if active:
+        sig_color = "#008800"
+        sig_bg = "#f0fff0"
+        sig_border = "#00aa00"
+        sig_text = ">>> ENTRY SIGNAL ACTIVE <<<"
     else:
-        signal_text = "🔴 HOLD - No Entry Signal"
-        signal_color = red_color
-        signal_detail = f"Percentile ({percentile:.1f}%) > threshold ({threshold*100:.0f}%)"
+        sig_color = "#880000"
+        sig_bg = "#fff0f0"
+        sig_border = "#aa0000"
+        sig_text = "--- HOLD - No Entry Signal ---"
     
-    ax.text(0.05, y, signal_text, transform=ax.transAxes, fontsize=16, 
-            fontweight='bold', color=signal_color, fontfamily='monospace')
-    y -= line_height
+    # Regime color
+    regime_colors = {
+        "ULTRA_LOW": "#008800",
+        "LOW": "#44aa44",
+        "MID": "#888800",
+        "HIGH": "#cc6600",
+        "EXTREME": "#cc0000",
+    }
+    regime_color = regime_colors.get(regime, "#000000")
     
-    ax.text(0.08, y, signal_detail, transform=ax.transAxes, fontsize=11, 
-            color='#888888', fontfamily='monospace')
-    y -= line_height * 2
+    html = f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body style="background:#ffffff;color:#222222;font-family:Georgia,'Times New Roman',serif;font-size:16px;line-height:1.6;padding:20px;max-width:700px;margin:auto;">
+
+<!-- Header -->
+<div style="text-align:center;border-bottom:3px solid #00aadd;padding-bottom:15px;margin-bottom:20px;">
+    <h1 style="color:#00aadd;margin:0;font-size:28px;">VIX 5% WEEKLY SUITE</h1>
+    <p style="color:#666;margin:5px 0 0;font-size:16px;">Thursday Signal Report - {today}</p>
+</div>
+
+<!-- Market State -->
+<div style="background:#f8f8f8;border:1px solid #ddd;border-left:4px solid #00aadd;padding:15px;margin-bottom:20px;">
+    <h2 style="color:#00aadd;margin:0 0 10px;font-size:20px;">MARKET STATE</h2>
+    <table style="font-size:16px;border-collapse:collapse;">
+        <tr><td style="padding:3px 15px 3px 0;color:#666;">VIX Close:</td><td style="font-weight:bold;">${vix:.2f}</td></tr>
+        <tr><td style="padding:3px 15px 3px 0;color:#666;">52w Percentile:</td><td style="font-weight:bold;">{pct:.1f}%</td></tr>
+        <tr><td style="padding:3px 15px 3px 0;color:#666;">Current Regime:</td><td style="font-weight:bold;color:{regime_color};">{regime}</td></tr>
+        <tr><td style="padding:3px 15px 3px 0;color:#666;">UVXY Spot:</td><td style="font-weight:bold;">${uvxy:.2f}</td></tr>
+    </table>
+</div>
+
+<!-- Signal Status -->
+<div style="background:{sig_bg};border:2px solid {sig_border};padding:15px;margin-bottom:25px;text-align:center;">
+    <h2 style="color:{sig_color};margin:0;font-size:22px;">{sig_text}</h2>
+    <p style="color:#666;margin:8px 0 0;font-size:14px;">
+        Percentile ({pct:.1f}%) {'<=' if active else '>'} threshold ({data.get('threshold', 35):.0f}%)
+    </p>
+</div>
+
+<!-- Variants Header -->
+<h2 style="color:#00aadd;border-bottom:2px solid #00aadd;padding-bottom:8px;margin:25px 0 15px;font-size:22px;">
+    5 DIAGONAL VARIANTS
+</h2>
+"""
     
-    # Divider
-    ax.axhline(y=y + 0.01, xmin=0.1, xmax=0.9, color='#333355', linewidth=2, transform=ax.transAxes)
-    y -= line_height
+    # Variants
+    for i, v in enumerate(data["variants"]):
+        bg = "#f9f9f9" if i % 2 == 0 else "#ffffff"
+        
+        html += f"""
+<div style="background:{bg};border:1px solid #ddd;border-left:4px solid #00aadd;padding:15px;margin-bottom:12px;">
+    <h3 style="color:#00aadd;margin:0 0 8px;font-size:18px;">{v['name']}</h3>
+    <p style="color:#888;margin:0 0 12px;font-size:13px;font-style:italic;">{v.get('desc', '')}</p>
     
-    # Trade Details
-    if "error" not in quote_data:
-        ax.text(0.05, y, "📈 RECOMMENDED DIAGONAL SPREAD", transform=ax.transAxes, 
-                fontsize=14, fontweight='bold', color=gold_color, fontfamily='monospace')
-        y -= line_height * 1.2
-        
-        ax.text(0.08, y, f"UVXY Spot: ${quote_data.get('spot', 0):.2f}", transform=ax.transAxes, 
-                fontsize=12, color='#aaaaaa', fontfamily='monospace')
-        y -= line_height * 1.5
-        
-        # Long Leg
-        ax.text(0.08, y, "LONG LEG (BUY):", transform=ax.transAxes, 
-                fontsize=12, fontweight='bold', color=green_color, fontfamily='monospace')
-        y -= line_height
-        
-        ax.text(0.10, y, f"{quote_data.get('long_leg', 'N/A')}", transform=ax.transAxes, 
-                fontsize=13, color=text_color, fontfamily='monospace')
-        y -= line_height
-        
-        ax.text(0.10, y, f"Bid: ${quote_data.get('long_bid', 0):.2f}  Ask: ${quote_data.get('long_ask', 0):.2f}  Mid: ${quote_data.get('long_mid', 0):.2f}", 
-                transform=ax.transAxes, fontsize=11, color='#aaaaaa', fontfamily='monospace')
-        y -= line_height
-        
-        ax.text(0.10, y, f"DTE: {quote_data.get('long_dte', 0)} days", transform=ax.transAxes, 
-                fontsize=11, color='#888888', fontfamily='monospace')
-        y -= line_height * 1.5
-        
-        # Short Leg
-        ax.text(0.08, y, "SHORT LEG (SELL):", transform=ax.transAxes, 
-                fontsize=12, fontweight='bold', color=red_color, fontfamily='monospace')
-        y -= line_height
-        
-        ax.text(0.10, y, f"{quote_data.get('short_leg', 'N/A')}", transform=ax.transAxes, 
-                fontsize=13, color=text_color, fontfamily='monospace')
-        y -= line_height
-        
-        ax.text(0.10, y, f"Bid: ${quote_data.get('short_bid', 0):.2f}  Ask: ${quote_data.get('short_ask', 0):.2f}  Mid: ${quote_data.get('short_mid', 0):.2f}", 
-                transform=ax.transAxes, fontsize=11, color='#aaaaaa', fontfamily='monospace')
-        y -= line_height
-        
-        ax.text(0.10, y, f"DTE: {quote_data.get('short_dte', 0)} days", transform=ax.transAxes, 
-                fontsize=11, color='#888888', fontfamily='monospace')
-        y -= line_height * 1.5
-        
-        # Net Position
-        ax.text(0.08, y, "NET POSITION:", transform=ax.transAxes, 
-                fontsize=12, fontweight='bold', color=accent_color, fontfamily='monospace')
-        y -= line_height
-        
-        ax.text(0.10, y, f"Net Debit (mid):  ${quote_data.get('net_debit_mid', 0):.2f}", transform=ax.transAxes, 
-                fontsize=13, color=text_color, fontfamily='monospace')
-        y -= line_height
-        
-        ax.text(0.10, y, f"Net Debit (cons): ${quote_data.get('net_debit', 0):.2f}", transform=ax.transAxes, 
-                fontsize=12, color='#aaaaaa', fontfamily='monospace')
-        y -= line_height * 1.5
-        
-        # Sizing
-        ax.text(0.08, y, "POSITION SIZING:", transform=ax.transAxes, 
-                fontsize=12, fontweight='bold', color=gold_color, fontfamily='monospace')
-        y -= line_height
-        
-        ax.text(0.10, y, f"Suggested Contracts: {quote_data.get('suggested_contracts', 1)}", transform=ax.transAxes, 
-                fontsize=13, color=text_color, fontfamily='monospace')
-        y -= line_height
-        
-        ax.text(0.10, y, f"Risk per Contract:   ${quote_data.get('risk_per_contract', 0):.0f}", transform=ax.transAxes, 
-                fontsize=12, color='#aaaaaa', fontfamily='monospace')
-        y -= line_height
-        
-        ax.text(0.10, y, f"Total Position Risk: ${quote_data.get('total_risk', 0):.0f}", transform=ax.transAxes, 
-                fontsize=12, color='#aaaaaa', fontfamily='monospace')
-        
-    else:
-        ax.text(0.08, y, f"⚠️ Quote Error: {quote_data.get('error', 'Unknown')}", transform=ax.transAxes, 
-                fontsize=12, color=red_color, fontfamily='monospace')
+    <table style="font-size:14px;border-collapse:collapse;width:100%;">
+        <tr>
+            <td style="padding:4px 0;color:#008800;font-weight:bold;width:100px;">LONG (Buy):</td>
+            <td style="padding:4px 0;">{v['long_leg']}</td>
+        </tr>
+        <tr>
+            <td style="padding:4px 0;color:#880000;font-weight:bold;">SHORT (Sell):</td>
+            <td style="padding:4px 0;">{v['short_leg']}</td>
+        </tr>
+        <tr style="border-top:1px solid #eee;">
+            <td style="padding:8px 0 4px;font-weight:bold;">Net Position:</td>
+            <td style="padding:8px 0 4px;">{v['net_position']}</td>
+        </tr>
+        <tr>
+            <td style="padding:4px 0;color:#008800;">Target:</td>
+            <td style="padding:4px 0;">{v.get('target', 'N/A')}</td>
+        </tr>
+        <tr>
+            <td style="padding:4px 0;color:#880000;">Stop:</td>
+            <td style="padding:4px 0;">{v.get('stop', 'N/A')}</td>
+        </tr>
+        <tr style="border-top:1px solid #eee;">
+            <td style="padding:8px 0 4px;font-weight:bold;">Suggested:</td>
+            <td style="padding:8px 0 4px;font-weight:bold;color:#00aadd;">{v.get('suggested_contracts', 'N/A')}</td>
+        </tr>
+    </table>
+</div>
+"""
     
     # Footer
-    ax.text(0.5, 0.02, "⚠️ Research tool only — not financial advice. Verify quotes with broker.", 
-            transform=ax.transAxes, fontsize=9, color='#666666', ha='center', fontfamily='monospace')
+    html += f"""
+<!-- Position Sizing -->
+<div style="background:#fff8e0;border:1px solid #ddcc00;padding:12px;margin:20px 0;text-align:center;">
+    <strong style="color:#886600;">POSITION SIZING REMINDER</strong><br>
+    <span style="font-size:14px;">Risk 1-2% of portfolio per trade | Max 3-5 contracts | Always use stops</span>
+</div>
+
+<!-- Disclaimer -->
+<div style="text-align:center;padding:15px;border-top:1px solid #ddd;margin-top:20px;">
+    <p style="color:#aa0000;font-size:13px;margin:0;">
+        Research tool only - not financial advice.<br>
+        Always verify quotes with your broker before trading.
+    </p>
+    <p style="color:#888;font-size:11px;margin:10px 0 0;">
+        Generated: {data.get('generated_at', 'N/A')[:19]}
+    </p>
+</div>
+
+</body>
+</html>"""
     
-    # Save to buffer
-    buf = BytesIO()
-    plt.savefig(buf, format='png', bbox_inches='tight', facecolor='#1a1a2e', 
-                edgecolor='none', dpi=150)
-    buf.seek(0)
-    plt.close()
-    
-    return buf
+    return html
 
 
 # =============================================================================
 # EMAIL SENDING
 # =============================================================================
-def send_signal_email(
-    to_email: str,
-    vix_data: Dict,
-    quote_data: Dict,
-    png_buffer: BytesIO,
-    threshold: float = 0.35,
-) -> bool:
-    """
-    Send signal email with PNG attachment.
+
+def send_email(to: str, html: str, data: dict) -> bool:
+    """Send HTML email with emoji subject."""
+    smtp_server = os.environ.get("SMTP_SERVER", "smtp.gmail.com")
+    smtp_port = int(os.environ.get("SMTP_PORT", 587))
+    smtp_user = os.environ.get("SMTP_USER", "")
+    smtp_pass = os.environ.get("SMTP_PASS", "")
     
-    Returns True if sent successfully.
-    """
-    if not SMTP_USER or not SMTP_PASS:
-        print("⚠️ SMTP credentials not configured")
-        print("   Set SMTP_USER and SMTP_PASS environment variables")
-        print("   Or configure in daily_signal.py")
+    if not smtp_user or not smtp_pass:
+        print("[ERROR] SMTP_USER or SMTP_PASS not set in environment")
         return False
     
+    active = data["signal_active"]
+    regime = data["regime"]
+    pct = data["percentile"]
+    
+    # Emoji subject for easy inbox scanning
+    if active:
+        subject = f"\U0001F7E2 [ENTRY] VIX {regime} ({pct:.0f}%) - Diagonals Ready"
+    else:
+        subject = f"\U0001F534 [HOLD] VIX {regime} ({pct:.0f}%)"
+    
     try:
-        regime = vix_data.get('regime', 'UNKNOWN')
-        percentile = vix_data.get('percentile_pct', 0)
-        signal_active = vix_data.get('percentile', 1.0) <= threshold
+        msg = MIMEMultipart()
+        msg["Subject"] = Header(subject, "utf-8")
+        msg["From"] = smtp_user
+        msg["To"] = to
+        msg.attach(MIMEText(html, "html", "utf-8"))
         
-        # Subject line
-        if signal_active:
-            subject = f"🟢 VIX Entry Signal - {regime} Regime ({percentile:.1f}%)"
-        else:
-            subject = f"📊 VIX Weekly Report - {regime} Regime ({percentile:.1f}%)"
-        
-        # Create message
-        msg = MIMEMultipart('related')
-        msg['Subject'] = subject
-        msg['From'] = SMTP_USER
-        msg['To'] = to_email
-        
-        # HTML body with embedded image
-        html = f"""
-        <html>
-        <body style="background-color: #1a1a2e; color: #ffffff; font-family: monospace; padding: 20px;">
-            <h2 style="color: #00d4ff;">VIX 5% Weekly Suite - Thursday Signal</h2>
-            <p style="color: #888888;">{dt.date.today().strftime('%B %d, %Y')}</p>
-            
-            <p><strong>Regime:</strong> <span style="color: {REGIME_COLORS.get(regime, '#888888')};">{regime}</span></p>
-            <p><strong>VIX Percentile:</strong> {percentile:.1f}%</p>
-            <p><strong>Signal:</strong> {'🟢 ENTRY ACTIVE' if signal_active else '🔴 HOLD'}</p>
-            
-            <hr style="border-color: #333355;">
-            
-            <p>See attached PNG for full signal details.</p>
-            
-            <img src="cid:signal_image" style="max-width: 100%; border: 1px solid #333355;">
-            
-            <hr style="border-color: #333355;">
-            <p style="color: #666666; font-size: 11px;">
-                ⚠️ This is a research tool, not financial advice. Always verify quotes with your broker.
-            </p>
-        </body>
-        </html>
-        """
-        
-        html_part = MIMEText(html, 'html')
-        msg.attach(html_part)
-        
-        # Attach PNG (inline)
-        png_buffer.seek(0)
-        img = MIMEImage(png_buffer.read())
-        img.add_header('Content-ID', '<signal_image>')
-        img.add_header('Content-Disposition', 'inline', filename='signal.png')
-        msg.attach(img)
-        
-        # Also attach as downloadable file
-        png_buffer.seek(0)
-        img_attach = MIMEImage(png_buffer.read())
-        img_attach.add_header('Content-Disposition', 'attachment', 
-                              filename=f'VIX_Signal_{dt.date.today().strftime("%Y%m%d")}.png')
-        msg.attach(img_attach)
-        
-        # Send
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as smtp:
-            smtp.starttls()
-            smtp.login(SMTP_USER, SMTP_PASS)
-            smtp.send_message(msg)
+        with smtplib.SMTP(smtp_server, smtp_port) as server:
+            server.starttls()
+            server.login(smtp_user, smtp_pass)
+            server.send_message(msg)
         
         return True
         
     except Exception as e:
-        print(f"❌ Email error: {e}")
+        print(f"[ERROR] Email failed: {e}")
+        import traceback
+        traceback.print_exc()
         return False
-
-
-# =============================================================================
-# TEXT REPORT (Fallback) - Bulletproof ASCII-only version
-# =============================================================================
-def format_text_report(vix_data: Dict, quote_data: Dict, threshold: float = 0.35) -> str:
-    """Format signal data as plain text report - ASCII-only for SMTP compatibility."""
-    
-    signal_active = vix_data.get('percentile', 1.0) <= threshold
-    
-    # Extract all values upfront
-    vix_close = vix_data.get('current_price', 0)
-    percentile = vix_data.get('percentile_pct', 0)
-    regime = vix_data.get('regime', 'N/A')
-    threshold_pct = threshold * 100
-    
-    # Signal line
-    if signal_active:
-        signal_line = f">>> ENTRY SIGNAL ACTIVE <<<\n    Percentile ({percentile:.1f}%) <= threshold ({threshold_pct:.0f}%)"
-    else:
-        signal_line = f"HOLD - No entry signal\n    Percentile ({percentile:.1f}%) > threshold ({threshold_pct:.0f}%)"
-    
-    # Build report from clean strings - no copy-paste artifacts
-    report = f"""============================================================
-VIX 5% Weekly Suite - Thursday Signal Report
-Generated: {dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-============================================================
-
-MARKET STATE
-----------------------------------------
-VIX Close:        ${vix_close:.2f}
-52w Percentile:   {percentile:.1f}%
-Current Regime:   {regime}
-
-{signal_line}
-
-"""
-    
-    # Trade details
-    if "error" not in quote_data:
-        spot = quote_data.get('spot', 0)
-        long_leg = quote_data.get('long_leg', 'N/A')
-        long_bid = quote_data.get('long_bid', 0)
-        long_ask = quote_data.get('long_ask', 0)
-        long_mid = quote_data.get('long_mid', 0)
-        long_dte = quote_data.get('long_dte', 0)
-        short_leg = quote_data.get('short_leg', 'N/A')
-        short_bid = quote_data.get('short_bid', 0)
-        short_ask = quote_data.get('short_ask', 0)
-        short_mid = quote_data.get('short_mid', 0)
-        short_dte = quote_data.get('short_dte', 0)
-        net_debit_mid = quote_data.get('net_debit_mid', 0)
-        net_debit = quote_data.get('net_debit', 0)
-        suggested_contracts = quote_data.get('suggested_contracts', 1)
-        risk_per_contract = quote_data.get('risk_per_contract', 0)
-        total_risk = quote_data.get('total_risk', 0)
-        
-        report += f"""DIAGONAL SPREAD DETAILS
-----------------------------------------
-UVXY Spot: ${spot:.2f}
-
-LONG LEG (Buy):
-  {long_leg}
-  Bid: ${long_bid:.2f}  Ask: ${long_ask:.2f}  Mid: ${long_mid:.2f}
-  DTE: {long_dte} days
-
-SHORT LEG (Sell):
-  {short_leg}
-  Bid: ${short_bid:.2f}  Ask: ${short_ask:.2f}  Mid: ${short_mid:.2f}
-  DTE: {short_dte} days
-
-NET POSITION:
-  Net Debit (mid):         ${net_debit_mid:.2f}
-  Net Debit (conservative): ${net_debit:.2f}
-
-POSITION SIZING:
-  Suggested Contracts: {suggested_contracts}
-  Risk per Contract:   ${risk_per_contract:.0f}
-  Total Position Risk: ${total_risk:.0f}
-
-"""
-    else:
-        report += f"Quote Error: {quote_data.get('error')}\n\n"
-    
-    report += """============================================================
-Warning: This is a research tool, not financial advice.
-Always verify quotes with your broker before trading.
-============================================================"""
-    
-    # Force ASCII - replace any rogue Unicode chars with ?
-    report = report.encode('ascii', 'replace').decode('ascii')
-    
-    return report
 
 
 # =============================================================================
 # MAIN
 # =============================================================================
-def main():
-    parser = argparse.ArgumentParser(
-        description="VIX 5% Weekly Thursday Signal Emailer",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  python daily_signal.py                      # Print report
-  python daily_signal.py --email              # Email to DEFAULT_EMAIL
-  python daily_signal.py --email you@mail.com # Email to specific address
-  python daily_signal.py --png signal.png     # Save PNG locally
-  python daily_signal.py --json               # Output JSON
 
-Cron for Thursday 4:30pm ET (20:30 UTC):
-  30 20 * * 4 /path/to/venv/bin/python /path/to/daily_signal.py --email
-        """
-    )
+def main():
+    args = _parse_args()
     
-    parser.add_argument(
-        "--email",
-        nargs='?',
-        const=DEFAULT_EMAIL,
-        default=None,
-        help=f"Email address (default: {DEFAULT_EMAIL})"
-    )
+    print("=" * 55)
+    print("VIX 5% Weekly - Thursday Signal Emailer")
+    print(f"    {dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("=" * 55)
     
-    parser.add_argument(
-        "--png",
-        type=str,
-        default=None,
-        help="Save PNG to file"
-    )
-    
-    parser.add_argument(
-        "--json",
-        action="store_true",
-        help="Output as JSON"
-    )
-    
-    parser.add_argument(
-        "--threshold",
-        type=float,
-        default=ENTRY_THRESHOLD,
-        help=f"Entry threshold percentile (default: {ENTRY_THRESHOLD})"
-    )
-    
-    parser.add_argument(
-        "--quiet",
-        action="store_true",
-        help="Only output/email if signal is active"
-    )
-    
-    parser.add_argument(
-        "--force",
-        action="store_true",
-        help="Send email even if signal is not active"
-    )
-    
-    args = parser.parse_args()
-    
-    print(f"📊 VIX 5% Weekly - Thursday Signal Check")
-    print(f"   {dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print()
-    
-    # Get market data
-    vix_data = get_vix_percentile()
-    
-    if "error" in vix_data:
-        print(f"❌ Error fetching VIX data: {vix_data['error']}")
+    # Generate all signals data
+    print("\n[...] Loading market data...")
+    try:
+        data = generate_signals(args.threshold)
+    except Exception as e:
+        print(f"[ERROR] Failed to generate signals: {e}")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
     
-    print(f"✓ VIX: ${vix_data['current_price']:.2f} ({vix_data['percentile_pct']:.1f}% percentile)")
-    print(f"✓ Regime: {vix_data['regime']}")
-    
-    # Get diagonal quote
-    quote_data = get_uvxy_diagonal_quote(vix_data.get("regime", "MEDIUM"))
-    
-    if "error" in quote_data:
-        print(f"⚠️ Quote warning: {quote_data['error']}")
-    else:
-        print(f"✓ UVXY: ${quote_data['spot']:.2f}")
-    
-    # Check if signal is active
-    signal_active = vix_data.get("percentile", 1.0) <= args.threshold
+    # Display summary
+    print(f"[OK] VIX: ${data['vix_close']:.2f}")
+    print(f"[OK] Percentile: {data['percentile']:.1f}%")
+    print(f"[OK] Regime: {data['regime']}")
+    print(f"[OK] UVXY: ${data['uvxy_spot']:.2f}")
     
     print()
-    if signal_active:
-        print(f"🟢 ENTRY SIGNAL ACTIVE (≤{args.threshold*100:.0f}%)")
+    if data["signal_active"]:
+        print(f">>> ENTRY SIGNAL ACTIVE <<< (pct <= {args.threshold*100:.0f}%)")
     else:
-        print(f"🔴 HOLD - No signal (>{args.threshold*100:.0f}%)")
-    print()
+        print(f"--- HOLD --- (pct > {args.threshold*100:.0f}%)")
     
-    # Quiet mode
-    if args.quiet and not signal_active:
-        print("Quiet mode: No signal, exiting.")
-        sys.exit(0)
+    print(f"\n[OK] Generated {len(data['variants'])} variants:")
+    for v in data["variants"]:
+        print(f"     - {v['name']}: Net ${v['net_debit_raw']:.2f}")
     
-    # Generate PNG
-    png_buffer = generate_signal_png(vix_data, quote_data, args.threshold)
-    
-    # Save PNG if requested
-    if args.png:
-        png_buffer.seek(0)
-        with open(args.png, 'wb') as f:
-            f.write(png_buffer.read())
-        print(f"✓ PNG saved: {args.png}")
-    
-    # Output
+    # JSON output mode
     if args.json:
-        output = {
-            "vix": vix_data,
-            "quote": quote_data,
-            "signal_active": signal_active,
-            "threshold": args.threshold,
-        }
-        print(json.dumps(output, indent=2))
-    else:
-        report = format_text_report(vix_data, quote_data, args.threshold)
-        print(report)
+        print("\n" + json.dumps(data, indent=2, default=str))
+        return
+    
+    # Generate HTML
+    print("\n[...] Generating HTML report...")
+    html = format_html(data)
+    print(f"[OK] HTML generated ({len(html)} bytes)")
+    
+    # Preview mode
+    if args.preview:
+        preview_path = SCRIPT_DIR / "preview.html"
+        with open(preview_path, "w") as f:
+            f.write(html)
+        print(f"\n[OK] Preview saved to: {preview_path}")
+        print(f"     Open in browser: file://{preview_path}")
+        return
     
     # Send email
-    if args.email and (signal_active or args.force):
-        print()
-        print(f"📧 Sending email to {args.email}...")
-        png_buffer.seek(0)
-        
-        if send_signal_email(args.email, vix_data, quote_data, png_buffer, args.threshold):
-            print(f"✓ Email sent successfully!")
+    if args.email:
+        active = data["signal_active"]
+        if active or args.force:
+            print(f"\n[EMAIL] Sending to {args.email}...")
+            if send_email(args.email, html, data):
+                print("[OK] Email sent successfully!")
+            else:
+                print("[ERROR] Failed to send email")
+                sys.exit(1)
         else:
-            print(f"❌ Failed to send email")
-            print("   Check SMTP_USER and SMTP_PASS environment variables")
-    elif args.email and not signal_active:
-        print()
-        print(f"📧 No signal active - email skipped (use --force to override)")
+            print(f"\n[INFO] No signal active - email skipped")
+            print("       Use --force to send anyway")
+    else:
+        print("\n[INFO] No --email flag - skipping email")
+        print("       Use: python daily_signal.py --email")
     
-    # Exit code
-    sys.exit(0 if signal_active else 1)
+    sys.exit(0 if data["signal_active"] else 1)
 
 
 if __name__ == "__main__":
