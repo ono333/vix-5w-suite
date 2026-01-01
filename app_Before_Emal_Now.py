@@ -1743,44 +1743,7 @@ def page_live_signals(vix_weekly: pd.Series, params: Dict[str, Any]):
     
     # Last updated
     st.caption(f"*Last updated: {signal.get('timestamp', 'N/A')}*")
-    
-    if st.button("Send Thursday Email"):
-        # Use the exact data from this page
-        data = {
-            "date": dt.date.today().isoformat(),
-            "vix_close": vix_close,
-            "percentile": percentile * 100,
-            "regime": regime,
-            "signal_active": signal_active,
-            "uvxy_spot": uvxy_spot,
-            "variants": quote_datas  # Exact list of 5 variants from app
-        }
 
-        # Send email using SMTP env vars
-        smtp_server = os.environ.get("SMTP_SERVER")
-        smtp_port = int(os.environ.get("SMTP_PORT", 587))
-        smtp_user = os.environ.get("SMTP_USER")
-        smtp_pass = os.environ.get("SMTP_PASS")
-        
-        if all([smtp_server, smtp_user, smtp_pass]):
-            msg = MIMEMultipart()
-            msg['Subject'] = f"🟢 [ENTRY SIGNAL] VIX {regime} Regime ({percentile*100:.1f}%)"
-            msg['From'] = smtp_user
-            msg['To'] = "onoshin333@gmail.com"
-
-            html = format_html_report(data)  # Your white background HTML function
-            msg.attach(MIMEText(html, 'html', 'utf-8'))
-
-            try:
-                with smtplib.SMTP(smtp_server, smtp_port) as server:
-                    server.starttls()
-                    server.login(smtp_user, smtp_pass)
-                    server.send_message(msg)
-                st.success("Email sent successfully! Check your inbox.")
-            except Exception as e:
-                st.error(f"Email failed: {e}")
-        else:
-            st.error("SMTP environment variables missing — set them first.")
 
 # ---------------------------------------------------------------------
 # Page: Trade Explorer
