@@ -28,6 +28,65 @@ import pandas as pd
 import streamlit as st
 import yfinance as yf
 
+def format_html_report(data):
+    today = dt.date.today().strftime("%B %d, %Y")
+    pct = data['percentile']
+    active = data['signal_active']
+    emoji = "🟢" if active else "🔴"
+    signal_text = ">>> ENTRY SIGNAL ACTIVE <<<" if active else "No Signal"
+
+    html = f"""
+    <html>
+    <body style="background:#ffffff;color:#333333;font-family:Arial,sans-serif;padding:20px;max-width:700px;margin:auto;line-height:1.6;font-size:18px;">
+    <h1 style="color:#00aadd;text-align:center;">VIX 5% WEEKLY SUITE</h1>
+    <h3 style="color:#666666;text-align:center;margin-bottom:30px;">Thursday Signal Report - {today}</h3>
+
+    <div style="padding:15px;border:1px solid #dddddd;margin-bottom:30px;">
+    <strong style="font-size:20px;color:#00aadd;">[MARKET STATE]</strong><br>
+    VIX Close: ${data['vix_close']:.2f}<br>
+    52w Percentile: {pct:.1f}%<br>
+    Current Regime: {data['regime']}<br>
+    UVXY Spot: ${data['uvxy_spot']:.2f}
+    </div>
+
+    <div style="padding:15px;border:2px solid {'#00aa00' if active else '#aa0000'};background:{'#f8fff8' if active else '#fff8f8'};margin-bottom:40px;">
+    <strong style="font-size:24px;color:{'#00aa00' if active else '#aa0000'};">{emoji} {signal_text}</strong><br>
+    Percentile ({pct:.1f}%) ≤ threshold (35%)
+    </div>
+
+    <h2 style="color:#00aadd;font-size:24px;margin-bottom:20px;">5 DIAGONAL VARIANTS</h2>
+    """
+
+    for v in data['variants']:
+        html += f"""
+        <div style="padding:15px;border:1px solid #dddddd;margin-bottom:20px;background:#f9f9f9;">
+        <strong style="font-size:20px;color:#00aadd;">{v['name']}</strong><br>
+        {v['desc']}<br><br>
+
+        <strong style="color:#008800;">LONG LEG (Buy):</strong><br>
+        {v['long_leg']}<br><br>
+
+        <strong style="color:#880000;">SHORT LEG (Sell):</strong><br>
+        {v['short_leg']}<br><br>
+
+        <strong>NET POSITION:</strong><br>
+        {v['net_position']}<br>
+        {v['target']}<br>
+        {v['stop']}<br>
+        <strong>Suggested: {v['suggested']}</strong>
+        </div>
+        """
+
+    html += """
+    <p style="color:#aa0000;margin-top:30px;font-size:16px;text-align:center;">
+    ⚠️ Research tool only — not financial advice.<br>
+    Always verify quotes with your broker before trading.
+    </p>
+    </body>
+    </html>
+    """
+    return html
+
 # Core imports
 from ui.sidebar import build_sidebar
 from core.data_loader import load_vix_weekly, load_weekly
@@ -71,7 +130,6 @@ from core.param_history import (
     DEFAULT_PROFILES,
     REGIME_NAMES,
 )
-
 
 # =============================================================================
 # 5 PAPER TRADING VARIANTS - Parallel Comparison
@@ -1769,6 +1827,40 @@ def page_live_signals(vix_weekly: pd.Series, params: Dict[str, Any]):
             msg['To'] = "onoshin333@gmail.com"
 
             html = format_html_report(data)  # Your white background HTML function
+            msg.attach(MIMEText(html, 'html', 'utf-8'))
+
+            try:
+                with smtplib.SMTP(smtp_server, smtp_port) as server:
+                    server.starttls()
+                    server.login(smtp_user, smtp_pass)
+                    server.send_message(msg)
+                st.success("Email sent successfully! Check your inbox.")
+            except Exception as e:
+                st.error(f"Email failed: {e}")
+        else:
+            st.error("SMTP environment variables missing — set them first.")
+    if st.button("Send Thursday Email"):
+        data = {
+            "vix_close": vix_close,
+            "percentile": percentile * 100,
+            "regime": regime,
+            "signal_active": signal_active,
+            "uvxy_spot": uvxy_spot,
+            "variants": quote_datas  # Exact 5 from the app
+        }
+
+        smtp_server = os.environ.get("SMTP_SERVER")
+        smtp_port = int(os.environ.get("SMTP_PORT", 587))
+        smtp_user = os.environ.get("SMTP_USER")
+        smtp_pass = os.environ.get("SMTP_PASS")
+        
+        if all([smtp_server, smtp_user, smtp_pass]):
+            msg = MIMEMultipart()
+            msg['Subject'] = f"🟢 [ENTRY SIGNAL] VIX {regime} Regime ({percentile*100:.1f}%)"
+            msg['From'] = smtp_user
+            msg['To'] = "onoshin333@gmail.com"
+
+            html = format_html_report(data)
             msg.attach(MIMEText(html, 'html', 'utf-8'))
 
             try:
