@@ -1800,21 +1800,25 @@ def page_live_signals(vix_weekly: pd.Series, params: Dict[str, Any]):
     """)
         
     # In app.py Gemini
+    # --- Updated Export Block in app.py ---
     import json
+    import os
 
-    # After your signal calculations are done:
-    signal_data = {
-        "vix_close": vix_close,
-        "percentile": percentile * 100,
-        "regime": regime,
-        "signal_active": signal_active,
-        "uvxy_spot": uvxy_spot,
-        "variants": variants,  # The list of variants displayed on the page
-        "generated_at": dt.datetime.now().isoformat()
+    live_data = {
+        "vix_close": float(vix_weekly.iloc[-1]),
+        "percentile": float(current_pct * 100),
+        "regime": current_regime,
+        "signal_active": bool(current_pct <= 0.35),
+        "uvxy_spot": float(current_price),
+        "variants": variants 
     }
 
-    with open("live_signal_data.json", "w") as f:
-        json.dump(signal_data, f)
+    # Use the absolute path to your home directory
+    file_path = "/home/shin/vix_suite/live_signal_data.json"
+    with open(file_path, "w") as f:
+        json.dump(live_data, f, indent=4)
+    # Optional: Add a temporary streamlit message to confirm it worked
+    st.success(f"Data exported to {file_path}")
         
     # Last updated
     st.caption(f"*Last updated: {signal.get('timestamp', 'N/A')}*")
