@@ -1798,7 +1798,24 @@ def page_live_signals(vix_weekly: pd.Series, params: Dict[str, Any]):
     - UVXY is a leveraged, decaying ETP — positions require active management
     - Bid-ask spreads can be wide; use limit orders
     """)
-    
+        
+    # In app.py Gemini
+    import json
+
+    # After your signal calculations are done:
+    signal_data = {
+        "vix_close": vix_close,
+        "percentile": percentile * 100,
+        "regime": regime,
+        "signal_active": signal_active,
+        "uvxy_spot": uvxy_spot,
+        "variants": variants,  # The list of variants displayed on the page
+        "generated_at": dt.datetime.now().isoformat()
+    }
+
+    with open("live_signal_data.json", "w") as f:
+        json.dump(signal_data, f)
+        
     # Last updated
     st.caption(f"*Last updated: {signal.get('timestamp', 'N/A')}*")
     
@@ -1873,6 +1890,24 @@ def page_live_signals(vix_weekly: pd.Series, params: Dict[str, Any]):
                 st.error(f"Email failed: {e}")
         else:
             st.error("SMTP environment variables missing — set them first.")
+        # --- ADD THIS TO THE END OF page_live_signals in app.py ---
+    import json
+    from pathlib import Path
+
+    # Create the data package for the emailer
+    live_data = {
+        "vix_close": float(vix_weekly.iloc[-1]), # Uses the actual VIX data from your app
+        "percentile": float(percentile * 100),
+        "regime": regime,
+        "signal_active": bool(signal_active),
+        "uvxy_spot": float(uvxy_price), # Ensure this variable name matches your app's UVXY price variable
+        "variants": variants # This should be the list of 5 diagonal variants you calculated
+    }
+
+    # Save to the specific path the emailer expects
+    data_path = Path(__file__).parent / "live_signal_data.json"
+    with open(data_path, "w") as f:
+        json.dump(live_data, f, indent=4)
 
 # ---------------------------------------------------------------------
 # Page: Trade Explorer
