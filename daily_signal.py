@@ -314,11 +314,11 @@ def generate_signal_png(vix_data: Dict, quote_data: Dict, threshold: float = 0.3
     y -= line_height * 2
     
     # Divider
-    ax.axhline(y=y + 0.01, xmin=0.1, xmax=0.9, color='#333355', linewidth=2, transform=ax.transAxes)
+    ax.axhline(y=y + 0.01, xmin=0.1, xmax=0.9, color='#333355', linewidth=2)
     y -= line_height
     
     # Market State Box
-    ax.text(0.05, y, "📊 MARKET STATE", transform=ax.transAxes, fontsize=14, 
+    ax.text(0.05, y, "[MARKET STATE]", transform=ax.transAxes, fontsize=14, 
             fontweight='bold', color=gold_color, fontfamily='monospace')
     y -= line_height
     
@@ -338,11 +338,11 @@ def generate_signal_png(vix_data: Dict, quote_data: Dict, threshold: float = 0.3
     
     # Signal Status
     if signal_active:
-        signal_text = "🟢 ENTRY SIGNAL ACTIVE"
+        signal_text = ">>> ENTRY SIGNAL ACTIVE <<<"
         signal_color = green_color
-        signal_detail = f"Percentile ({percentile:.1f}%) ≤ threshold ({threshold*100:.0f}%)"
+        signal_detail = f"Percentile ({percentile:.1f}%) <= threshold ({threshold*100:.0f}%)"
     else:
-        signal_text = "🔴 HOLD - No Entry Signal"
+        signal_text = "--- HOLD - No Entry Signal ---"
         signal_color = red_color
         signal_detail = f"Percentile ({percentile:.1f}%) > threshold ({threshold*100:.0f}%)"
     
@@ -355,12 +355,12 @@ def generate_signal_png(vix_data: Dict, quote_data: Dict, threshold: float = 0.3
     y -= line_height * 2
     
     # Divider
-    ax.axhline(y=y + 0.01, xmin=0.1, xmax=0.9, color='#333355', linewidth=2, transform=ax.transAxes)
+    ax.axhline(y=y + 0.01, xmin=0.1, xmax=0.9, color='#333355', linewidth=2)
     y -= line_height
     
     # Trade Details
     if "error" not in quote_data:
-        ax.text(0.05, y, "📈 RECOMMENDED DIAGONAL SPREAD", transform=ax.transAxes, 
+        ax.text(0.05, y, "[DIAGONAL SPREAD]", transform=ax.transAxes, 
                 fontsize=14, fontweight='bold', color=gold_color, fontfamily='monospace')
         y -= line_height * 1.2
         
@@ -432,11 +432,11 @@ def generate_signal_png(vix_data: Dict, quote_data: Dict, threshold: float = 0.3
                 fontsize=12, color='#aaaaaa', fontfamily='monospace')
         
     else:
-        ax.text(0.08, y, f"⚠️ Quote Error: {quote_data.get('error', 'Unknown')}", transform=ax.transAxes, 
+        ax.text(0.08, y, f"[!] Quote Error: {quote_data.get('error', 'Unknown')}", transform=ax.transAxes, 
                 fontsize=12, color=red_color, fontfamily='monospace')
     
     # Footer
-    ax.text(0.5, 0.02, "⚠️ Research tool only — not financial advice. Verify quotes with broker.", 
+    ax.text(0.5, 0.02, "[!] Research tool only - not financial advice. Verify quotes with broker.", 
             transform=ax.transAxes, fontsize=9, color='#666666', ha='center', fontfamily='monospace')
     
     # Save to buffer
