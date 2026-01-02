@@ -89,7 +89,7 @@ def format_html(data):
             <div style="background:#1f77b4;color:#fff;padding:5px 8px;font-size:11px;font-weight:bold;">
                 {v['name']} <span style="font-weight:normal;opacity:0.8;">— {v.get('desc', '')[:30]}</span>
             </div>
-            <div style="padding:6px;font-size:11px;">
+            <div style="padding:6px;font-size:12px;">
                 <table style="width:100%;border-collapse:collapse;margin-bottom:4px;">
                     <tr style="background:#f8f8f8;">
                         <th style="padding:4px;border:1px solid #eee;text-align:left;width:18%;">Leg</th>
@@ -119,7 +119,7 @@ def format_html(data):
                         <td style="padding:4px;border:1px solid #eee;text-align:center;font-weight:bold;">${long_mid:.2f}</td>
                     </tr>
                 </table>
-                <div style="display:flex;justify-content:space-between;font-size:11px;color:#555;padding-top:4px;border-top:1px solid #eee;">
+                <div style="display:flex;justify-content:space-between;font-size:12px;color:#555;padding-top:4px;border-top:1px solid #eee;">
                     <span><b>Net:</b> ${net_debit:.2f} | <b>Risk:</b> ${risk:.0f}/ct</span>
                     <span><b>Target:</b> ${target_price:.2f} ({target_mult}x) | <b>Stop:</b> ${stop_price:.2f} ({stop_mult}x)</span>
                     <span><b>Suggested:</b> {suggested} ct</span>
@@ -129,7 +129,7 @@ def format_html(data):
         """
 
     html += """
-    <div style="font-size:10px;color:#888;text-align:center;margin-top:12px;padding-top:8px;border-top:1px solid #eee;">
+    <div style="font-size:11px;color:#888;text-align:center;margin-top:12px;padding-top:8px;border-top:1px solid #eee;">
         ⚠️ Research only — verify quotes with broker before trading.
     </div>
     </body>
