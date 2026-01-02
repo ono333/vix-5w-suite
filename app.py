@@ -30,59 +30,111 @@ import streamlit as st
 import yfinance as yf
 
 def format_html_report(data):
-    today = dt.date.today().strftime("%B %d, %Y")
+    """Compact HTML email with bid/ask data for trading."""
+    today = dt.date.today().strftime("%b %d, %Y")
     pct = data['percentile']
     active = data['signal_active']
     emoji = "🟢" if active else "🔴"
-    signal_text = ">>> ENTRY SIGNAL ACTIVE <<<" if active else "No Signal"
+    status = "ENTRY SIGNAL" if active else "HOLD"
+    status_color = "#2e7d32" if active else "#c62828"
 
     html = f"""
     <html>
-    <body style="background:#ffffff;color:#333333;font-family:Arial,sans-serif;padding:20px;max-width:700px;margin:auto;line-height:1.6;font-size:18px;">
-    <h1 style="color:#00aadd;text-align:center;">VIX 5% WEEKLY SUITE</h1>
-    <h3 style="color:#666666;text-align:center;margin-bottom:30px;">Thursday Signal Report - {today}</h3>
-
-    <div style="padding:15px;border:1px solid #dddddd;margin-bottom:30px;">
-    <strong style="font-size:20px;color:#00aadd;">[MARKET STATE]</strong><br>
-    VIX Close: ${data['vix_close']:.2f}<br>
-    52w Percentile: {pct:.1f}%<br>
-    Current Regime: {data['regime']}<br>
-    UVXY Spot: ${data['uvxy_spot']:.2f}
+    <body style="font-family:Arial,sans-serif;font-size:12px;background:#fff;color:#333;padding:10px;max-width:700px;margin:auto;">
+    
+    <div style="text-align:center;border-bottom:2px solid #1f77b4;padding-bottom:8px;margin-bottom:12px;">
+        <span style="font-size:18px;font-weight:bold;color:#1f77b4;">VIX 5% WEEKLY SUITE</span><br>
+        <span style="color:#666;font-size:11px;">Thursday Signal • {today}</span>
     </div>
 
-    <div style="padding:15px;border:2px solid {'#00aa00' if active else '#aa0000'};background:{'#f8fff8' if active else '#fff8f8'};margin-bottom:40px;">
-    <strong style="font-size:24px;color:{'#00aa00' if active else '#aa0000'};">{emoji} {signal_text}</strong><br>
-    Percentile ({pct:.1f}%) ≤ threshold (35%)
+    <table style="width:100%;border-collapse:collapse;margin-bottom:10px;font-size:11px;">
+        <tr>
+            <td style="padding:6px;background:#f5f5f5;border:1px solid #ddd;width:25%;"><b>VIX</b><br>${data['vix_close']:.2f}</td>
+            <td style="padding:6px;background:#f5f5f5;border:1px solid #ddd;width:25%;"><b>Percentile</b><br>{pct:.1f}%</td>
+            <td style="padding:6px;background:#f5f5f5;border:1px solid #ddd;width:25%;"><b>Regime</b><br>{data['regime']}</td>
+            <td style="padding:6px;background:#f5f5f5;border:1px solid #ddd;width:25%;"><b>UVXY</b><br>${data['uvxy_spot']:.2f}</td>
+        </tr>
+    </table>
+
+    <div style="padding:8px;background:{'#e8f5e9' if active else '#ffebee'};border:1px solid {status_color};text-align:center;margin-bottom:12px;border-radius:4px;">
+        <b style="color:{status_color};font-size:14px;">{emoji} {status}</b>
     </div>
 
-    <h2 style="color:#00aadd;font-size:24px;margin-bottom:20px;">5 DIAGONAL VARIANTS</h2>
+    <div style="font-size:13px;font-weight:bold;color:#1f77b4;margin-bottom:8px;">5 DIAGONAL VARIANTS</div>
     """
 
     for v in data['variants']:
+        # Handle both old and new data formats
+        long_strike = v.get('long_strike', 0)
+        long_exp = v.get('long_exp', v.get('long_expiry', '-'))
+        long_dte = v.get('long_dte', '-')
+        long_bid = v.get('long_bid', 0)
+        long_ask = v.get('long_ask', 0)
+        long_mid = v.get('long_mid', v.get('long_price', 0))
+        
+        short_strike = v.get('short_strike', 0)
+        short_exp = v.get('short_exp', v.get('short_expiry', '-'))
+        short_dte = v.get('short_dte', '-')
+        short_bid = v.get('short_bid', 0)
+        short_ask = v.get('short_ask', 0)
+        short_mid = v.get('short_mid', v.get('short_price', 0))
+        
+        net_debit = v.get('net_debit', 0)
+        risk = v.get('risk_per_contract', abs(net_debit) * 100)
+        target_mult = v.get('target_mult', 1.2)
+        target_price = v.get('target_price', long_mid * target_mult)
+        stop_mult = v.get('stop_mult', 0.5)
+        stop_price = v.get('stop_price', long_mid * stop_mult)
+        suggested = v.get('suggested_contracts', v.get('suggested', 1))
+        
         html += f"""
-        <div style="padding:15px;border:1px solid #dddddd;margin-bottom:20px;background:#f9f9f9;">
-        <strong style="font-size:20px;color:#00aadd;">{v['name']}</strong><br>
-        {v['desc']}<br><br>
-
-        <strong style="color:#008800;">LONG LEG (Buy):</strong><br>
-        {v['long_leg']}<br><br>
-
-        <strong style="color:#880000;">SHORT LEG (Sell):</strong><br>
-        {v['short_leg']}<br><br>
-
-        <strong>NET POSITION:</strong><br>
-        {v['net_position']}<br>
-        {v['target']}<br>
-        {v['stop']}<br>
-        <strong>Suggested: {v['suggested']}</strong>
+        <div style="border:1px solid #ddd;margin-bottom:8px;border-radius:4px;overflow:hidden;">
+            <div style="background:#1f77b4;color:#fff;padding:5px 8px;font-size:11px;font-weight:bold;">
+                {v['name']} <span style="font-weight:normal;opacity:0.8;">— {v.get('desc', '')[:30]}</span>
+            </div>
+            <div style="padding:6px;font-size:10px;">
+                <table style="width:100%;border-collapse:collapse;margin-bottom:4px;">
+                    <tr style="background:#f8f8f8;">
+                        <th style="padding:3px;border:1px solid #eee;text-align:left;width:18%;">Leg</th>
+                        <th style="padding:3px;border:1px solid #eee;text-align:center;width:12%;">Strike</th>
+                        <th style="padding:3px;border:1px solid #eee;text-align:center;width:22%;">Expiry</th>
+                        <th style="padding:3px;border:1px solid #eee;text-align:center;width:10%;">DTE</th>
+                        <th style="padding:3px;border:1px solid #eee;text-align:center;width:12%;">Bid</th>
+                        <th style="padding:3px;border:1px solid #eee;text-align:center;width:12%;">Ask</th>
+                        <th style="padding:3px;border:1px solid #eee;text-align:center;width:14%;">Mid</th>
+                    </tr>
+                    <tr>
+                        <td style="padding:3px;border:1px solid #eee;color:#c62828;font-weight:bold;">SHORT</td>
+                        <td style="padding:3px;border:1px solid #eee;text-align:center;">${short_strike:.0f}</td>
+                        <td style="padding:3px;border:1px solid #eee;text-align:center;">{short_exp}</td>
+                        <td style="padding:3px;border:1px solid #eee;text-align:center;">{short_dte}</td>
+                        <td style="padding:3px;border:1px solid #eee;text-align:center;">${short_bid:.2f}</td>
+                        <td style="padding:3px;border:1px solid #eee;text-align:center;">${short_ask:.2f}</td>
+                        <td style="padding:3px;border:1px solid #eee;text-align:center;font-weight:bold;">${short_mid:.2f}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding:3px;border:1px solid #eee;color:#2e7d32;font-weight:bold;">LONG</td>
+                        <td style="padding:3px;border:1px solid #eee;text-align:center;">${long_strike:.0f}</td>
+                        <td style="padding:3px;border:1px solid #eee;text-align:center;">{long_exp}</td>
+                        <td style="padding:3px;border:1px solid #eee;text-align:center;">{long_dte}</td>
+                        <td style="padding:3px;border:1px solid #eee;text-align:center;">${long_bid:.2f}</td>
+                        <td style="padding:3px;border:1px solid #eee;text-align:center;">${long_ask:.2f}</td>
+                        <td style="padding:3px;border:1px solid #eee;text-align:center;font-weight:bold;">${long_mid:.2f}</td>
+                    </tr>
+                </table>
+                <div style="display:flex;justify-content:space-between;font-size:10px;color:#555;padding-top:3px;border-top:1px solid #eee;">
+                    <span><b>Net:</b> ${net_debit:.2f} | <b>Risk:</b> ${risk:.0f}/ct</span>
+                    <span><b>Target:</b> ${target_price:.2f} ({target_mult}x) | <b>Stop:</b> ${stop_price:.2f} ({stop_mult}x)</span>
+                    <span><b>Suggested:</b> {suggested} ct</span>
+                </div>
+            </div>
         </div>
         """
 
     html += """
-    <p style="color:#aa0000;margin-top:30px;font-size:16px;text-align:center;">
-    ⚠️ Research tool only — not financial advice.<br>
-    Always verify quotes with your broker before trading.
-    </p>
+    <div style="font-size:9px;color:#999;text-align:center;margin-top:10px;padding-top:8px;border-top:1px solid #eee;">
+        ⚠️ Research only — verify quotes with broker before trading.
+    </div>
     </body>
     </html>
     """
@@ -1811,23 +1863,46 @@ def page_live_signals(vix_weekly: pd.Series, params: Dict[str, Any]):
         v_signal = variant_signals.get(variant_name, {})
         if "error" not in v_signal:
             net_mid = v_signal.get('net_debit_mid', 0)
+            long_mid = v_signal.get('long_mid', 0)
+            short_mid = v_signal.get('short_mid', 0)
+            
+            # Estimate bid/ask from mid (typical 5% spread for UVXY options)
+            spread_pct = 0.05
+            long_bid = long_mid * (1 - spread_pct) if long_mid > 0 else 0
+            long_ask = long_mid * (1 + spread_pct) if long_mid > 0 else 0
+            short_bid = short_mid * (1 - spread_pct) if short_mid > 0 else 0
+            short_ask = short_mid * (1 + spread_pct) if short_mid > 0 else 0
+            
+            # Use actual bid/ask if available from signal
+            long_bid = v_signal.get('long_bid', long_bid)
+            long_ask = v_signal.get('long_ask', long_ask)
+            short_bid = v_signal.get('short_bid', short_bid)
+            short_ask = v_signal.get('short_ask', short_ask)
+            
             export_variants.append({
                 "name": variant_name,
                 "desc": variant_config.get('description', ''),
-                "long_leg": f"UVXY {v_signal.get('long_exp', 'N/A')} ${v_signal.get('long_strike', 0):.0f}C @ ${v_signal.get('long_mid', 0):.2f}",
-                "short_leg": f"UVXY {v_signal.get('short_exp', 'N/A')} ${v_signal.get('short_strike', 0):.0f}C @ ${v_signal.get('short_mid', 0):.2f}",
-                "net_position": f"Net Debit: ${net_mid:.2f}",
-                "target": f"Target ({variant_config['target_mult']}x): ${net_mid * variant_config['target_mult']:.2f}",
-                "stop": f"Stop ({variant_config['exit_mult']}x): ${net_mid * variant_config['exit_mult']:.2f}",
-                "suggested": f"{max(1, min(int(2500 / (net_mid * 100)), 50)) if net_mid > 0 else 1} contracts",
-                # Raw values for emailer
+                # Leg details
                 "long_strike": v_signal.get('long_strike', 0),
-                "long_expiry": v_signal.get('long_exp', ''),
-                "long_price": v_signal.get('long_mid', 0),
+                "long_exp": v_signal.get('long_exp', ''),
+                "long_dte": v_signal.get('long_dte', 0),
+                "long_bid": long_bid,
+                "long_ask": long_ask,
+                "long_mid": long_mid,
                 "short_strike": v_signal.get('short_strike', 0),
-                "short_expiry": v_signal.get('short_exp', ''),
-                "short_price": v_signal.get('short_mid', 0),
+                "short_exp": v_signal.get('short_exp', ''),
+                "short_dte": v_signal.get('short_dte', 0),
+                "short_bid": short_bid,
+                "short_ask": short_ask,
+                "short_mid": short_mid,
+                # Position summary
                 "net_debit": net_mid,
+                "risk_per_contract": abs(net_mid) * 100,
+                "target_mult": variant_config['target_mult'],
+                "target_price": long_mid * variant_config['target_mult'],
+                "stop_mult": variant_config['exit_mult'],
+                "stop_price": long_mid * variant_config['exit_mult'],
+                "suggested_contracts": max(1, min(int(2500 / (abs(net_mid) * 100)), 50)) if net_mid != 0 else 1,
             })
     
     # =================================================================
