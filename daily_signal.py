@@ -176,7 +176,7 @@ def format_html(data):
                 <div style="display:flex;justify-content:space-between;font-size:12px;color:#555;padding-top:4px;border-top:1px solid #eee;">
                     <span><b>Net:</b> ${net_debit:.2f} | <b>{risk_label}:</b> ${max_risk:.0f}/ct</span>
                     <span><b>Target:</b> ${target_price:.2f} ({target_mult}x) | <b>Stop:</b> ${stop_price:.2f} ({stop_mult}x)</span>
-                    <span><b>Suggested:</b> {suggested} ct</span>
+                    <span><b>Suggested:</b> {suggested} ct | <b>Max Loss:</b> ${max_risk * suggested:.0f}</span>
                 </div>
             </div>
         </div>

@@ -212,7 +212,7 @@ def format_html_report(data):
                 <div style="display:flex;justify-content:space-between;font-size:12px;color:#555;padding-top:4px;border-top:1px solid #eee;">
                     <span><b>Net:</b> ${net_debit:.2f} | <b>{risk_label}:</b> ${max_risk:.0f}/ct</span>
                     <span><b>Target:</b> ${target_price:.2f} ({target_mult}x) | <b>Stop:</b> ${stop_price:.2f} ({stop_mult}x)</span>
-                    <span><b>Suggested:</b> {suggested} ct</span>
+                    <span><b>Suggested:</b> {suggested} ct | <b>Max Loss:</b> ${max_risk * suggested:.0f}</span>
                 </div>
             </div>
         </div>
@@ -1775,23 +1775,55 @@ def page_live_signals(vix_weekly: pd.Series, params: Dict[str, Any]):
         st.markdown("---")
         st.subheader("📊 Position Sizing")
         
+        # === SIZING LOCK FEATURE ===
+        # Prevents fluctuations during live trading by locking to a reference price
+        col_lock, col_info = st.columns([1, 3])
+        with col_lock:
+            sizing_locked = st.checkbox(
+                "🔒 Lock Sizing",
+                value=st.session_state.get("sizing_locked", False),
+                key="sizing_lock_checkbox",
+                help="Lock contract sizing to current values. Prevents fluctuations during live trading."
+            )
+        
+        # Store lock state
+        if sizing_locked != st.session_state.get("sizing_locked", False):
+            st.session_state["sizing_locked"] = sizing_locked
+            if sizing_locked:
+                # Save current values when locking
+                st.session_state["locked_net_debit"] = signal.get('net_debit_mid', 0)
+                st.session_state["locked_long_mid"] = signal.get('long_mid', 0)
+                st.session_state["locked_short_mid"] = signal.get('short_mid', 0)
+        
+        with col_info:
+            if sizing_locked:
+                st.caption("🔒 **LOCKED** — Sizing based on saved mid prices, not live quotes")
+            else:
+                st.caption("🔓 **LIVE** — Sizing updates with market prices (may fluctuate)")
+        
         initial_capital = float(params.get("initial_capital", 250000))
         alloc_pct = float(params.get("alloc_pct", 0.01))
         
-        # Convert alloc_pct to percentage if needed
+        # Normalize alloc_pct (handles both 0.01 and 1.0 formats)
         if alloc_pct > 1.0:
-            alloc_pct_display = alloc_pct
             alloc_pct = alloc_pct / 100.0
-        else:
-            alloc_pct_display = alloc_pct * 100
         
         risk_budget = initial_capital * alloc_pct
-        net_debit = signal.get('net_debit_mid', 0)
+        
+        # Use locked or live values
+        if sizing_locked and "locked_net_debit" in st.session_state:
+            net_debit = st.session_state["locked_net_debit"]
+            long_mid = st.session_state["locked_long_mid"]
+        else:
+            net_debit = signal.get('net_debit_mid', 0)
+            long_mid = signal.get('long_mid', 0)
+        
         long_strike = signal.get('long_strike', 0)
         short_strike = signal.get('short_strike', 0)
-        long_mid = signal.get('long_mid', 0)
         
         # Calculate TRUE risk using regime-aware engine
+        # KEY: For spreads, risk is based on STRIKE WIDTH, not fluctuating prices
+        strike_width = abs(long_strike - short_strike)
         max_risk_per_ct, trade_type, risk_desc = calculate_trade_risk(
             long_strike, short_strike, net_debit, long_mid
         )
@@ -1807,7 +1839,8 @@ def page_live_signals(vix_weekly: pd.Series, params: Dict[str, Any]):
         
         total_risk = contracts * max_risk_per_ct
         
-        col_size1, col_size2, col_size3, col_size4 = st.columns(4)
+        # === ENHANCED METRICS DISPLAY ===
+        col_size1, col_size2, col_size3, col_size4, col_size5 = st.columns(5)
         
         with col_size1:
             st.metric("Account Size", f"${initial_capital:,.0f}")
@@ -1816,14 +1849,24 @@ def page_live_signals(vix_weekly: pd.Series, params: Dict[str, Any]):
             st.metric("Risk Budget", f"${risk_budget:,.0f}")
         
         with col_size3:
-            st.metric("Max Risk/Contract", f"${max_risk_per_ct:,.0f}")
+            st.metric("Strike Width", f"${strike_width:.0f}")
         
         with col_size4:
-            st.metric("Suggested Contracts", f"{contracts}")
+            st.metric("Max Risk/Ct", f"${max_risk_per_ct:,.0f}")
+        
+        with col_size5:
+            st.metric("Suggested", f"{contracts} ct")
         
         # Show trade type and risk explanation
         type_color = "🟢" if trade_type == "DEBIT" else "🔵" if trade_type == "CREDIT" else "⚪"
         st.caption(f"{type_color} **{trade_type} Trade** — {risk_desc}")
+        
+        # === PROMINENT MAX LOSS BOX ===
+        max_loss_total = contracts * max_risk_per_ct
+        if trade_type == "CREDIT":
+            st.error(f"⚠️ **MAX LOSS: ${max_loss_total:,.0f}** (if spread expires fully ITM)")
+        else:
+            st.warning(f"💰 **MAX LOSS: ${max_loss_total:,.0f}** (total debit paid)")
         
         # Risk summary
         if signal_active:
@@ -1844,10 +1887,14 @@ def page_live_signals(vix_weekly: pd.Series, params: Dict[str, Any]):
             signal_with_sizing = dict(signal)
             signal_with_sizing["position_sizing"] = {
                 "account_size": initial_capital,
-                "alloc_pct": alloc_pct_display,
-                "risk_per_trade": risk_per_trade,
+                "alloc_pct": alloc_pct * 100,  # as percentage
+                "risk_budget": risk_budget,
+                "max_risk_per_contract": max_risk_per_ct,
+                "trade_type": trade_type,
+                "strike_width": strike_width,
                 "suggested_contracts": contracts,
-                "total_risk": total_risk,
+                "total_max_risk": total_risk,
+                "sizing_locked": sizing_locked,
             }
             st.json(signal_with_sizing)
     else:
