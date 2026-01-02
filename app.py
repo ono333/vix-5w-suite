@@ -142,16 +142,27 @@ def load_live_data() -> Dict[str, Any]:
 # 5 DIAGONAL VARIANTS - QUOTE GENERATION
 # =====================================================================
 
+def round_strike(price: float, increment: float = 1.0) -> float:
+    """Round to valid option strike increment ($1 for UVXY)."""
+    return round(price / increment) * increment
+
+
 def generate_5_variants(uvxy_spot: float, percentile: float, 
                         initial_capital: float = 250000.0,
                         alloc_pct: float = 0.01) -> List[Dict[str, Any]]:
     """
     Generate 5 diagonal spread variants based on current market conditions.
     Returns list of dicts with all quote details for display and email.
+    
+    UVXY options use $1 strike increments.
     """
     r = 0.05  # risk-free rate
     sigma = 0.80  # UVXY typical vol
     capital = initial_capital * alloc_pct
+    today = dt.date.today()
+    
+    # UVXY uses $1 strike increments
+    INC = 1.0
     
     variants = []
     
@@ -160,12 +171,13 @@ def generate_5_variants(uvxy_spot: float, percentile: float,
     # =========================================================
     long_dte_weeks = 26
     short_dte_weeks = 1
-    otm_pts = 2.0
     target_mult = 1.5
     stop_mult = 0.5
     
-    long_strike = round(uvxy_spot + otm_pts, 1)
-    short_strike = round(uvxy_spot + otm_pts + 1, 1)
+    # Round to nearest $1, then ensure short > long
+    long_strike = round_strike(uvxy_spot + 2, INC)
+    short_strike = long_strike + 2  # $2 wide spread
+    
     T_long = long_dte_weeks / 52.0
     T_short = short_dte_weeks / 52.0
     
@@ -174,21 +186,28 @@ def generate_5_variants(uvxy_spot: float, percentile: float,
     net_debit = long_price - short_price
     contracts = max(1, int(capital / (net_debit * 100))) if net_debit > 0 else 1
     
+    long_exp = today + dt.timedelta(days=long_dte_weeks * 7)
+    short_exp = today + dt.timedelta(days=short_dte_weeks * 7)
+    
     variants.append({
         "name": "Baseline Conservative (26w)",
         "desc": "6-month LEAP + weekly short. Lower gamma, slower decay.",
         "long_strike": long_strike,
         "long_dte": long_dte_weeks * 7,
+        "long_dte_weeks": long_dte_weeks,
+        "long_exp_date": long_exp.strftime("%b %d, %Y"),
         "long_price": long_price,
         "short_strike": short_strike,
         "short_dte": short_dte_weeks * 7,
+        "short_dte_weeks": short_dte_weeks,
+        "short_exp_date": short_exp.strftime("%b %d, %Y"),
         "short_price": short_price,
         "net_debit": net_debit,
         "contracts": contracts,
         "target_mult": target_mult,
         "stop_mult": stop_mult,
-        "long_leg": f"BUY {contracts}x UVXY ${long_strike:.1f}C @ ${long_price:.2f} ({long_dte_weeks}w DTE)",
-        "short_leg": f"SELL {contracts}x UVXY ${short_strike:.1f}C @ ${short_price:.2f} ({short_dte_weeks}w DTE)",
+        "long_leg": f"BUY {contracts}x UVXY ${long_strike:.0f}C @ ${long_price:.2f} — Exp {long_exp.strftime('%b %d, %Y')}",
+        "short_leg": f"SELL {contracts}x UVXY ${short_strike:.0f}C @ ${short_price:.2f} — Exp {short_exp.strftime('%b %d, %Y')}",
         "net_position": f"Net Debit: ${net_debit:.2f}/spread (${net_debit * contracts * 100:.0f} total)",
         "target": f"Target: {target_mult}x (${net_debit * target_mult:.2f})",
         "stop": f"Stop: {stop_mult}x (${net_debit * stop_mult:.2f})",
@@ -200,12 +219,12 @@ def generate_5_variants(uvxy_spot: float, percentile: float,
     # =========================================================
     long_dte_weeks = 3
     short_dte_weeks = 1
-    otm_pts = 1.5
     target_mult = 2.0
     stop_mult = 0.4
     
-    long_strike = round(uvxy_spot + otm_pts, 1)
-    short_strike = round(uvxy_spot + otm_pts + 0.5, 1)
+    long_strike = round_strike(uvxy_spot + 1, INC)
+    short_strike = long_strike + 1  # $1 wide spread
+    
     T_long = long_dte_weeks / 52.0
     T_short = short_dte_weeks / 52.0
     
@@ -213,22 +232,29 @@ def generate_5_variants(uvxy_spot: float, percentile: float,
     short_price = bs_call_price(uvxy_spot, short_strike, r, sigma, T_short)
     net_debit = long_price - short_price
     contracts = max(1, int(capital / (net_debit * 100))) if net_debit > 0 else 1
+    
+    long_exp = today + dt.timedelta(days=long_dte_weeks * 7)
+    short_exp = today + dt.timedelta(days=short_dte_weeks * 7)
     
     variants.append({
         "name": "Aggressive Short-Term (3w)",
         "desc": "3-week long + weekly short. High gamma, fast moves.",
         "long_strike": long_strike,
         "long_dte": long_dte_weeks * 7,
+        "long_dte_weeks": long_dte_weeks,
+        "long_exp_date": long_exp.strftime("%b %d, %Y"),
         "long_price": long_price,
         "short_strike": short_strike,
         "short_dte": short_dte_weeks * 7,
+        "short_dte_weeks": short_dte_weeks,
+        "short_exp_date": short_exp.strftime("%b %d, %Y"),
         "short_price": short_price,
         "net_debit": net_debit,
         "contracts": contracts,
         "target_mult": target_mult,
         "stop_mult": stop_mult,
-        "long_leg": f"BUY {contracts}x UVXY ${long_strike:.1f}C @ ${long_price:.2f} ({long_dte_weeks}w DTE)",
-        "short_leg": f"SELL {contracts}x UVXY ${short_strike:.1f}C @ ${short_price:.2f} ({short_dte_weeks}w DTE)",
+        "long_leg": f"BUY {contracts}x UVXY ${long_strike:.0f}C @ ${long_price:.2f} — Exp {long_exp.strftime('%b %d, %Y')}",
+        "short_leg": f"SELL {contracts}x UVXY ${short_strike:.0f}C @ ${short_price:.2f} — Exp {short_exp.strftime('%b %d, %Y')}",
         "net_position": f"Net Debit: ${net_debit:.2f}/spread (${net_debit * contracts * 100:.0f} total)",
         "target": f"Target: {target_mult}x (${net_debit * target_mult:.2f})",
         "stop": f"Stop: {stop_mult}x (${net_debit * stop_mult:.2f})",
@@ -236,16 +262,16 @@ def generate_5_variants(uvxy_spot: float, percentile: float,
     })
     
     # =========================================================
-    # VARIANT 3: Aggressive Ultra-Short (1-week)
+    # VARIANT 3: Aggressive Ultra-Short (1-week vertical)
     # =========================================================
     long_dte_weeks = 1
     short_dte_weeks = 1
-    otm_pts = 1.0
     target_mult = 3.0
     stop_mult = 0.3
     
-    long_strike = round(uvxy_spot + otm_pts, 1)
-    short_strike = round(uvxy_spot + otm_pts + 1.0, 1)
+    long_strike = round_strike(uvxy_spot + 1, INC)
+    short_strike = long_strike + 1  # $1 wide vertical
+    
     T_long = long_dte_weeks / 52.0
     T_short = short_dte_weeks / 52.0
     
@@ -253,22 +279,29 @@ def generate_5_variants(uvxy_spot: float, percentile: float,
     short_price = bs_call_price(uvxy_spot, short_strike, r, sigma, T_short)
     net_debit = long_price - short_price
     contracts = max(1, int(capital / (net_debit * 100))) if net_debit > 0 else 1
+    
+    long_exp = today + dt.timedelta(days=long_dte_weeks * 7)
+    short_exp = today + dt.timedelta(days=short_dte_weeks * 7)
     
     variants.append({
         "name": "Aggressive Ultra-Short (1w)",
         "desc": "Weekly vertical spread. Maximum gamma, binary outcome.",
         "long_strike": long_strike,
         "long_dte": long_dte_weeks * 7,
+        "long_dte_weeks": long_dte_weeks,
+        "long_exp_date": long_exp.strftime("%b %d, %Y"),
         "long_price": long_price,
         "short_strike": short_strike,
         "short_dte": short_dte_weeks * 7,
+        "short_dte_weeks": short_dte_weeks,
+        "short_exp_date": short_exp.strftime("%b %d, %Y"),
         "short_price": short_price,
         "net_debit": net_debit,
         "contracts": contracts,
         "target_mult": target_mult,
         "stop_mult": stop_mult,
-        "long_leg": f"BUY {contracts}x UVXY ${long_strike:.1f}C @ ${long_price:.2f} ({long_dte_weeks}w DTE)",
-        "short_leg": f"SELL {contracts}x UVXY ${short_strike:.1f}C @ ${short_price:.2f} ({short_dte_weeks}w DTE)",
+        "long_leg": f"BUY {contracts}x UVXY ${long_strike:.0f}C @ ${long_price:.2f} — Exp {long_exp.strftime('%b %d, %Y')}",
+        "short_leg": f"SELL {contracts}x UVXY ${short_strike:.0f}C @ ${short_price:.2f} — Exp {short_exp.strftime('%b %d, %Y')}",
         "net_position": f"Net Debit: ${net_debit:.2f}/spread (${net_debit * contracts * 100:.0f} total)",
         "target": f"Target: {target_mult}x (${net_debit * target_mult:.2f})",
         "stop": f"Stop: {stop_mult}x (${net_debit * stop_mult:.2f})",
@@ -276,16 +309,16 @@ def generate_5_variants(uvxy_spot: float, percentile: float,
     })
     
     # =========================================================
-    # VARIANT 4: Tighter Spread (1.5x target)
+    # VARIANT 4: Tighter Spread (13w, 1.5x target)
     # =========================================================
     long_dte_weeks = 13
     short_dte_weeks = 1
-    otm_pts = 1.5
     target_mult = 1.5
     stop_mult = 0.6
     
-    long_strike = round(uvxy_spot + otm_pts, 1)
-    short_strike = round(uvxy_spot + otm_pts + 0.5, 1)
+    long_strike = round_strike(uvxy_spot + 2, INC)
+    short_strike = long_strike + 1  # $1 wide spread
+    
     T_long = long_dte_weeks / 52.0
     T_short = short_dte_weeks / 52.0
     
@@ -293,22 +326,29 @@ def generate_5_variants(uvxy_spot: float, percentile: float,
     short_price = bs_call_price(uvxy_spot, short_strike, r, sigma, T_short)
     net_debit = long_price - short_price
     contracts = max(1, int(capital / (net_debit * 100))) if net_debit > 0 else 1
+    
+    long_exp = today + dt.timedelta(days=long_dte_weeks * 7)
+    short_exp = today + dt.timedelta(days=short_dte_weeks * 7)
     
     variants.append({
         "name": "Tighter Target (13w, 1.5x)",
         "desc": "Quarter LEAP, tighter profit target. Balanced risk/reward.",
         "long_strike": long_strike,
         "long_dte": long_dte_weeks * 7,
+        "long_dte_weeks": long_dte_weeks,
+        "long_exp_date": long_exp.strftime("%b %d, %Y"),
         "long_price": long_price,
         "short_strike": short_strike,
         "short_dte": short_dte_weeks * 7,
+        "short_dte_weeks": short_dte_weeks,
+        "short_exp_date": short_exp.strftime("%b %d, %Y"),
         "short_price": short_price,
         "net_debit": net_debit,
         "contracts": contracts,
         "target_mult": target_mult,
         "stop_mult": stop_mult,
-        "long_leg": f"BUY {contracts}x UVXY ${long_strike:.1f}C @ ${long_price:.2f} ({long_dte_weeks}w DTE)",
-        "short_leg": f"SELL {contracts}x UVXY ${short_strike:.1f}C @ ${short_price:.2f} ({short_dte_weeks}w DTE)",
+        "long_leg": f"BUY {contracts}x UVXY ${long_strike:.0f}C @ ${long_price:.2f} — Exp {long_exp.strftime('%b %d, %Y')}",
+        "short_leg": f"SELL {contracts}x UVXY ${short_strike:.0f}C @ ${short_price:.2f} — Exp {short_exp.strftime('%b %d, %Y')}",
         "net_position": f"Net Debit: ${net_debit:.2f}/spread (${net_debit * contracts * 100:.0f} total)",
         "target": f"Target: {target_mult}x (${net_debit * target_mult:.2f})",
         "stop": f"Stop: {stop_mult}x (${net_debit * stop_mult:.2f})",
@@ -316,16 +356,16 @@ def generate_5_variants(uvxy_spot: float, percentile: float,
     })
     
     # =========================================================
-    # VARIANT 5: Static Entry (Ignore Percentile)
+    # VARIANT 5: Static Entry (8w)
     # =========================================================
     long_dte_weeks = 8
     short_dte_weeks = 1
-    otm_pts = 2.0
     target_mult = 1.8
     stop_mult = 0.5
     
-    long_strike = round(uvxy_spot + otm_pts, 1)
-    short_strike = round(uvxy_spot + otm_pts + 1.0, 1)
+    long_strike = round_strike(uvxy_spot + 2, INC)
+    short_strike = long_strike + 2  # $2 wide spread
+    
     T_long = long_dte_weeks / 52.0
     T_short = short_dte_weeks / 52.0
     
@@ -334,21 +374,28 @@ def generate_5_variants(uvxy_spot: float, percentile: float,
     net_debit = long_price - short_price
     contracts = max(1, int(capital / (net_debit * 100))) if net_debit > 0 else 1
     
+    long_exp = today + dt.timedelta(days=long_dte_weeks * 7)
+    short_exp = today + dt.timedelta(days=short_dte_weeks * 7)
+    
     variants.append({
         "name": "Static Entry (8w)",
         "desc": "2-month diagonal. Ignores percentile, always available.",
         "long_strike": long_strike,
         "long_dte": long_dte_weeks * 7,
+        "long_dte_weeks": long_dte_weeks,
+        "long_exp_date": long_exp.strftime("%b %d, %Y"),
         "long_price": long_price,
         "short_strike": short_strike,
         "short_dte": short_dte_weeks * 7,
+        "short_dte_weeks": short_dte_weeks,
+        "short_exp_date": short_exp.strftime("%b %d, %Y"),
         "short_price": short_price,
         "net_debit": net_debit,
         "contracts": contracts,
         "target_mult": target_mult,
         "stop_mult": stop_mult,
-        "long_leg": f"BUY {contracts}x UVXY ${long_strike:.1f}C @ ${long_price:.2f} ({long_dte_weeks}w DTE)",
-        "short_leg": f"SELL {contracts}x UVXY ${short_strike:.1f}C @ ${short_price:.2f} ({short_dte_weeks}w DTE)",
+        "long_leg": f"BUY {contracts}x UVXY ${long_strike:.0f}C @ ${long_price:.2f} — Exp {long_exp.strftime('%b %d, %Y')}",
+        "short_leg": f"SELL {contracts}x UVXY ${short_strike:.0f}C @ ${short_price:.2f} — Exp {short_exp.strftime('%b %d, %Y')}",
         "net_position": f"Net Debit: ${net_debit:.2f}/spread (${net_debit * contracts * 100:.0f} total)",
         "target": f"Target: {target_mult}x (${net_debit * target_mult:.2f})",
         "stop": f"Stop: {stop_mult}x (${net_debit * stop_mult:.2f})",
@@ -396,6 +443,9 @@ def format_email_html(data: Dict[str, Any]) -> str:
     """
     
     for i, v in enumerate(data['variants'], 1):
+        long_exp = v.get('long_exp_date', 'N/A')
+        short_exp = v.get('short_exp_date', 'N/A')
+        
         html += f"""
         <div style="padding:15px;border:1px solid #cccccc;margin-bottom:20px;background:#f9f9f9;border-radius:5px;">
             <strong style="font-size:20px;color:#00aadd;">#{i} {v['name']}</strong><br>
@@ -403,20 +453,22 @@ def format_email_html(data: Dict[str, Any]) -> str:
             
             <div style="background:#e8f5e9;padding:10px;margin:5px 0;border-left:4px solid #4caf50;">
                 <strong style="color:#2e7d32;">📈 LONG LEG (Buy):</strong><br>
-                {v['long_leg']}
+                BUY {v['contracts']}x UVXY ${v['long_strike']:.1f}C @ ${v['long_price']:.2f}<br>
+                <span style="color:#555;">Expires: <strong>{long_exp}</strong> ({v['long_dte']} days)</span>
             </div>
             
             <div style="background:#ffebee;padding:10px;margin:5px 0;border-left:4px solid #f44336;">
                 <strong style="color:#c62828;">📉 SHORT LEG (Sell):</strong><br>
-                {v['short_leg']}
+                SELL {v['contracts']}x UVXY ${v['short_strike']:.1f}C @ ${v['short_price']:.2f}<br>
+                <span style="color:#555;">Expires: <strong>{short_exp}</strong> ({v['short_dte']} days)</span>
             </div>
             
             <div style="background:#e3f2fd;padding:10px;margin:5px 0;border-left:4px solid #2196f3;">
                 <strong style="color:#1565c0;">💰 NET POSITION:</strong><br>
-                {v['net_position']}<br>
-                {v['target']}<br>
-                {v['stop']}<br>
-                <strong>Suggested: {v['suggested']}</strong>
+                Net Debit: ${v['net_debit']:.2f}/spread (${v['net_debit'] * v['contracts'] * 100:.0f} total)<br>
+                Target: {v['target_mult']}x (${v['net_debit'] * v['target_mult']:.2f})<br>
+                Stop: {v['stop_mult']}x (${v['net_debit'] * v['stop_mult']:.2f})<br>
+                <strong>Suggested: {v['contracts']} contracts</strong>
             </div>
         </div>
         """
@@ -583,30 +635,44 @@ def page_live_signals():
     
     expand_all = st.session_state.get('expand_all', True)
     
-    # Display each variant — EXPANDED BY DEFAULT
+    # Display each variant — EXPANDED BY DEFAULT, DARK-MODE COMPATIBLE DESIGN
     for i, v in enumerate(variants, 1):
         with st.expander(f"**#{i} {v['name']}**", expanded=expand_all):
             st.markdown(f"*{v['desc']}*")
             
-            col1, col2 = st.columns(2)
+            # Calculate actual expiration dates
+            today = dt.date.today()
+            long_exp_date = today + dt.timedelta(days=v['long_dte'])
+            short_exp_date = today + dt.timedelta(days=v['short_dte'])
+            long_exp_str = long_exp_date.strftime("%b %d, %Y")
+            short_exp_str = short_exp_date.strftime("%b %d, %Y")
             
-            with col1:
-                st.markdown("#### 📈 LONG LEG (Buy)")
-                st.code(v['long_leg'], language=None)
-                
-            with col2:
-                st.markdown("#### 📉 SHORT LEG (Sell)")
-                st.code(v['short_leg'], language=None)
+            # Dark-mode compatible colored boxes
+            st.markdown(f"""
+<div style="background:rgba(76,175,80,0.15);padding:12px;margin:8px 0;border-left:4px solid #4caf50;border-radius:4px;">
+    <strong style="color:#81c784;font-size:18px;">📈 LONG LEG (Buy):</strong><br>
+    <span style="font-size:17px;color:#e0e0e0;">BUY {v['contracts']}x UVXY ${v['long_strike']:.1f}C @ ${v['long_price']:.2f}</span><br>
+    <span style="color:#aaaaaa;">Expires: <strong style="color:#81c784;">{long_exp_str}</strong> ({v['long_dte']} days)</span>
+</div>
+            """, unsafe_allow_html=True)
             
-            st.markdown("#### 💰 Net Position")
-            st.info(f"""
-**{v['net_position']}**
-
-{v['target']}  
-{v['stop']}  
-
-**Suggested:** {v['suggested']}
-            """)
+            st.markdown(f"""
+<div style="background:rgba(244,67,54,0.15);padding:12px;margin:8px 0;border-left:4px solid #f44336;border-radius:4px;">
+    <strong style="color:#e57373;font-size:18px;">📉 SHORT LEG (Sell):</strong><br>
+    <span style="font-size:17px;color:#e0e0e0;">SELL {v['contracts']}x UVXY ${v['short_strike']:.1f}C @ ${v['short_price']:.2f}</span><br>
+    <span style="color:#aaaaaa;">Expires: <strong style="color:#e57373;">{short_exp_str}</strong> ({v['short_dte']} days)</span>
+</div>
+            """, unsafe_allow_html=True)
+            
+            st.markdown(f"""
+<div style="background:rgba(33,150,243,0.15);padding:12px;margin:8px 0;border-left:4px solid #2196f3;border-radius:4px;">
+    <strong style="color:#64b5f6;font-size:18px;">💰 NET POSITION:</strong><br>
+    <span style="font-size:17px;color:#e0e0e0;"><strong>Net Debit:</strong> ${v['net_debit']:.2f}/spread (${v['net_debit'] * v['contracts'] * 100:.0f} total)</span><br>
+    <span style="font-size:16px;color:#bbbbbb;">Target: {v['target_mult']}x (${v['net_debit'] * v['target_mult']:.2f})</span><br>
+    <span style="font-size:16px;color:#bbbbbb;">Stop: {v['stop_mult']}x (${v['net_debit'] * v['stop_mult']:.2f})</span><br>
+    <strong style="font-size:17px;color:#64b5f6;">Suggested: {v['contracts']} contracts</strong>
+</div>
+            """, unsafe_allow_html=True)
     
     st.markdown("---")
     
