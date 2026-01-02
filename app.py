@@ -1798,121 +1798,111 @@ def page_live_signals(vix_weekly: pd.Series, params: Dict[str, Any]):
     - UVXY is a leveraged, decaying ETP — positions require active management
     - Bid-ask spreads can be wide; use limit orders
     """)
-        
-    # In app.py Gemini
-    # --- Updated Export Block in app.py ---
-    import json
-    import os
-
-    live_data = {
-        "vix_close": float(vix_weekly.iloc[-1]),
-        "percentile": float(current_pct * 100),
-        "regime": current_regime,
-        "signal_active": bool(current_pct <= 0.35),
-        "uvxy_spot": float(current_price),
-        "variants": variants 
-    }
-
-    # Use the absolute path to your home directory
-    file_path = "/home/shin/vix_suite/live_signal_data.json"
-    with open(file_path, "w") as f:
-        json.dump(live_data, f, indent=4)
-    # Optional: Add a temporary streamlit message to confirm it worked
-    st.success(f"Data exported to {file_path}")
-        
+    
     # Last updated
     st.caption(f"*Last updated: {signal.get('timestamp', 'N/A')}*")
     
-    if st.button("Send Thursday Email"):
-        # Use the exact data from this page
-        data = {
-            "date": dt.date.today().isoformat(),
-            "vix_close": vix_close,
-            "percentile": percentile * 100,
-            "regime": regime,
-            "signal_active": signal_active,
-            "uvxy_spot": uvxy_spot,
-            "variants": quote_datas  # Exact list of 5 variants from app
-        }
-
-        # Send email using SMTP env vars
-        smtp_server = os.environ.get("SMTP_SERVER")
-        smtp_port = int(os.environ.get("SMTP_PORT", 587))
-        smtp_user = os.environ.get("SMTP_USER")
-        smtp_pass = os.environ.get("SMTP_PASS")
-        
-        if all([smtp_server, smtp_user, smtp_pass]):
-            msg = MIMEMultipart()
-            msg['Subject'] = f"🟢 [ENTRY SIGNAL] VIX {regime} Regime ({percentile*100:.1f}%)"
-            msg['From'] = smtp_user
-            msg['To'] = "onoshin333@gmail.com"
-
-            html = format_html_report(data)  # Your white background HTML function
-            msg.attach(MIMEText(html, 'html', 'utf-8'))
-
-            try:
-                with smtplib.SMTP(smtp_server, smtp_port) as server:
-                    server.starttls()
-                    server.login(smtp_user, smtp_pass)
-                    server.send_message(msg)
-                st.success("Email sent successfully! Check your inbox.")
-            except Exception as e:
-                st.error(f"Email failed: {e}")
-        else:
-            st.error("SMTP environment variables missing — set them first.")
-    if st.button("Send Thursday Email"):
-        data = {
-            "vix_close": vix_close,
-            "percentile": percentile * 100,
-            "regime": regime,
-            "signal_active": signal_active,
-            "uvxy_spot": uvxy_spot,
-            "variants": quote_datas  # Exact 5 from the app
-        }
-
-        smtp_server = os.environ.get("SMTP_SERVER")
-        smtp_port = int(os.environ.get("SMTP_PORT", 587))
-        smtp_user = os.environ.get("SMTP_USER")
-        smtp_pass = os.environ.get("SMTP_PASS")
-        
-        if all([smtp_server, smtp_user, smtp_pass]):
-            msg = MIMEMultipart()
-            msg['Subject'] = f"🟢 [ENTRY SIGNAL] VIX {regime} Regime ({percentile*100:.1f}%)"
-            msg['From'] = smtp_user
-            msg['To'] = "onoshin333@gmail.com"
-
-            html = format_html_report(data)
-            msg.attach(MIMEText(html, 'html', 'utf-8'))
-
-            try:
-                with smtplib.SMTP(smtp_server, smtp_port) as server:
-                    server.starttls()
-                    server.login(smtp_user, smtp_pass)
-                    server.send_message(msg)
-                st.success("Email sent successfully! Check your inbox.")
-            except Exception as e:
-                st.error(f"Email failed: {e}")
-        else:
-            st.error("SMTP environment variables missing — set them first.")
-
-        # --- ADD THIS TO THE END OF page_live_signals in app.py ---
-        import json
-        from pathlib import Path
-
-        # Create the data package for the emailer
-        live_data = {
-            "vix_close": float(vix_weekly.iloc[-1]), # Uses the actual VIX data from your app
-            "percentile": float(percentile * 100),
-            "regime": regime,
-            "signal_active": bool(signal_active),
-            "uvxy_spot": float(uvxy_price), # Ensure this variable name matches your app's UVXY price variable
-            "variants": variants # This should be the list of 5 diagonal variants you calculated
-        }
-
-        # Save to the specific path the emailer expects
-        data_path = Path(__file__).parent / "live_signal_data.json"
+    # =================================================================
+    # BUILD VARIANTS DATA FOR EXPORT (using variant_signals from above)
+    # =================================================================
+    export_variants = []
+    for variant_name, variant_config in PAPER_VARIANTS.items():
+        v_signal = variant_signals.get(variant_name, {})
+        if "error" not in v_signal:
+            net_mid = v_signal.get('net_debit_mid', 0)
+            export_variants.append({
+                "name": variant_name,
+                "desc": variant_config.get('description', ''),
+                "long_leg": f"UVXY {v_signal.get('long_exp', 'N/A')} ${v_signal.get('long_strike', 0):.0f}C @ ${v_signal.get('long_mid', 0):.2f}",
+                "short_leg": f"UVXY {v_signal.get('short_exp', 'N/A')} ${v_signal.get('short_strike', 0):.0f}C @ ${v_signal.get('short_mid', 0):.2f}",
+                "net_position": f"Net Debit: ${net_mid:.2f}",
+                "target": f"Target ({variant_config['target_mult']}x): ${net_mid * variant_config['target_mult']:.2f}",
+                "stop": f"Stop ({variant_config['exit_mult']}x): ${net_mid * variant_config['exit_mult']:.2f}",
+                "suggested": f"{max(1, min(int(2500 / (net_mid * 100)), 50)) if net_mid > 0 else 1} contracts",
+                # Raw values for emailer
+                "long_strike": v_signal.get('long_strike', 0),
+                "long_expiry": v_signal.get('long_exp', ''),
+                "long_price": v_signal.get('long_mid', 0),
+                "short_strike": v_signal.get('short_strike', 0),
+                "short_expiry": v_signal.get('short_exp', ''),
+                "short_price": v_signal.get('short_mid', 0),
+                "net_debit": net_mid,
+            })
+    
+    # =================================================================
+    # AUTO-EXPORT JSON FOR EMAILER (runs every page load)
+    # =================================================================
+    import json
+    from pathlib import Path
+    
+    live_data = {
+        "vix_close": float(current_vix),
+        "percentile": float(percentile),  # Already 0-100 from vix_data
+        "regime": regime_name,
+        "signal_active": bool(signal_active),
+        "uvxy_spot": float(uvxy_spot) if uvxy_spot else 0.0,
+        "variants": export_variants,
+        "generated_at": dt.datetime.now().isoformat(),
+    }
+    
+    # Save to JSON for emailer
+    data_path = Path(__file__).parent / "live_signal_data.json"
+    try:
         with open(data_path, "w") as f:
-            json.dump(live_data, f, indent=4)
+            json.dump(live_data, f, indent=2)
+    except Exception as e:
+        st.warning(f"Could not save data file: {e}")
+    
+    # =================================================================
+    # SEND EMAIL BUTTON
+    # =================================================================
+    st.markdown("---")
+    st.subheader("📧 Thursday Email")
+    
+    col_email1, col_email2 = st.columns([2, 1])
+    
+    with col_email1:
+        recipient = st.text_input("Recipient Email", value="onoshin333@gmail.com", key="email_recipient")
+    
+    with col_email2:
+        force_send = st.checkbox("Send even if no signal", key="force_email")
+    
+    if st.button("📤 Send Thursday Email Now", type="primary"):
+        import smtplib
+        from email.mime.text import MIMEText
+        from email.mime.multipart import MIMEMultipart
+        
+        smtp_server = os.environ.get("SMTP_SERVER", "smtp.gmail.com")
+        smtp_port = int(os.environ.get("SMTP_PORT", 587))
+        smtp_user = os.environ.get("SMTP_USER")
+        smtp_pass = os.environ.get("SMTP_PASS")
+        
+        if not smtp_user or not smtp_pass:
+            st.error("❌ SMTP credentials missing. Set SMTP_USER and SMTP_PASS environment variables.")
+        elif not signal_active and not force_send:
+            st.warning("⚠️ No signal active. Check 'Send even if no signal' to send anyway.")
+        else:
+            # Build email
+            emoji = "🟢" if signal_active else "🔴"
+            subject = f"{emoji} VIX Signal: {regime_name} ({percentile:.1f}%)"
+            
+            # Format HTML
+            html = format_html_report(live_data)
+            
+            msg = MIMEMultipart()
+            msg['Subject'] = subject
+            msg['From'] = smtp_user
+            msg['To'] = recipient
+            msg.attach(MIMEText(html, 'html', 'utf-8'))
+            
+            try:
+                with smtplib.SMTP(smtp_server, smtp_port) as server:
+                    server.starttls()
+                    server.login(smtp_user, smtp_pass)
+                    server.send_message(msg)
+                st.success(f"✅ Email sent to {recipient}!")
+            except Exception as e:
+                st.error(f"❌ Email failed: {e}")
 
 
 # ---------------------------------------------------------------------
