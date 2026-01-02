@@ -23,72 +23,97 @@ SMTP_PASS = os.getenv("SMTP_PASS")
 DATA_FILE = Path(__file__).parent / "live_signal_data.json"
 
 def format_html(data):
+    """Generates a high-detail HTML report matching the dashboard's depth."""
     today = dt.date.today().strftime("%B %d, %Y")
     pct = data['percentile']
     active = data['signal_active']
     emoji = "🟢" if active else "🔴"
-    
+    status_color = "#2e7d32" if active else "#c62828"
+    status_bg = "#e8f5e9" if active else "#ffebee"
+
     html = f"""
     <html>
-    <body style="font-family: 'Segoe UI', Arial, sans-serif; background-color: #f4f7f6; padding: 20px;">
-        <div style="max-width: 800px; margin: auto; background: white; padding: 30px; border-radius: 10px; border: 1px solid #ddd;">
-            <h1 style="color: #1f77b4; text-align: center; margin-bottom: 5px;">VIX 5% WEEKLY SUITE</h1>
-            <p style="text-align: center; color: #666;">Signal Report: {today}</p>
+    <body style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f0f2f6; padding: 20px;">
+        <div style="max-width: 800px; margin: auto; background: #ffffff; padding: 30px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
             
-            <div style="background: #e1f5fe; padding: 15px; border-radius: 5px; margin: 20px 0;">
-                <table style="width: 100%; border-collapse: collapse;">
-                    <tr>
-                        <td style="font-weight: bold;">VIX Close:</td><td>${data['vix_close']:.2f}</td>
-                        <td style="font-weight: bold;">Percentile:</td><td>{pct:.1f}%</td>
-                    </tr>
-                    <tr>
-                        <td style="font-weight: bold;">Regime:</td><td>{data['regime']}</td>
-                        <td style="font-weight: bold;">UVXY Spot:</td><td>${data['uvxy_spot']:.2f}</td>
-                    </tr>
-                </table>
+            <div style="text-align: center; border-bottom: 2px solid #1f77b4; padding-bottom: 20px; margin-bottom: 25px;">
+                <h1 style="color: #1f77b4; margin: 0; font-size: 28px;">VIX 5% WEEKLY SUITE</h1>
+                <p style="color: #666; font-size: 16px; margin: 5px 0 0 0;">Thursday Signal Report • {today}</p>
             </div>
 
-            <div style="text-align: center; padding: 20px; border: 2px solid {'#2e7d32' if active else '#c62828'}; border-radius: 10px; background: {'#e8f5e9' if active else '#ffebee'};">
-                <span style="font-size: 24px; font-weight: bold; color: {'#2e7d32' if active else '#c62828'};">
-                    {emoji} {">>> ENTRY SIGNAL ACTIVE <<<" if active else "SIGNAL STATUS: HOLD"}
+            <div style="display: flex; justify-content: space-between; margin-bottom: 25px;">
+                <div style="flex: 1; background: #f8f9fa; padding: 15px; border-radius: 5px; margin-right: 10px; border-left: 4px solid #1f77b4;">
+                    <span style="font-size: 12px; color: #666; text-transform: uppercase;">Market State</span><br>
+                    <strong style="font-size: 18px;">VIX: ${data['vix_close']:.2f}</strong><br>
+                    <span style="color: #444;">Percentile: {pct:.1f}%</span>
+                </div>
+                <div style="flex: 1; background: #f8f9fa; padding: 15px; border-radius: 5px; border-left: 4px solid #1f77b4;">
+                    <span style="font-size: 12px; color: #666; text-transform: uppercase;">Regime & Asset</span><br>
+                    <strong style="font-size: 18px;">{data['regime']}</strong><br>
+                    <span style="color: #444;">UVXY: ${data['uvxy_spot']:.2f}</span>
+                </div>
+            </div>
+
+            <div style="background: {status_bg}; padding: 20px; border-radius: 8px; text-align: center; margin-bottom: 30px; border: 1px solid {status_color};">
+                <span style="font-size: 22px; font-weight: bold; color: {status_color};">
+                    {emoji} {">>> ENTRY SIGNAL ACTIVE <<<" if active else "SIGNAL STATUS: HOLD / NO ENTRY"}
                 </span>
             </div>
 
-            <h2 style="border-bottom: 2px solid #1f77b4; padding-bottom: 10px; margin-top: 30px;">Strategic Variants</h2>
+            <h2 style="color: #333; font-size: 20px; margin-bottom: 15px;">Strategy Variants</h2>
     """
 
     for v in data['variants']:
         html += f"""
-            <div style="margin-bottom: 25px; border: 1px solid #eee; border-radius: 5px; overflow: hidden;">
-                <div style="background: #f8f9fa; padding: 10px; font-weight: bold; border-bottom: 1px solid #eee; color: #1f77b4;">
+            <div style="margin-bottom: 25px; border: 1px solid #e0e0e0; border-radius: 6px; overflow: hidden;">
+                <div style="background: #1f77b4; color: white; padding: 10px 15px; font-weight: bold;">
                     {v['name']}
                 </div>
                 <div style="padding: 15px;">
-                    <table style="width: 100%; font-size: 14px; margin-bottom: 10px;">
+                    <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">
                         <tr>
-                            <td><strong>Position:</strong> {v.get('net_position', 'N/A')}</td>
-                            <td><strong>Net Debit:</strong> {v.get('suggested', 'N/A')}</td>
+                            <td style="width: 50%; padding: 5px 0;"><strong>Position:</strong> {v.get('net_position', 'N/A')}</td>
+                            <td style="width: 50%; padding: 5px 0; text-align: right;"><strong>Net Debit:</strong> {v.get('suggested', 'N/A')}</td>
                         </tr>
                     </table>
-                    <table style="width: 100%; border-collapse: collapse; font-size: 13px; text-align: left;">
-                        <tr style="background: #fafafa;">
-                            <th style="padding: 5px; border-bottom: 1px solid #ddd;">Leg</th>
-                            <th style="padding: 5px; border-bottom: 1px solid #ddd;">Strike</th>
-                            <th style="padding: 5px; border-bottom: 1px solid #ddd;">Expiry</th>
-                            <th style="padding: 5px; border-bottom: 1px solid #ddd;">Price</th>
-                        </tr>
-                        <tr>
-                            <td style="padding: 5px;">Short Call</td><td>{v.get('short_strike', '-')}</td><td>{v.get('short_expiry', '-')}</td><td>${v.get('short_price', 0):.2f}</td>
-                        </tr>
-                        <tr>
-                            <td style="padding: 5px;">Long Call</td><td>{v.get('long_strike', '-')}</td><td>{v.get('long_expiry', '-')}</td><td>${v.get('long_price', 0):.2f}</td>
-                        </tr>
+                    
+                    <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                        <thead>
+                            <tr style="background: #f0f2f6; text-align: left;">
+                                <th style="padding: 8px; border: 1px solid #ddd;">Leg</th>
+                                <th style="padding: 8px; border: 1px solid #ddd;">Strike</th>
+                                <th style="padding: 8px; border: 1px solid #ddd;">Expiry</th>
+                                <th style="padding: 8px; border: 1px solid #ddd;">Price</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td style="padding: 8px; border: 1px solid #ddd; font-weight: bold; color: #c62828;">SHORT CALL</td>
+                                <td style="padding: 8px; border: 1px solid #ddd;">{v.get('short_strike', '-')}</td>
+                                <td style="padding: 8px; border: 1px solid #ddd;">{v.get('short_expiry', '-')}</td>
+                                <td style="padding: 8px; border: 1px solid #ddd;">${v.get('short_price', 0):.2f}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 8px; border: 1px solid #ddd; font-weight: bold; color: #2e7d32;">LONG CALL</td>
+                                <td style="padding: 8px; border: 1px solid #ddd;">{v.get('long_strike', '-')}</td>
+                                <td style="padding: 8px; border: 1px solid #ddd;">{v.get('long_expiry', '-')}</td>
+                                <td style="padding: 8px; border: 1px solid #ddd;">${v.get('long_price', 0):.2f}</td>
+                            </tr>
+                        </tbody>
                     </table>
                 </div>
             </div>
         """
     
-    html += "</div></body></html>"
+    html += """
+            <div style="text-align: center; color: #999; font-size: 11px; margin-top: 30px; border-top: 1px solid #eee; padding-top: 10px;">
+                This is an automated signal generated by the VIX 5% Weekly Suite server. 
+                Trading options involves significant risk.
+            </div>
+        </div>
+    </body>
+    </html>
+    """
     return html
 
 def send_email(recipient, html_content, data):
