@@ -19,6 +19,7 @@ Regime System:
 """
 
 import io
+import os
 import datetime as dt
 from datetime import date, timedelta
 from typing import Dict, Any, Optional, List
