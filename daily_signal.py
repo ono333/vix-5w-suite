@@ -26,6 +26,48 @@ SMTP_PASS = os.getenv("SMTP_PASS")
 DATA_FILE = Path(__file__).parent / "live_signal_data.json"
 
 
+# =============================================================================
+# RISK CALCULATION ENGINE (same as app.py)
+# =============================================================================
+
+def calculate_trade_risk(
+    long_strike: float,
+    short_strike: float,
+    net_debit: float,
+    long_mid: float = 0.0,
+) -> tuple:
+    """
+    Calculate true max risk per contract based on trade structure.
+    
+    For DEBIT trades (net_debit > 0):
+        Risk = net_debit * 100 (you lose what you paid)
+    
+    For CREDIT trades (net_debit <= 0):
+        Risk = (strike_width - credit_received) * 100
+        This is the max loss if spread expires fully ITM
+    
+    Returns:
+        (max_risk_per_contract, trade_type)
+    """
+    strike_width = abs(long_strike - short_strike)
+    
+    if net_debit > 0:
+        # DEBIT trade: risk is what you paid
+        max_risk = net_debit * 100
+        trade_type = "DEBIT"
+    elif net_debit < 0:
+        # CREDIT trade: risk is strike width minus credit received
+        credit_received = abs(net_debit)
+        max_risk = (strike_width - credit_received) * 100
+        trade_type = "CREDIT"
+    else:
+        # Zero cost: risk is the long leg value (fallback)
+        max_risk = long_mid * 100 if long_mid > 0 else strike_width * 100
+        trade_type = "EVEN"
+    
+    return max(max_risk, 0.01), trade_type  # Never zero risk
+
+
 def format_html(data):
     """Compact HTML email with bid/ask data for trading."""
     today = dt.date.today().strftime("%b %d, %Y")
@@ -77,12 +119,24 @@ def format_html(data):
         short_mid = v.get('short_mid', v.get('short_price', 0))
         
         net_debit = v.get('net_debit', 0)
-        risk = v.get('risk_per_contract', abs(net_debit) * 100)
+        
+        # Use new risk calculation if available, else calculate
+        if 'max_risk' in v:
+            max_risk = v['max_risk']
+            trade_type = v.get('trade_type', 'DEBIT')
+        else:
+            max_risk, trade_type = calculate_trade_risk(
+                long_strike, short_strike, net_debit, long_mid
+            )
+        
         target_mult = v.get('target_mult', 1.2)
         target_price = v.get('target_price', long_mid * target_mult)
         stop_mult = v.get('stop_mult', 0.5)
         stop_price = v.get('stop_price', long_mid * stop_mult)
         suggested = v.get('suggested_contracts', v.get('suggested', 1))
+        
+        # Label: "Max Risk" for clarity (especially important for credit spreads)
+        risk_label = "Max Risk" if trade_type == "CREDIT" else "Risk"
         
         html += f"""
         <div style="border:1px solid #ddd;margin-bottom:8px;border-radius:4px;overflow:hidden;">
@@ -120,7 +174,7 @@ def format_html(data):
                     </tr>
                 </table>
                 <div style="display:flex;justify-content:space-between;font-size:12px;color:#555;padding-top:4px;border-top:1px solid #eee;">
-                    <span><b>Net:</b> ${net_debit:.2f} | <b>Risk:</b> ${risk:.0f}/ct</span>
+                    <span><b>Net:</b> ${net_debit:.2f} | <b>{risk_label}:</b> ${max_risk:.0f}/ct</span>
                     <span><b>Target:</b> ${target_price:.2f} ({target_mult}x) | <b>Stop:</b> ${stop_price:.2f} ({stop_mult}x)</span>
                     <span><b>Suggested:</b> {suggested} ct</span>
                 </div>

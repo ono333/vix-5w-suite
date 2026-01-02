@@ -39,7 +39,7 @@
 
 #### Step 1: Verify Data Loading
 ```python
-# In app_improved.py, add after loading data:
+# In app.py, add after loading data:
 st.write("VIX data sample:")
 st.write(vix_weekly.head())
 st.write(f"Total weeks: {len(vix_weekly)}")
@@ -50,7 +50,7 @@ Expected: Should show 50+ weeks of VIX data
 
 #### Step 2: Check Percentile Calculation
 ```python
-# In app_improved.py, add after creating regime_adapter:
+# In app.py, add after creating regime_adapter:
 st.write("Percentile sample:")
 st.write(regime_adapter.vix_percentile.tail(20))
 st.write(f"Valid percentiles: {regime_adapter.vix_percentile.notna().sum()}")
@@ -60,7 +60,7 @@ Expected: Should have valid percentiles (not all NaN)
 
 #### Step 3: Inspect Entry Signals
 ```python
-# In app_improved.py, after backtest:
+# In app.py, after backtest:
 entry_signals = bt_results.get("entry_signals", [])
 st.write(f"Entry signals detected: {len(entry_signals)}")
 if entry_signals:
@@ -72,7 +72,7 @@ Expected: Should have at least a few entry signals
 
 #### Step 4: Check Failed Trades
 ```python
-# In app_improved.py, after backtest:
+# In app.py, after backtest:
 no_trade_reasons = bt_results.get("no_trade_reasons", [])
 st.write(f"Failed trade attempts: {len(no_trade_reasons)}")
 if no_trade_reasons:
@@ -129,13 +129,14 @@ ModuleNotFoundError: No module named 'regime_adapter'
 
 **Solution**: 
 ```bash
-# Make sure all new files are in same directory as app_improved.py
-ls -la
+# Make sure all files are in the correct directories
+ls -la core/
 # Should see:
-# app_improved.py
 # regime_adapter.py
 # adaptive_backtester.py
-# diagnostics.py
+# backtester.py
+# data_loader.py
+# etc.
 ```
 
 ### SciPy Not Found
@@ -212,16 +213,16 @@ Error: VIX data download failed
 
 ## Problem: Massive API Not Working
 
-**This is expected!** The improved version intentionally uses **synthetic pricing** because:
+**This is expected!** The app uses **synthetic pricing** because:
 
 1. Massive doesn't provide historical chains via REST
 2. The endpoint `/v1/options/historical-chains` doesn't exist
 3. Even if it did, it would require custom data arrangement
 
-**Solution**: Use the improved version with synthetic pricing. When real historical data becomes available:
+**Solution**: Use synthetic pricing mode. When real historical data becomes available:
 
 ```python
-# In adaptive_backtester.py, replace this:
+# In backtester.py, replace this:
 lp = bs_call_price(S, strike_long, r, sigma_eff, long_dte_weeks / 52.0)
 
 # With this:
@@ -245,7 +246,7 @@ Week 52: EXIT - profit_target_1.5x, PnL: 2,450.00
 ### Inspect Regime Transitions
 
 ```python
-# In app_improved.py, add:
+# In app.py, add:
 regime_df = pd.DataFrame(regime_adapter.regime_history)
 st.write("Regime transitions:")
 st.write(regime_df[regime_df["regime"] != regime_df["regime"].shift()])
@@ -256,7 +257,7 @@ Shows exactly when/why regime changed
 ### Validate Option Pricing
 
 ```python
-# In adaptive_backtester.py, add logging:
+# In backtester.py, add logging:
 if verbose:
     print(f"BS Call Price: S={S}, K={strike_long}, r={r}, "
           f"sigma={sigma_eff}, T={long_dte_weeks/52}, price={lp}")
@@ -325,4 +326,4 @@ def create_regime_adapter(vix_weekly, lookback):
 
 ---
 
-*Last Updated: December 2025*
+*Last Updated: January 2026*

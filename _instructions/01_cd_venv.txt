@@ -1,7 +1,7 @@
 cd ~/PRR
 conda activate prr_env
 cd 01_vix_5w_suite
-streamlit run app_improved.py
+streamlit run app.py
 
 Or 
 

@@ -29,6 +29,81 @@ import pandas as pd
 import streamlit as st
 import yfinance as yf
 
+
+# =============================================================================
+# RISK CALCULATION ENGINE
+# =============================================================================
+
+def calculate_trade_risk(
+    long_strike: float,
+    short_strike: float,
+    net_debit: float,
+    long_mid: float = 0.0,
+) -> tuple:
+    """
+    Calculate true max risk per contract based on trade structure.
+    
+    For DEBIT trades (net_debit > 0):
+        Risk = net_debit * 100 (you lose what you paid)
+    
+    For CREDIT trades (net_debit <= 0):
+        Risk = (strike_width - credit_received) * 100
+        This is the max loss if spread expires fully ITM
+    
+    Returns:
+        (max_risk_per_contract, trade_type, risk_description)
+    """
+    strike_width = abs(long_strike - short_strike)
+    
+    if net_debit > 0:
+        # DEBIT trade: risk is what you paid
+        max_risk = net_debit * 100
+        trade_type = "DEBIT"
+        desc = f"Max loss = net debit paid (${net_debit:.2f} × 100)"
+    elif net_debit < 0:
+        # CREDIT trade: risk is strike width minus credit received
+        credit_received = abs(net_debit)
+        max_risk = (strike_width - credit_received) * 100
+        trade_type = "CREDIT"
+        desc = f"Max loss = ${strike_width:.2f} spread - ${credit_received:.2f} credit"
+    else:
+        # Zero cost: risk is the long leg value (fallback)
+        max_risk = long_mid * 100 if long_mid > 0 else strike_width * 100
+        trade_type = "EVEN"
+        desc = "Zero-cost spread, risk = long leg value"
+    
+    return max(max_risk, 0.01), trade_type, desc  # Never zero risk
+
+
+def calculate_suggested_contracts(
+    max_risk_per_contract: float,
+    account_size: float,
+    allocation_pct: float,
+    max_contracts: int = 50,
+    min_contracts: int = 1,
+) -> int:
+    """
+    Calculate suggested contract size based on true risk.
+    
+    Args:
+        max_risk_per_contract: True max risk in dollars per contract
+        account_size: Total account value
+        allocation_pct: Max % of account to risk (e.g., 0.02 = 2%)
+        max_contracts: Hard cap on contracts
+        min_contracts: Minimum contracts (usually 1)
+    
+    Returns:
+        Suggested number of contracts
+    """
+    if max_risk_per_contract <= 0:
+        return min_contracts
+    
+    max_dollar_risk = account_size * allocation_pct
+    suggested = int(max_dollar_risk // max_risk_per_contract)
+    
+    return max(min_contracts, min(suggested, max_contracts))
+
+
 def format_html_report(data):
     """Compact HTML email with bid/ask data for trading."""
     today = dt.date.today().strftime("%b %d, %Y")
@@ -80,12 +155,24 @@ def format_html_report(data):
         short_mid = v.get('short_mid', v.get('short_price', 0))
         
         net_debit = v.get('net_debit', 0)
-        risk = v.get('risk_per_contract', abs(net_debit) * 100)
+        
+        # Use new risk calculation if available, else calculate
+        if 'max_risk' in v:
+            max_risk = v['max_risk']
+            trade_type = v.get('trade_type', 'DEBIT')
+        else:
+            max_risk, trade_type, _ = calculate_trade_risk(
+                long_strike, short_strike, net_debit, long_mid
+            )
+        
         target_mult = v.get('target_mult', 1.2)
         target_price = v.get('target_price', long_mid * target_mult)
         stop_mult = v.get('stop_mult', 0.5)
         stop_price = v.get('stop_price', long_mid * stop_mult)
         suggested = v.get('suggested_contracts', v.get('suggested', 1))
+        
+        # Label: "Max Risk" for clarity
+        risk_label = "Max Risk" if trade_type == "CREDIT" else "Risk"
         
         html += f"""
         <div style="border:1px solid #ddd;margin-bottom:8px;border-radius:4px;overflow:hidden;">
@@ -123,7 +210,7 @@ def format_html_report(data):
                     </tr>
                 </table>
                 <div style="display:flex;justify-content:space-between;font-size:12px;color:#555;padding-top:4px;border-top:1px solid #eee;">
-                    <span><b>Net:</b> ${net_debit:.2f} | <b>Risk:</b> ${risk:.0f}/ct</span>
+                    <span><b>Net:</b> ${net_debit:.2f} | <b>{risk_label}:</b> ${max_risk:.0f}/ct</span>
                     <span><b>Target:</b> ${target_price:.2f} ({target_mult}x) | <b>Stop:</b> ${stop_price:.2f} ({stop_mult}x)</span>
                     <span><b>Suggested:</b> {suggested} ct</span>
                 </div>
@@ -1698,21 +1785,27 @@ def page_live_signals(vix_weekly: pd.Series, params: Dict[str, Any]):
         else:
             alloc_pct_display = alloc_pct * 100
         
-        risk_per_trade = initial_capital * alloc_pct
+        risk_budget = initial_capital * alloc_pct
         net_debit = signal.get('net_debit_mid', 0)
+        long_strike = signal.get('long_strike', 0)
+        short_strike = signal.get('short_strike', 0)
+        long_mid = signal.get('long_mid', 0)
         
-        # Calculate suggested contracts
-        if net_debit > 0:
-            contracts = int(risk_per_trade // (net_debit * 100))
-            contracts = max(1, min(contracts, 50))  # Min 1, max 50 contracts
-        else:
-            # For credit spreads or zero cost, use allocation / long leg cost
-            long_mid = signal.get('long_mid', 1.0)
-            if long_mid > 0:
-                contracts = int(risk_per_trade // (long_mid * 100))
-                contracts = max(1, min(contracts, 50))
-            else:
-                contracts = 1
+        # Calculate TRUE risk using regime-aware engine
+        max_risk_per_ct, trade_type, risk_desc = calculate_trade_risk(
+            long_strike, short_strike, net_debit, long_mid
+        )
+        
+        # Calculate suggested contracts based on true max risk
+        contracts = calculate_suggested_contracts(
+            max_risk_per_contract=max_risk_per_ct,
+            account_size=initial_capital,
+            allocation_pct=alloc_pct,
+            max_contracts=50,
+            min_contracts=1,
+        )
+        
+        total_risk = contracts * max_risk_per_ct
         
         col_size1, col_size2, col_size3, col_size4 = st.columns(4)
         
@@ -1720,27 +1813,30 @@ def page_live_signals(vix_weekly: pd.Series, params: Dict[str, Any]):
             st.metric("Account Size", f"${initial_capital:,.0f}")
         
         with col_size2:
-            st.metric("Allocation %", f"{alloc_pct_display:.1f}%")
+            st.metric("Risk Budget", f"${risk_budget:,.0f}")
         
         with col_size3:
-            st.metric("Risk per Trade", f"${risk_per_trade:,.0f}")
+            st.metric("Max Risk/Contract", f"${max_risk_per_ct:,.0f}")
         
         with col_size4:
-            total_risk = contracts * net_debit * 100 if net_debit > 0 else contracts * signal.get('long_mid', 0) * 100
             st.metric("Suggested Contracts", f"{contracts}")
+        
+        # Show trade type and risk explanation
+        type_color = "🟢" if trade_type == "DEBIT" else "🔵" if trade_type == "CREDIT" else "⚪"
+        st.caption(f"{type_color} **{trade_type} Trade** — {risk_desc}")
         
         # Risk summary
         if signal_active:
             st.success(f"""
             **📈 Suggested Position: {contracts} contract(s)**
-            - Total capital at risk: ${total_risk:,.0f}
+            - Total max risk: ${total_risk:,.0f} ({trade_type} spread)
             - Max profit target: ${contracts * signal['profit_target'] * 100:,.0f}
             - Max loss (stop): ${contracts * signal['stop_loss'] * 100:,.0f}
             """)
         else:
             st.info(f"""
             **📋 Reference Position: {contracts} contract(s)** (signal not active)
-            - Would risk: ${total_risk:,.0f} if entered
+            - Would risk: ${total_risk:,.0f} max if entered ({trade_type})
             """)
         
         # JSON export for new entry
@@ -1858,6 +1954,12 @@ def page_live_signals(vix_weekly: pd.Series, params: Dict[str, Any]):
     # =================================================================
     # BUILD VARIANTS DATA FOR EXPORT (using variant_signals from above)
     # =================================================================
+    # Get account sizing parameters for suggested contracts calculation
+    export_account_size = float(params.get("initial_capital", 250000))
+    export_alloc_pct = float(params.get("alloc_pct", 0.01))
+    if export_alloc_pct > 1.0:
+        export_alloc_pct = export_alloc_pct / 100.0
+    
     export_variants = []
     for variant_name, variant_config in PAPER_VARIANTS.items():
         v_signal = variant_signals.get(variant_name, {})
@@ -1865,6 +1967,8 @@ def page_live_signals(vix_weekly: pd.Series, params: Dict[str, Any]):
             net_mid = v_signal.get('net_debit_mid', 0)
             long_mid = v_signal.get('long_mid', 0)
             short_mid = v_signal.get('short_mid', 0)
+            long_strike = v_signal.get('long_strike', 0)
+            short_strike = v_signal.get('short_strike', 0)
             
             # Estimate bid/ask from mid (typical 5% spread for UVXY options)
             spread_pct = 0.05
@@ -1879,17 +1983,31 @@ def page_live_signals(vix_weekly: pd.Series, params: Dict[str, Any]):
             short_bid = v_signal.get('short_bid', short_bid)
             short_ask = v_signal.get('short_ask', short_ask)
             
+            # Calculate TRUE max risk using regime-aware engine
+            max_risk, trade_type, risk_desc = calculate_trade_risk(
+                long_strike, short_strike, net_mid, long_mid
+            )
+            
+            # Calculate suggested contracts based on true risk
+            suggested_cts = calculate_suggested_contracts(
+                max_risk_per_contract=max_risk,
+                account_size=export_account_size,
+                allocation_pct=export_alloc_pct,
+                max_contracts=50,
+                min_contracts=1,
+            )
+            
             export_variants.append({
                 "name": variant_name,
                 "desc": variant_config.get('description', ''),
                 # Leg details
-                "long_strike": v_signal.get('long_strike', 0),
+                "long_strike": long_strike,
                 "long_exp": v_signal.get('long_exp', ''),
                 "long_dte": v_signal.get('long_dte', 0),
                 "long_bid": long_bid,
                 "long_ask": long_ask,
                 "long_mid": long_mid,
-                "short_strike": v_signal.get('short_strike', 0),
+                "short_strike": short_strike,
                 "short_exp": v_signal.get('short_exp', ''),
                 "short_dte": v_signal.get('short_dte', 0),
                 "short_bid": short_bid,
@@ -1897,12 +2015,14 @@ def page_live_signals(vix_weekly: pd.Series, params: Dict[str, Any]):
                 "short_mid": short_mid,
                 # Position summary
                 "net_debit": net_mid,
-                "risk_per_contract": abs(net_mid) * 100,
+                "max_risk": max_risk,  # TRUE max risk
+                "trade_type": trade_type,  # DEBIT, CREDIT, or EVEN
+                "risk_desc": risk_desc,
                 "target_mult": variant_config['target_mult'],
                 "target_price": long_mid * variant_config['target_mult'],
                 "stop_mult": variant_config['exit_mult'],
                 "stop_price": long_mid * variant_config['exit_mult'],
-                "suggested_contracts": max(1, min(int(2500 / (abs(net_mid) * 100)), 50)) if net_mid != 0 else 1,
+                "suggested_contracts": suggested_cts,
             })
     
     # =================================================================

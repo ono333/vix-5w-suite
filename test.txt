@@ -1,0 +1,22 @@
+Step 4: Check Ubuntu-Specific Issues
+* Permissions: Ensure the file is executable/readable: chmod +x /home/shin/vix_suite/app.py and ls -l /home/shin/vix_suite/app.py (should show -rw-r--r-- or similar).
+* Python/Streamlit Installation: Verify Streamlit is installed: pip show streamlit. If missing, pip install streamlit. Use a virtualenv if possible: python -m venv env; source env/bin/activate; pip install -r requirements.txt.
+* Port Conflicts: Check if port 8501 is in use: sudo lsof -i :8501 or netstat -tuln | grep 8501. Kill any process: sudo kill <PID>.
+* Firewall: Temporarily disable ufw: sudo ufw disable (re-enable after testing with sudo ufw enable).
+* System Logs: Check for errors: journalctl -u cron (if cron-related) or dmesg | grep error.
+* If running as a service (e.g., via systemd): sudo systemctl status your-streamlit-service and check the service file (/etc/systemd/system/your-service.service) for old filenames.
+Step 5: Clean Reinstall/Test
+* Delete any cache: rm -rf ~/.streamlit/ ~/.cache/streamlit/
+* Reinstall dependencies: pip install -r requirements.txt
+* Run in debug mode: streamlit run app.py --logger.level=debug
+* If the app starts but crashes later, the traceback in the terminal/browser will point to the exact line causing the [Errno 2].
+4. If This Doesn't Fix It
+* Share more details:
+    * Output of crontab -l (redact sensitive info).
+    * Full terminal output when running streamlit run app.py.
+    * Your Ubuntu version (lsb_release -a) and Python version (python --version).
+    * How you're starting the app (manual, cron, systemd, Docker?).
+* The Mac path suggests a dev/deploy mismatch—ensure your Ubuntu codebase is fully updated from Git/source without Mac-specific artifacts.
+* Test minimally: Create a hello-world Streamlit app (echo 'import streamlit as st; st.write("Hello")' > test.py; streamlit run test.py) to confirm Streamlit itself works.
+This should get your app back up. If it's cron-related, updating the job will fix it; otherwise, it's likely a code/path issue from the rename.
+\boxed{No}
