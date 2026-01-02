@@ -543,8 +543,8 @@ def page_live_signals():
     # =========================================================
     # GENERATE 5 VARIANTS
     # =========================================================
-    initial_capital = st.session_state.get('initial_capital', 250000.0)
-    alloc_pct = st.session_state.get('alloc_pct', 0.01)
+    initial_capital = st.session_state.get('live_initial_capital', 250000.0)
+    alloc_pct = st.session_state.get('live_alloc_pct', 0.01)
     
     variants = generate_5_variants(
         uvxy_spot=uvxy_close,
@@ -702,27 +702,29 @@ def build_simple_sidebar() -> Dict[str, Any]:
     st.sidebar.markdown("---")
     st.sidebar.markdown("### Settings")
     
-    start_date = st.sidebar.date_input("Start date", value=dt.date(2015, 1, 1), key="start_date")
-    end_date = st.sidebar.date_input("End date", value=dt.date.today(), key="end_date")
+    start_date = st.sidebar.date_input("Start date", value=dt.date(2015, 1, 1), key="sb_start_date")
+    end_date = st.sidebar.date_input("End date", value=dt.date.today(), key="sb_end_date")
     
     initial_capital = st.sidebar.number_input(
         "Initial Capital ($)", min_value=10000.0, max_value=10000000.0,
-        value=250000.0, step=10000.0, key="initial_capital"
+        value=250000.0, step=10000.0, key="sb_initial_capital"
     )
     
-    alloc_pct = st.sidebar.slider(
+    alloc_pct_raw = st.sidebar.slider(
         "Allocation (%)", min_value=0.5, max_value=10.0,
-        value=1.0, step=0.5, key="alloc_pct_slider"
-    ) / 100.0
+        value=1.0, step=0.5, key="sb_alloc_pct"
+    )
+    alloc_pct = alloc_pct_raw / 100.0
     
-    st.session_state['initial_capital'] = initial_capital
-    st.session_state['alloc_pct'] = alloc_pct
+    # Store values for Live Signals page (use different keys)
+    st.session_state['live_initial_capital'] = initial_capital
+    st.session_state['live_alloc_pct'] = alloc_pct
     
     st.sidebar.markdown("---")
     st.sidebar.markdown("### Strategy")
     
-    mode = st.sidebar.selectbox("Position Structure", ["diagonal", "long_only"], index=0, key="mode")
-    entry_percentile = st.sidebar.slider("Entry Percentile", min_value=0.05, max_value=0.50, value=0.35, step=0.05, key="entry_percentile")
+    mode = st.sidebar.selectbox("Position Structure", ["diagonal", "long_only"], index=0, key="sb_mode")
+    entry_percentile = st.sidebar.slider("Entry Percentile", min_value=0.05, max_value=0.50, value=0.35, step=0.05, key="sb_entry_pct")
     
     return {
         "page": page,
