@@ -89,37 +89,37 @@ def format_html(data):
             <div style="background:#1f77b4;color:#fff;padding:5px 8px;font-size:11px;font-weight:bold;">
                 {v['name']} <span style="font-weight:normal;opacity:0.8;">— {v.get('desc', '')[:30]}</span>
             </div>
-            <div style="padding:6px;font-size:10px;">
+            <div style="padding:6px;font-size:11px;">
                 <table style="width:100%;border-collapse:collapse;margin-bottom:4px;">
                     <tr style="background:#f8f8f8;">
-                        <th style="padding:3px;border:1px solid #eee;text-align:left;width:18%;">Leg</th>
-                        <th style="padding:3px;border:1px solid #eee;text-align:center;width:12%;">Strike</th>
-                        <th style="padding:3px;border:1px solid #eee;text-align:center;width:22%;">Expiry</th>
-                        <th style="padding:3px;border:1px solid #eee;text-align:center;width:10%;">DTE</th>
-                        <th style="padding:3px;border:1px solid #eee;text-align:center;width:12%;">Bid</th>
-                        <th style="padding:3px;border:1px solid #eee;text-align:center;width:12%;">Ask</th>
-                        <th style="padding:3px;border:1px solid #eee;text-align:center;width:14%;">Mid</th>
+                        <th style="padding:4px;border:1px solid #eee;text-align:left;width:18%;">Leg</th>
+                        <th style="padding:4px;border:1px solid #eee;text-align:center;width:12%;">Strike</th>
+                        <th style="padding:4px;border:1px solid #eee;text-align:center;width:22%;">Expiry</th>
+                        <th style="padding:4px;border:1px solid #eee;text-align:center;width:10%;">DTE</th>
+                        <th style="padding:4px;border:1px solid #eee;text-align:center;width:12%;">Bid</th>
+                        <th style="padding:4px;border:1px solid #eee;text-align:center;width:12%;">Ask</th>
+                        <th style="padding:4px;border:1px solid #eee;text-align:center;width:14%;">Mid</th>
                     </tr>
                     <tr>
-                        <td style="padding:3px;border:1px solid #eee;color:#c62828;font-weight:bold;">SHORT</td>
-                        <td style="padding:3px;border:1px solid #eee;text-align:center;">${short_strike:.0f}</td>
-                        <td style="padding:3px;border:1px solid #eee;text-align:center;">{short_exp}</td>
-                        <td style="padding:3px;border:1px solid #eee;text-align:center;">{short_dte}</td>
-                        <td style="padding:3px;border:1px solid #eee;text-align:center;">${short_bid:.2f}</td>
-                        <td style="padding:3px;border:1px solid #eee;text-align:center;">${short_ask:.2f}</td>
-                        <td style="padding:3px;border:1px solid #eee;text-align:center;font-weight:bold;">${short_mid:.2f}</td>
+                        <td style="padding:4px;border:1px solid #eee;color:#c62828;font-weight:bold;">SHORT</td>
+                        <td style="padding:4px;border:1px solid #eee;text-align:center;">${short_strike:.0f}</td>
+                        <td style="padding:4px;border:1px solid #eee;text-align:center;">{short_exp}</td>
+                        <td style="padding:4px;border:1px solid #eee;text-align:center;">{short_dte}</td>
+                        <td style="padding:4px;border:1px solid #eee;text-align:center;">${short_bid:.2f}</td>
+                        <td style="padding:4px;border:1px solid #eee;text-align:center;">${short_ask:.2f}</td>
+                        <td style="padding:4px;border:1px solid #eee;text-align:center;font-weight:bold;">${short_mid:.2f}</td>
                     </tr>
                     <tr>
-                        <td style="padding:3px;border:1px solid #eee;color:#2e7d32;font-weight:bold;">LONG</td>
-                        <td style="padding:3px;border:1px solid #eee;text-align:center;">${long_strike:.0f}</td>
-                        <td style="padding:3px;border:1px solid #eee;text-align:center;">{long_exp}</td>
-                        <td style="padding:3px;border:1px solid #eee;text-align:center;">{long_dte}</td>
-                        <td style="padding:3px;border:1px solid #eee;text-align:center;">${long_bid:.2f}</td>
-                        <td style="padding:3px;border:1px solid #eee;text-align:center;">${long_ask:.2f}</td>
-                        <td style="padding:3px;border:1px solid #eee;text-align:center;font-weight:bold;">${long_mid:.2f}</td>
+                        <td style="padding:4px;border:1px solid #eee;color:#2e7d32;font-weight:bold;">LONG</td>
+                        <td style="padding:4px;border:1px solid #eee;text-align:center;">${long_strike:.0f}</td>
+                        <td style="padding:4px;border:1px solid #eee;text-align:center;">{long_exp}</td>
+                        <td style="padding:4px;border:1px solid #eee;text-align:center;">{long_dte}</td>
+                        <td style="padding:4px;border:1px solid #eee;text-align:center;">${long_bid:.2f}</td>
+                        <td style="padding:4px;border:1px solid #eee;text-align:center;">${long_ask:.2f}</td>
+                        <td style="padding:4px;border:1px solid #eee;text-align:center;font-weight:bold;">${long_mid:.2f}</td>
                     </tr>
                 </table>
-                <div style="display:flex;justify-content:space-between;font-size:10px;color:#555;padding-top:3px;border-top:1px solid #eee;">
+                <div style="display:flex;justify-content:space-between;font-size:11px;color:#555;padding-top:4px;border-top:1px solid #eee;">
                     <span><b>Net:</b> ${net_debit:.2f} | <b>Risk:</b> ${risk:.0f}/ct</span>
                     <span><b>Target:</b> ${target_price:.2f} ({target_mult}x) | <b>Stop:</b> ${stop_price:.2f} ({stop_mult}x)</span>
                     <span><b>Suggested:</b> {suggested} ct</span>
@@ -129,7 +129,7 @@ def format_html(data):
         """
 
     html += """
-    <div style="font-size:9px;color:#999;text-align:center;margin-top:10px;padding-top:8px;border-top:1px solid #eee;">
+    <div style="font-size:10px;color:#888;text-align:center;margin-top:12px;padding-top:8px;border-top:1px solid #eee;">
         ⚠️ Research only — verify quotes with broker before trading.
     </div>
     </body>
