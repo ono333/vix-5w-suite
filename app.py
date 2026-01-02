@@ -1770,105 +1770,110 @@ def page_live_signals(vix_weekly: pd.Series, params: Dict[str, Any]):
             st.write(f"---")
             st.write(f"OTM pts used: {signal['otm_pts_used']}")
     
-    # Position Sizing Section (only for new entries)
+    # =================================================================
+    # POSITION SIZING SECTION (Always visible)
+    # =================================================================
+    st.markdown("---")
+    st.subheader("📊 Position Sizing Calculator")
+    
+    if open_long:
+        st.info(f"📋 **You have an open position** — sizing below is for reference or adding contracts")
+    
+    # === SIZING LOCK FEATURE ===
+    # Prevents fluctuations during live trading by locking to a reference price
+    col_lock, col_info = st.columns([1, 3])
+    with col_lock:
+        sizing_locked = st.checkbox(
+            "🔒 Lock Sizing",
+            value=st.session_state.get("sizing_locked", False),
+            key="sizing_lock_checkbox",
+            help="Lock contract sizing to current values. Prevents fluctuations during live trading."
+        )
+    
+    # Store lock state
+    if sizing_locked != st.session_state.get("sizing_locked", False):
+        st.session_state["sizing_locked"] = sizing_locked
+        if sizing_locked:
+            # Save current values when locking
+            st.session_state["locked_net_debit"] = signal.get('net_debit_mid', 0)
+            st.session_state["locked_long_mid"] = signal.get('long_mid', 0)
+            st.session_state["locked_short_mid"] = signal.get('short_mid', 0)
+    
+    with col_info:
+        if sizing_locked:
+            st.caption("🔒 **LOCKED** — Sizing based on saved mid prices, not live quotes")
+        else:
+            st.caption("🔓 **LIVE** — Sizing updates with market prices (may fluctuate)")
+    
+    initial_capital = float(params.get("initial_capital", 250000))
+    alloc_pct = float(params.get("alloc_pct", 0.01))
+    
+    # Normalize alloc_pct (handles both 0.01 and 1.0 formats)
+    if alloc_pct > 1.0:
+        alloc_pct = alloc_pct / 100.0
+    
+    risk_budget = initial_capital * alloc_pct
+    
+    # Use locked or live values
+    if sizing_locked and "locked_net_debit" in st.session_state:
+        net_debit = st.session_state["locked_net_debit"]
+        long_mid = st.session_state["locked_long_mid"]
+    else:
+        net_debit = signal.get('net_debit_mid', 0)
+        long_mid = signal.get('long_mid', 0)
+    
+    long_strike = signal.get('long_strike', 0)
+    short_strike = signal.get('short_strike', 0)
+    
+    # Calculate TRUE risk using regime-aware engine
+    # KEY: For spreads, risk is based on STRIKE WIDTH, not fluctuating prices
+    strike_width = abs(long_strike - short_strike)
+    max_risk_per_ct, trade_type, risk_desc = calculate_trade_risk(
+        long_strike, short_strike, net_debit, long_mid
+    )
+    
+    # Calculate suggested contracts based on true max risk
+    contracts = calculate_suggested_contracts(
+        max_risk_per_contract=max_risk_per_ct,
+        account_size=initial_capital,
+        allocation_pct=alloc_pct,
+        max_contracts=50,
+        min_contracts=1,
+    )
+    
+    total_risk = contracts * max_risk_per_ct
+    
+    # === ENHANCED METRICS DISPLAY ===
+    col_size1, col_size2, col_size3, col_size4, col_size5 = st.columns(5)
+    
+    with col_size1:
+        st.metric("Account Size", f"${initial_capital:,.0f}")
+    
+    with col_size2:
+        st.metric("Risk Budget", f"${risk_budget:,.0f}")
+    
+    with col_size3:
+        st.metric("Strike Width", f"${strike_width:.0f}")
+    
+    with col_size4:
+        st.metric("Max Risk/Ct", f"${max_risk_per_ct:,.0f}")
+    
+    with col_size5:
+        st.metric("Suggested", f"{contracts} ct")
+    
+    # Show trade type and risk explanation
+    type_color = "🟢" if trade_type == "DEBIT" else "🔵" if trade_type == "CREDIT" else "⚪"
+    st.caption(f"{type_color} **{trade_type} Trade** — {risk_desc}")
+    
+    # === PROMINENT MAX LOSS BOX ===
+    max_loss_total = contracts * max_risk_per_ct
+    if trade_type == "CREDIT":
+        st.error(f"⚠️ **MAX LOSS: ${max_loss_total:,.0f}** (if spread expires fully ITM)")
+    else:
+        st.warning(f"💰 **MAX LOSS: ${max_loss_total:,.0f}** (total debit paid)")
+    
+    # Risk summary - context depends on whether we have open position
     if not open_long:
-        st.markdown("---")
-        st.subheader("📊 Position Sizing")
-        
-        # === SIZING LOCK FEATURE ===
-        # Prevents fluctuations during live trading by locking to a reference price
-        col_lock, col_info = st.columns([1, 3])
-        with col_lock:
-            sizing_locked = st.checkbox(
-                "🔒 Lock Sizing",
-                value=st.session_state.get("sizing_locked", False),
-                key="sizing_lock_checkbox",
-                help="Lock contract sizing to current values. Prevents fluctuations during live trading."
-            )
-        
-        # Store lock state
-        if sizing_locked != st.session_state.get("sizing_locked", False):
-            st.session_state["sizing_locked"] = sizing_locked
-            if sizing_locked:
-                # Save current values when locking
-                st.session_state["locked_net_debit"] = signal.get('net_debit_mid', 0)
-                st.session_state["locked_long_mid"] = signal.get('long_mid', 0)
-                st.session_state["locked_short_mid"] = signal.get('short_mid', 0)
-        
-        with col_info:
-            if sizing_locked:
-                st.caption("🔒 **LOCKED** — Sizing based on saved mid prices, not live quotes")
-            else:
-                st.caption("🔓 **LIVE** — Sizing updates with market prices (may fluctuate)")
-        
-        initial_capital = float(params.get("initial_capital", 250000))
-        alloc_pct = float(params.get("alloc_pct", 0.01))
-        
-        # Normalize alloc_pct (handles both 0.01 and 1.0 formats)
-        if alloc_pct > 1.0:
-            alloc_pct = alloc_pct / 100.0
-        
-        risk_budget = initial_capital * alloc_pct
-        
-        # Use locked or live values
-        if sizing_locked and "locked_net_debit" in st.session_state:
-            net_debit = st.session_state["locked_net_debit"]
-            long_mid = st.session_state["locked_long_mid"]
-        else:
-            net_debit = signal.get('net_debit_mid', 0)
-            long_mid = signal.get('long_mid', 0)
-        
-        long_strike = signal.get('long_strike', 0)
-        short_strike = signal.get('short_strike', 0)
-        
-        # Calculate TRUE risk using regime-aware engine
-        # KEY: For spreads, risk is based on STRIKE WIDTH, not fluctuating prices
-        strike_width = abs(long_strike - short_strike)
-        max_risk_per_ct, trade_type, risk_desc = calculate_trade_risk(
-            long_strike, short_strike, net_debit, long_mid
-        )
-        
-        # Calculate suggested contracts based on true max risk
-        contracts = calculate_suggested_contracts(
-            max_risk_per_contract=max_risk_per_ct,
-            account_size=initial_capital,
-            allocation_pct=alloc_pct,
-            max_contracts=50,
-            min_contracts=1,
-        )
-        
-        total_risk = contracts * max_risk_per_ct
-        
-        # === ENHANCED METRICS DISPLAY ===
-        col_size1, col_size2, col_size3, col_size4, col_size5 = st.columns(5)
-        
-        with col_size1:
-            st.metric("Account Size", f"${initial_capital:,.0f}")
-        
-        with col_size2:
-            st.metric("Risk Budget", f"${risk_budget:,.0f}")
-        
-        with col_size3:
-            st.metric("Strike Width", f"${strike_width:.0f}")
-        
-        with col_size4:
-            st.metric("Max Risk/Ct", f"${max_risk_per_ct:,.0f}")
-        
-        with col_size5:
-            st.metric("Suggested", f"{contracts} ct")
-        
-        # Show trade type and risk explanation
-        type_color = "🟢" if trade_type == "DEBIT" else "🔵" if trade_type == "CREDIT" else "⚪"
-        st.caption(f"{type_color} **{trade_type} Trade** — {risk_desc}")
-        
-        # === PROMINENT MAX LOSS BOX ===
-        max_loss_total = contracts * max_risk_per_ct
-        if trade_type == "CREDIT":
-            st.error(f"⚠️ **MAX LOSS: ${max_loss_total:,.0f}** (if spread expires fully ITM)")
-        else:
-            st.warning(f"💰 **MAX LOSS: ${max_loss_total:,.0f}** (total debit paid)")
-        
-        # Risk summary
         if signal_active:
             st.success(f"""
             **📈 Suggested Position: {contracts} contract(s)**
@@ -1881,8 +1886,17 @@ def page_live_signals(vix_weekly: pd.Series, params: Dict[str, Any]):
             **📋 Reference Position: {contracts} contract(s)** (signal not active)
             - Would risk: ${total_risk:,.0f} max if entered ({trade_type})
             """)
-        
-        # JSON export for new entry
+    else:
+        # Have open position - show sizing for reference
+        existing_contracts = open_long.get('contracts', 0)
+        st.info(f"""
+        **📋 Position Sizing Reference** (you hold {existing_contracts} contracts)
+        - To add {contracts} contracts: ${total_risk:,.0f} additional risk
+        - Combined position would be: {existing_contracts + contracts} contracts
+        """)
+    
+    # JSON export - different format based on open position
+    if not open_long:
         with st.expander("📤 Export Signal as JSON"):
             signal_with_sizing = dict(signal)
             signal_with_sizing["position_sizing"] = {
@@ -1898,7 +1912,6 @@ def page_live_signals(vix_weekly: pd.Series, params: Dict[str, Any]):
             }
             st.json(signal_with_sizing)
     else:
-        # JSON export for roll (open position case)
         with st.expander("📤 Export Roll Signal as JSON"):
             roll_signal = {
                 "action": "ROLL_SHORT_ONLY",
