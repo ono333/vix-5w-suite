@@ -8,25 +8,25 @@ import streamlit as st
 STRATEGIES = {
     "diagonal": "Diagonal: LEAP + weekly short calls",
     "long_only": "Long-only: VIX calls only",
-    # Later:
-    # "osc_310": "3-10 Oscillator + ROC (experimental)",
 }
 
 
 def build_sidebar() -> dict:
     """
     Build the sidebar and return a flat params dict.
-
-    This dict is what app.py expects, plus a "page" field:
-        params["page"], params["start_date"], params["end_date"],
-        params["initial_capital"], ...
-        plus strategy-specific knobs (entry_percentile, long_dte_weeks, etc.)
     """
 
     st.sidebar.title("VIX 5% Weekly Suite")
 
-    # NOTE: Page selector is in app_improved.py main() - not here
-    # This keeps all pages in one place for easier maintenance
+    # -------------------------------------------------------
+    # Page selector
+    # -------------------------------------------------------
+  
+    page = st.sidebar.radio(
+        "Page",
+        options=["Dashboard", "Backtester", "Trade Explorer", "Trade Logger"],
+        index=0,
+    )
 
     # -------------------------------------------------------
     # Pricing source selector (Synthetic vs Massive)
@@ -37,7 +37,7 @@ def build_sidebar() -> dict:
         index=0,
         key="pricing_source",
         help=(
-            "Synthetic (BS) = Blackâ€“Scholes-style pricing.\n"
+            "Synthetic (BS) = Black-Scholes-style pricing.\n"
             "Massive historical = real option chains via Massive API."
         ),
     )
@@ -45,10 +45,10 @@ def build_sidebar() -> dict:
     # --- Underlying (for Massive / future use) ---
     underlying = st.sidebar.selectbox(
         "Underlying symbol",
-        options=["UVXY", "^VIX", "VXX"],
+        options=["^VIX", "UVXY", "VXX"],
         index=0,
         key="underlying_symbol",
-        help="UVXY recommended for live trading. ^VIX for index analysis.",
+        help="Used by Massive historical engine. Example: UVXY for decay-aware tests.",
     )
     
     # -------------------------------------------------------
@@ -71,7 +71,7 @@ def build_sidebar() -> dict:
     initial_capital = st.sidebar.number_input(
         "Initial capital ($)",
         min_value=0.0,
-        value=250_000.0,  # your preferred default
+        value=250_000.0,
         step=10_000.0,
         format="%.0f",
         key="initial_capital",
@@ -81,7 +81,7 @@ def build_sidebar() -> dict:
         "Allocation (% of equity put into strategy)",
         min_value=0.1,
         max_value=100.0,
-        value=1.0,     # 1% default as you requested
+        value=1.0,
         step=0.1,
         key="alloc_pct_percent",
         help="Example: 1.0 = allocate 1% of current equity to each new trade.",
@@ -127,7 +127,7 @@ def build_sidebar() -> dict:
         value=5.0,
         step=0.5,
         key="slippage_bps",
-        help="5 bps â‰ˆ 0.05% disadvantage vs mid for each trade.",
+        help="5 bps = 0.05% disadvantage vs mid for each trade.",
     )
 
     st.sidebar.markdown("### Parameter history")
@@ -164,7 +164,8 @@ def build_sidebar() -> dict:
     # Aggregate into a single flat params dict
     # -------------------------------------------------------
     params = {
-        "pricing_source": pricing_source,    # <--- used to pick engine
+        "page": page,
+        "pricing_source": pricing_source,
         "start_date": start_date,
         "end_date": end_date,
         "initial_capital": initial_capital,
@@ -178,7 +179,6 @@ def build_sidebar() -> dict:
         "underlying_symbol": underlying,
     }
 
-    # This includes mode, entry_percentile, etc.
     params.update(strategy_params)
 
     return params
@@ -199,7 +199,7 @@ def _build_diagonal_controls() -> dict:
         "Entry percentile (VIX 52-week)",
         min_value=0.0,
         max_value=1.0,
-        value=0.10,   # keep 10% default; you can change later
+        value=0.10,
         step=0.01,
         key="diag_entry_percentile",
         help="Enter when current VIX is at or below this percentile of the last N weeks.",
@@ -217,7 +217,7 @@ def _build_diagonal_controls() -> dict:
     long_dte_weeks = st.sidebar.selectbox(
         "Long call DTE (weeks)",
         options=[13, 26, 52],
-        index=1,  # default to 26 weeks
+        index=1,
         key="diag_long_dte_weeks",
     )
 
@@ -237,7 +237,7 @@ def _build_diagonal_controls() -> dict:
         value=1.20,
         step=0.05,
         key="diag_target_mult",
-        help="Example: 1.20 = take profit when long call â‰ˆ 20% above entry value.",
+        help="Example: 1.20 = take profit when long call is 20% above entry value.",
     )
 
     exit_mult = st.sidebar.number_input(
@@ -275,7 +275,6 @@ def _build_diagonal_controls() -> dict:
 def _build_long_only_controls() -> dict:
     """
     Sidebar controls for long-only VIX call strategy.
-    Very similar knobs, but no short weekly call.
     """
     st.sidebar.markdown("### Long-only settings")
 

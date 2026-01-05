@@ -1,865 +1,776 @@
 #!/usr/bin/env python3
 """
-VIX 5% Weekly Suite — ENHANCED APP
-==================================
+VIX 5% Weekly Suite — MAIN APP (Improved Version)
+
+Features:
+- Dashboard with equity curves and regime visualization
+- Backtester with trade log display and statistics
+- Trade Explorer with detailed trade analysis
+- Regime-Adaptive mode that adjusts parameters based on VIX percentile
+- Support for Synthetic (BS) and Massive historical pricing
 
 Pages:
 - Dashboard
 - Backtester (with grid scan)
-- Live Signals (5 diagonal variants + Thursday email)
 - Trade Explorer
-
-Features:
-- Quick jump buttons to sections
-- All 5 variants EXPANDED by default (with collapse all option)
-- Send Thursday Email directly from app (exact data, no recompute)
-- Regime-adaptive 5-variant comparison
+- Regime Analysis (new)
 """
 
 import io
-import os
 import datetime as dt
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from typing import Dict, Any, List, Optional
-from math import log, sqrt, exp
+from typing import Dict, Any, Optional, List
+from ui.trade_logger_page import render_trade_logger_page
 
 import numpy as np
 import pandas as pd
 import streamlit as st
-from scipy.stats import norm
 
-# Try importing yfinance for live data
+# Import sidebar builder
 try:
-    import yfinance as yf
-    HAS_YFINANCE = True
+    from ui.sidebar import build_sidebar
 except ImportError:
-    HAS_YFINANCE = False
+    from sidebar import build_sidebar
+
+# Import data loader
+try:
+    from core.data_loader import load_vix_weekly, load_weekly
+except ImportError:
+    from data_loader import load_vix_weekly
+
+# Import backtesters
+try:
+    from core.backtester import run_backtest
+    from core.backtester_massive import run_backtest_massive
+except ImportError:
+    from backtester import run_backtest
+    from backtester_massive import run_backtest_massive
+
+# Import grid scan
+try:
+    from experiments.grid_scan import run_grid_scan
+except ImportError:
+    from grid_scan import run_grid_scan
+
+# Import param history
+try:
+    from core.param_history import apply_best_if_requested, get_best_for_strategy
+except ImportError:
+    from param_history import apply_best_if_requested, get_best_for_strategy
+
+# Import regime adapter (new)
+try:
+    from regime_adapter import (
+        RegimeAdapter, 
+        run_regime_adaptive_backtest,
+        get_regime_summary,
+        get_regime_trade_stats,
+    )
+    REGIME_AVAILABLE = True
+except ImportError:
+    REGIME_AVAILABLE = False
 
 
-# =====================================================================
-# BLACK-SCHOLES PRICING
-# =====================================================================
-
-def bs_call_price(S: float, K: float, r: float, sigma: float, T: float) -> float:
-    """Vanilla Black-Scholes call price."""
-    if S <= 0 or K <= 0 or T <= 0 or sigma <= 0:
-        return max(S - K, 0.0) if T <= 0 else 0.0
-    try:
-        d1 = (log(S / K) + (r + 0.5 * sigma**2) * T) / (sigma * sqrt(T))
-        d2 = d1 - sigma * sqrt(T)
-        return S * norm.cdf(d1) - K * exp(-r * T) * norm.cdf(d2)
-    except:
-        return 0.0
-
-
-# =====================================================================
-# HELPERS
-# =====================================================================
+# ---------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------
 
 def _fmt_dollar(x: float) -> str:
     try:
         return f"${x:,.0f}"
-    except:
+    except Exception:
         return str(x)
 
 
 def _fmt_pct(x: float) -> str:
     try:
         return f"{x * 100:,.2f}%"
-    except:
+    except Exception:
         return "n/a"
 
 
-def _compute_vix_percentile_local(vix_weekly: pd.Series, lookback_weeks: int) -> pd.Series:
-    """Rolling percentile of underlying level."""
+def _compute_cagr(equity: np.ndarray, weeks_per_year: float = 52.0) -> float:
+    if equity is None or len(equity) < 2 or equity[0] <= 0:
+        return 0.0
+    years = (len(equity) - 1) / weeks_per_year
+    if years <= 0:
+        return 0.0
+    return (equity[-1] / equity[0]) ** (1.0 / years) - 1.0
+
+
+def _compute_max_dd(equity: np.ndarray) -> float:
+    if equity is None or len(equity) == 0:
+        return 0.0
+    e = np.asarray(equity, dtype=float)
+    peak = np.maximum.accumulate(e)
+    dd = (e - peak) / peak
+    return float(dd.min())
+
+
+def _compute_sharpe(weekly_returns: np.ndarray, annualize: bool = True) -> float:
+    """Compute Sharpe ratio from weekly returns."""
+    if weekly_returns is None or len(weekly_returns) < 2:
+        return 0.0
+    wr = np.asarray(weekly_returns, dtype=float)
+    wr = wr[np.isfinite(wr)]
+    if len(wr) < 2 or wr.std() == 0:
+        return 0.0
+    sharpe = wr.mean() / wr.std()
+    if annualize:
+        sharpe *= np.sqrt(52)
+    return float(sharpe)
+
+
+def _compute_vix_percentile_local(vix_weekly: pd.Series,
+                                  lookback_weeks: int) -> pd.Series:
+    """Rolling percentile of underlying level (VIX / UVXY / etc)."""
     prices = vix_weekly.values.astype(float)
     n = len(prices)
     out = np.full(n, np.nan, dtype=float)
     lb = max(1, int(lookback_weeks))
+
     for i in range(lb, n):
         window = prices[i - lb: i]
         out[i] = (window < prices[i]).mean()
+
     return pd.Series(out, index=vix_weekly.index, name="vix_pct")
 
 
-def get_regime(percentile: float) -> str:
-    """Classify VIX regime based on percentile."""
-    if percentile <= 0.10:
-        return "Ultra Low"
-    elif percentile <= 0.25:
-        return "Low"
-    elif percentile <= 0.50:
-        return "Medium"
-    elif percentile <= 0.75:
-        return "High"
-    else:
-        return "Extreme"
+def _parse_float_list(s: str) -> list[float]:
+    vals = []
+    for part in s.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            vals.append(float(part))
+        except ValueError:
+            continue
+    return vals
 
 
-def load_live_data() -> Dict[str, Any]:
-    """Load current VIX and UVXY data from yfinance."""
-    if not HAS_YFINANCE:
-        return {"error": "yfinance not installed"}
+def _parse_int_list(s: str) -> list[int]:
+    vals = []
+    for part in s.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            vals.append(int(part))
+        except ValueError:
+            continue
+    return vals
+
+
+def _build_trade_log_df(trade_log: List[Dict], vix_weekly: pd.Series) -> pd.DataFrame:
+    """Convert trade log to a nicely formatted DataFrame."""
+    if not trade_log:
+        return pd.DataFrame(columns=[
+            "Entry Date", "Exit Date", "Duration (wks)", 
+            "Entry Equity", "Exit Equity", "PnL ($)", "PnL (%)",
+            "Strike", "Entry Regime", "Exit Regime"
+        ])
     
-    try:
-        # Get VIX data (52 weeks for percentile)
-        end = dt.date.today()
-        start = end - dt.timedelta(days=400)  # ~56 weeks buffer
+    records = []
+    for tr in trade_log:
+        entry_idx = tr.get("entry_idx")
+        exit_idx = tr.get("exit_idx")
         
-        vix_df = yf.download("^VIX", start=start, end=end, progress=False)
-        uvxy_df = yf.download("UVXY", start=start, end=end, progress=False)
-        
-        if vix_df.empty:
-            return {"error": "No VIX data available"}
-        
-        # Get latest closes
-        vix_close = float(vix_df["Close"].iloc[-1])
-        uvxy_close = float(uvxy_df["Close"].iloc[-1]) if not uvxy_df.empty else 0.0
-        
-        # Compute 52-week percentile
-        vix_closes = vix_df["Close"].values.flatten()
-        if len(vix_closes) >= 52:
-            lookback = vix_closes[-52:]
-            current = vix_closes[-1]
-            percentile = (lookback < current).mean()
+        # Get dates
+        if entry_idx is not None and entry_idx < len(vix_weekly):
+            entry_date = vix_weekly.index[entry_idx]
         else:
-            percentile = 0.5  # default if not enough data
+            entry_date = tr.get("entry_date")
         
-        return {
-            "vix_close": vix_close,
-            "uvxy_close": uvxy_close,
-            "percentile": percentile,
-            "regime": get_regime(percentile),
-            "date": end,
-        }
-    except Exception as e:
-        return {"error": str(e)}
-
-
-# =====================================================================
-# 5 DIAGONAL VARIANTS - QUOTE GENERATION
-# =====================================================================
-
-def round_strike(price: float, increment: float = 1.0) -> float:
-    """Round to valid option strike increment ($1 for UVXY)."""
-    return round(price / increment) * increment
-
-
-def generate_5_variants(uvxy_spot: float, percentile: float, 
-                        initial_capital: float = 250000.0,
-                        alloc_pct: float = 0.01) -> List[Dict[str, Any]]:
-    """
-    Generate 5 diagonal spread variants based on current market conditions.
-    Returns list of dicts with all quote details for display and email.
-    
-    UVXY options use $1 strike increments.
-    """
-    r = 0.05  # risk-free rate
-    sigma = 0.80  # UVXY typical vol
-    capital = initial_capital * alloc_pct
-    today = dt.date.today()
-    
-    # UVXY uses $1 strike increments
-    INC = 1.0
-    
-    variants = []
-    
-    # =========================================================
-    # VARIANT 1: Baseline Conservative (26-week LEAP)
-    # =========================================================
-    long_dte_weeks = 26
-    short_dte_weeks = 1
-    target_mult = 1.5
-    stop_mult = 0.5
-    
-    # Round to nearest $1, then ensure short > long
-    long_strike = round_strike(uvxy_spot + 2, INC)
-    short_strike = long_strike + 2  # $2 wide spread
-    
-    T_long = long_dte_weeks / 52.0
-    T_short = short_dte_weeks / 52.0
-    
-    long_price = bs_call_price(uvxy_spot, long_strike, r, sigma, T_long)
-    short_price = bs_call_price(uvxy_spot, short_strike, r, sigma, T_short)
-    net_debit = long_price - short_price
-    contracts = max(1, int(capital / (net_debit * 100))) if net_debit > 0 else 1
-    
-    long_exp = today + dt.timedelta(days=long_dte_weeks * 7)
-    short_exp = today + dt.timedelta(days=short_dte_weeks * 7)
-    
-    variants.append({
-        "name": "Baseline Conservative (26w)",
-        "desc": "6-month LEAP + weekly short. Lower gamma, slower decay.",
-        "long_strike": long_strike,
-        "long_dte": long_dte_weeks * 7,
-        "long_dte_weeks": long_dte_weeks,
-        "long_exp_date": long_exp.strftime("%b %d, %Y"),
-        "long_price": long_price,
-        "short_strike": short_strike,
-        "short_dte": short_dte_weeks * 7,
-        "short_dte_weeks": short_dte_weeks,
-        "short_exp_date": short_exp.strftime("%b %d, %Y"),
-        "short_price": short_price,
-        "net_debit": net_debit,
-        "contracts": contracts,
-        "target_mult": target_mult,
-        "stop_mult": stop_mult,
-        "long_leg": f"BUY {contracts}x UVXY ${long_strike:.0f}C @ ${long_price:.2f} — Exp {long_exp.strftime('%b %d, %Y')}",
-        "short_leg": f"SELL {contracts}x UVXY ${short_strike:.0f}C @ ${short_price:.2f} — Exp {short_exp.strftime('%b %d, %Y')}",
-        "net_position": f"Net Debit: ${net_debit:.2f}/spread (${net_debit * contracts * 100:.0f} total)",
-        "target": f"Target: {target_mult}x (${net_debit * target_mult:.2f})",
-        "stop": f"Stop: {stop_mult}x (${net_debit * stop_mult:.2f})",
-        "suggested": f"{contracts} contracts",
-    })
-    
-    # =========================================================
-    # VARIANT 2: Aggressive Short-Term (3-week)
-    # =========================================================
-    long_dte_weeks = 3
-    short_dte_weeks = 1
-    target_mult = 2.0
-    stop_mult = 0.4
-    
-    long_strike = round_strike(uvxy_spot + 1, INC)
-    short_strike = long_strike + 1  # $1 wide spread
-    
-    T_long = long_dte_weeks / 52.0
-    T_short = short_dte_weeks / 52.0
-    
-    long_price = bs_call_price(uvxy_spot, long_strike, r, sigma, T_long)
-    short_price = bs_call_price(uvxy_spot, short_strike, r, sigma, T_short)
-    net_debit = long_price - short_price
-    contracts = max(1, int(capital / (net_debit * 100))) if net_debit > 0 else 1
-    
-    long_exp = today + dt.timedelta(days=long_dte_weeks * 7)
-    short_exp = today + dt.timedelta(days=short_dte_weeks * 7)
-    
-    variants.append({
-        "name": "Aggressive Short-Term (3w)",
-        "desc": "3-week long + weekly short. High gamma, fast moves.",
-        "long_strike": long_strike,
-        "long_dte": long_dte_weeks * 7,
-        "long_dte_weeks": long_dte_weeks,
-        "long_exp_date": long_exp.strftime("%b %d, %Y"),
-        "long_price": long_price,
-        "short_strike": short_strike,
-        "short_dte": short_dte_weeks * 7,
-        "short_dte_weeks": short_dte_weeks,
-        "short_exp_date": short_exp.strftime("%b %d, %Y"),
-        "short_price": short_price,
-        "net_debit": net_debit,
-        "contracts": contracts,
-        "target_mult": target_mult,
-        "stop_mult": stop_mult,
-        "long_leg": f"BUY {contracts}x UVXY ${long_strike:.0f}C @ ${long_price:.2f} — Exp {long_exp.strftime('%b %d, %Y')}",
-        "short_leg": f"SELL {contracts}x UVXY ${short_strike:.0f}C @ ${short_price:.2f} — Exp {short_exp.strftime('%b %d, %Y')}",
-        "net_position": f"Net Debit: ${net_debit:.2f}/spread (${net_debit * contracts * 100:.0f} total)",
-        "target": f"Target: {target_mult}x (${net_debit * target_mult:.2f})",
-        "stop": f"Stop: {stop_mult}x (${net_debit * stop_mult:.2f})",
-        "suggested": f"{contracts} contracts",
-    })
-    
-    # =========================================================
-    # VARIANT 3: Aggressive Ultra-Short (1-week vertical)
-    # =========================================================
-    long_dte_weeks = 1
-    short_dte_weeks = 1
-    target_mult = 3.0
-    stop_mult = 0.3
-    
-    long_strike = round_strike(uvxy_spot + 1, INC)
-    short_strike = long_strike + 1  # $1 wide vertical
-    
-    T_long = long_dte_weeks / 52.0
-    T_short = short_dte_weeks / 52.0
-    
-    long_price = bs_call_price(uvxy_spot, long_strike, r, sigma, T_long)
-    short_price = bs_call_price(uvxy_spot, short_strike, r, sigma, T_short)
-    net_debit = long_price - short_price
-    contracts = max(1, int(capital / (net_debit * 100))) if net_debit > 0 else 1
-    
-    long_exp = today + dt.timedelta(days=long_dte_weeks * 7)
-    short_exp = today + dt.timedelta(days=short_dte_weeks * 7)
-    
-    variants.append({
-        "name": "Aggressive Ultra-Short (1w)",
-        "desc": "Weekly vertical spread. Maximum gamma, binary outcome.",
-        "long_strike": long_strike,
-        "long_dte": long_dte_weeks * 7,
-        "long_dte_weeks": long_dte_weeks,
-        "long_exp_date": long_exp.strftime("%b %d, %Y"),
-        "long_price": long_price,
-        "short_strike": short_strike,
-        "short_dte": short_dte_weeks * 7,
-        "short_dte_weeks": short_dte_weeks,
-        "short_exp_date": short_exp.strftime("%b %d, %Y"),
-        "short_price": short_price,
-        "net_debit": net_debit,
-        "contracts": contracts,
-        "target_mult": target_mult,
-        "stop_mult": stop_mult,
-        "long_leg": f"BUY {contracts}x UVXY ${long_strike:.0f}C @ ${long_price:.2f} — Exp {long_exp.strftime('%b %d, %Y')}",
-        "short_leg": f"SELL {contracts}x UVXY ${short_strike:.0f}C @ ${short_price:.2f} — Exp {short_exp.strftime('%b %d, %Y')}",
-        "net_position": f"Net Debit: ${net_debit:.2f}/spread (${net_debit * contracts * 100:.0f} total)",
-        "target": f"Target: {target_mult}x (${net_debit * target_mult:.2f})",
-        "stop": f"Stop: {stop_mult}x (${net_debit * stop_mult:.2f})",
-        "suggested": f"{contracts} contracts",
-    })
-    
-    # =========================================================
-    # VARIANT 4: Tighter Spread (13w, 1.5x target)
-    # =========================================================
-    long_dte_weeks = 13
-    short_dte_weeks = 1
-    target_mult = 1.5
-    stop_mult = 0.6
-    
-    long_strike = round_strike(uvxy_spot + 2, INC)
-    short_strike = long_strike + 1  # $1 wide spread
-    
-    T_long = long_dte_weeks / 52.0
-    T_short = short_dte_weeks / 52.0
-    
-    long_price = bs_call_price(uvxy_spot, long_strike, r, sigma, T_long)
-    short_price = bs_call_price(uvxy_spot, short_strike, r, sigma, T_short)
-    net_debit = long_price - short_price
-    contracts = max(1, int(capital / (net_debit * 100))) if net_debit > 0 else 1
-    
-    long_exp = today + dt.timedelta(days=long_dte_weeks * 7)
-    short_exp = today + dt.timedelta(days=short_dte_weeks * 7)
-    
-    variants.append({
-        "name": "Tighter Target (13w, 1.5x)",
-        "desc": "Quarter LEAP, tighter profit target. Balanced risk/reward.",
-        "long_strike": long_strike,
-        "long_dte": long_dte_weeks * 7,
-        "long_dte_weeks": long_dte_weeks,
-        "long_exp_date": long_exp.strftime("%b %d, %Y"),
-        "long_price": long_price,
-        "short_strike": short_strike,
-        "short_dte": short_dte_weeks * 7,
-        "short_dte_weeks": short_dte_weeks,
-        "short_exp_date": short_exp.strftime("%b %d, %Y"),
-        "short_price": short_price,
-        "net_debit": net_debit,
-        "contracts": contracts,
-        "target_mult": target_mult,
-        "stop_mult": stop_mult,
-        "long_leg": f"BUY {contracts}x UVXY ${long_strike:.0f}C @ ${long_price:.2f} — Exp {long_exp.strftime('%b %d, %Y')}",
-        "short_leg": f"SELL {contracts}x UVXY ${short_strike:.0f}C @ ${short_price:.2f} — Exp {short_exp.strftime('%b %d, %Y')}",
-        "net_position": f"Net Debit: ${net_debit:.2f}/spread (${net_debit * contracts * 100:.0f} total)",
-        "target": f"Target: {target_mult}x (${net_debit * target_mult:.2f})",
-        "stop": f"Stop: {stop_mult}x (${net_debit * stop_mult:.2f})",
-        "suggested": f"{contracts} contracts",
-    })
-    
-    # =========================================================
-    # VARIANT 5: Static Entry (8w)
-    # =========================================================
-    long_dte_weeks = 8
-    short_dte_weeks = 1
-    target_mult = 1.8
-    stop_mult = 0.5
-    
-    long_strike = round_strike(uvxy_spot + 2, INC)
-    short_strike = long_strike + 2  # $2 wide spread
-    
-    T_long = long_dte_weeks / 52.0
-    T_short = short_dte_weeks / 52.0
-    
-    long_price = bs_call_price(uvxy_spot, long_strike, r, sigma, T_long)
-    short_price = bs_call_price(uvxy_spot, short_strike, r, sigma, T_short)
-    net_debit = long_price - short_price
-    contracts = max(1, int(capital / (net_debit * 100))) if net_debit > 0 else 1
-    
-    long_exp = today + dt.timedelta(days=long_dte_weeks * 7)
-    short_exp = today + dt.timedelta(days=short_dte_weeks * 7)
-    
-    variants.append({
-        "name": "Static Entry (8w)",
-        "desc": "2-month diagonal. Ignores percentile, always available.",
-        "long_strike": long_strike,
-        "long_dte": long_dte_weeks * 7,
-        "long_dte_weeks": long_dte_weeks,
-        "long_exp_date": long_exp.strftime("%b %d, %Y"),
-        "long_price": long_price,
-        "short_strike": short_strike,
-        "short_dte": short_dte_weeks * 7,
-        "short_dte_weeks": short_dte_weeks,
-        "short_exp_date": short_exp.strftime("%b %d, %Y"),
-        "short_price": short_price,
-        "net_debit": net_debit,
-        "contracts": contracts,
-        "target_mult": target_mult,
-        "stop_mult": stop_mult,
-        "long_leg": f"BUY {contracts}x UVXY ${long_strike:.0f}C @ ${long_price:.2f} — Exp {long_exp.strftime('%b %d, %Y')}",
-        "short_leg": f"SELL {contracts}x UVXY ${short_strike:.0f}C @ ${short_price:.2f} — Exp {short_exp.strftime('%b %d, %Y')}",
-        "net_position": f"Net Debit: ${net_debit:.2f}/spread (${net_debit * contracts * 100:.0f} total)",
-        "target": f"Target: {target_mult}x (${net_debit * target_mult:.2f})",
-        "stop": f"Stop: {stop_mult}x (${net_debit * stop_mult:.2f})",
-        "suggested": f"{contracts} contracts",
-    })
-    
-    return variants
-
-
-# =====================================================================
-# EMAIL FORMATTING & SENDING
-# =====================================================================
-
-def format_email_html(data: Dict[str, Any]) -> str:
-    """Format the Thursday email with white background, large font."""
-    today = dt.date.today().strftime("%B %d, %Y")
-    pct = data['percentile'] * 100
-    active = data['signal_active']
-    emoji = "🟢" if active else "🔴"
-    signal_text = ">>> ENTRY SIGNAL ACTIVE <<<" if active else "No Signal (Above Threshold)"
-    
-    html = f"""
-    <html>
-    <body style="background:#ffffff;color:#333333;font-family:Arial,sans-serif;padding:20px;max-width:700px;margin:auto;line-height:1.6;font-size:18px;">
-    
-    <h1 style="color:#00aadd;text-align:center;margin-bottom:5px;">VIX 5% WEEKLY SUITE</h1>
-    <h3 style="color:#666666;text-align:center;margin-top:0;margin-bottom:30px;">Thursday Signal Report — {today}</h3>
-    
-    <div style="padding:15px;border:1px solid #dddddd;margin-bottom:30px;background:#fafafa;">
-        <strong style="font-size:20px;color:#00aadd;">📊 MARKET STATE</strong><br><br>
-        <strong>VIX Close:</strong> ${data['vix_close']:.2f}<br>
-        <strong>52w Percentile:</strong> {pct:.1f}%<br>
-        <strong>Current Regime:</strong> {data['regime']}<br>
-        <strong>UVXY Spot:</strong> ${data['uvxy_close']:.2f}
-    </div>
-    
-    <div style="padding:20px;border:3px solid {'#00aa00' if active else '#aa0000'};background:{'#f0fff0' if active else '#fff0f0'};margin-bottom:40px;text-align:center;">
-        <strong style="font-size:28px;color:{'#00aa00' if active else '#aa0000'};">{emoji} {signal_text}</strong><br>
-        <span style="font-size:16px;color:#666;">Percentile ({pct:.1f}%) {'≤' if active else '>'} threshold (35%)</span>
-    </div>
-    
-    <h2 style="color:#00aadd;font-size:24px;margin-bottom:20px;border-bottom:2px solid #00aadd;padding-bottom:10px;">
-        📋 5 DIAGONAL VARIANTS
-    </h2>
-    """
-    
-    for i, v in enumerate(data['variants'], 1):
-        long_exp = v.get('long_exp_date', 'N/A')
-        short_exp = v.get('short_exp_date', 'N/A')
-        
-        html += f"""
-        <div style="padding:15px;border:1px solid #cccccc;margin-bottom:20px;background:#f9f9f9;border-radius:5px;">
-            <strong style="font-size:20px;color:#00aadd;">#{i} {v['name']}</strong><br>
-            <em style="color:#666;">{v['desc']}</em><br><br>
-            
-            <div style="background:#e8f5e9;padding:10px;margin:5px 0;border-left:4px solid #4caf50;">
-                <strong style="color:#2e7d32;">📈 LONG LEG (Buy):</strong><br>
-                BUY {v['contracts']}x UVXY ${v['long_strike']:.1f}C @ ${v['long_price']:.2f}<br>
-                <span style="color:#555;">Expires: <strong>{long_exp}</strong> ({v['long_dte']} days)</span>
-            </div>
-            
-            <div style="background:#ffebee;padding:10px;margin:5px 0;border-left:4px solid #f44336;">
-                <strong style="color:#c62828;">📉 SHORT LEG (Sell):</strong><br>
-                SELL {v['contracts']}x UVXY ${v['short_strike']:.1f}C @ ${v['short_price']:.2f}<br>
-                <span style="color:#555;">Expires: <strong>{short_exp}</strong> ({v['short_dte']} days)</span>
-            </div>
-            
-            <div style="background:#e3f2fd;padding:10px;margin:5px 0;border-left:4px solid #2196f3;">
-                <strong style="color:#1565c0;">💰 NET POSITION:</strong><br>
-                Net Debit: ${v['net_debit']:.2f}/spread (${v['net_debit'] * v['contracts'] * 100:.0f} total)<br>
-                Target: {v['target_mult']}x (${v['net_debit'] * v['target_mult']:.2f})<br>
-                Stop: {v['stop_mult']}x (${v['net_debit'] * v['stop_mult']:.2f})<br>
-                <strong>Suggested: {v['contracts']} contracts</strong>
-            </div>
-        </div>
-        """
-    
-    html += """
-    <div style="margin-top:40px;padding:15px;background:#fff3e0;border:1px solid #ffcc80;border-radius:5px;">
-        <p style="color:#e65100;margin:0;font-size:14px;text-align:center;">
-            ⚠️ <strong>DISCLAIMER:</strong> Research tool only — not financial advice.<br>
-            Always verify quotes with your broker before trading.<br>
-            Past performance does not guarantee future results.
-        </p>
-    </div>
-    
-    <p style="color:#999;font-size:12px;text-align:center;margin-top:30px;">
-        Generated by VIX 5% Weekly Suite | LBR-Grade Research Platform
-    </p>
-    
-    </body>
-    </html>
-    """
-    return html
-
-
-def send_thursday_email(data: Dict[str, Any], recipient: str = "onoshin333@gmail.com") -> tuple:
-    """Send the Thursday email using SMTP env vars. Returns (success, message)."""
-    smtp_server = os.environ.get("SMTP_SERVER")
-    smtp_port = int(os.environ.get("SMTP_PORT", 587))
-    smtp_user = os.environ.get("SMTP_USER")
-    smtp_pass = os.environ.get("SMTP_PASS")
-    
-    if not all([smtp_server, smtp_user, smtp_pass]):
-        return False, "SMTP environment variables not set (SMTP_SERVER, SMTP_USER, SMTP_PASS)"
-    
-    try:
-        msg = MIMEMultipart("alternative")
-        pct = data['percentile'] * 100
-        active = data['signal_active']
-        emoji = "🟢" if active else "🔴"
-        
-        if active:
-            subject = f"{emoji} [ENTRY SIGNAL] VIX {data['regime']} Regime ({pct:.1f}%)"
+        if exit_idx is not None and exit_idx < len(vix_weekly):
+            exit_date = vix_weekly.index[exit_idx]
         else:
-            subject = f"{emoji} [NO SIGNAL] VIX {data['regime']} Regime ({pct:.1f}%)"
+            exit_date = tr.get("exit_date")
         
-        msg['Subject'] = subject
-        msg['From'] = smtp_user
-        msg['To'] = recipient
+        entry_eq = tr.get("entry_equity", 0)
+        exit_eq = tr.get("exit_equity", 0)
+        pnl = tr.get("pnl", exit_eq - entry_eq if entry_eq else 0)
+        pnl_pct = tr.get("pnl_pct", (pnl / entry_eq * 100) if entry_eq > 0 else 0)
         
-        html = format_email_html(data)
-        msg.attach(MIMEText(html, 'html', 'utf-8'))
-        
-        with smtplib.SMTP(smtp_server, smtp_port) as server:
-            server.starttls()
-            server.login(smtp_user, smtp_pass)
-            server.send_message(msg)
-        
-        return True, f"Email sent successfully to {recipient}"
-    except Exception as e:
-        return False, f"Email failed: {str(e)}"
+        records.append({
+            "Entry Date": entry_date,
+            "Exit Date": exit_date,
+            "Duration (wks)": tr.get("duration_weeks", 0),
+            "Entry Equity": entry_eq,
+            "Exit Equity": exit_eq,
+            "PnL ($)": pnl,
+            "PnL (%)": pnl_pct,
+            "Strike": tr.get("strike_long", 0),
+            "Entry Regime": tr.get("entry_regime", "N/A"),
+            "Exit Regime": tr.get("exit_regime", "N/A"),
+        })
+    
+    df = pd.DataFrame(records)
+    return df
 
 
-# =====================================================================
-# PAGE: LIVE SIGNALS
-# =====================================================================
+def _display_trade_statistics(bt: Dict[str, Any], st_container=None):
+    """Display trade statistics in a nice format."""
+    container = st_container or st
+    
+    trades = bt.get("trades", 0)
+    win_rate = bt.get("win_rate", 0)
+    avg_dur = bt.get("avg_trade_dur", 0)
+    
+    col1, col2, col3 = container.columns(3)
+    col1.metric("Total Trades", f"{trades}")
+    col2.metric("Win Rate", f"{win_rate * 100:.1f}%")
+    col3.metric("Avg Duration", f"{avg_dur:.1f} weeks")
 
-def page_live_signals():
-    """Live Signals page with 5 variants, quick jump, and email button."""
+
+def _display_trade_log_table(trade_log: List[Dict], vix_weekly: pd.Series, st_container=None):
+    """Display trade log as a formatted table."""
+    container = st_container or st
     
-    st.title("📡 Live Signals — 5 Variant Comparison")
+    df = _build_trade_log_df(trade_log, vix_weekly)
     
-    # =========================================================
-    # QUICK JUMP BUTTONS (at top)
-    # =========================================================
-    st.markdown("### ⚡ Quick Jump")
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.markdown('<a href="#market-state" style="text-decoration:none;"><button style="width:100%;padding:10px;font-size:16px;cursor:pointer;">📊 Market State</button></a>', unsafe_allow_html=True)
-    with col2:
-        st.markdown('<a href="#variant-signals" style="text-decoration:none;"><button style="width:100%;padding:10px;font-size:16px;cursor:pointer;">📋 5 Variant Signals</button></a>', unsafe_allow_html=True)
-    with col3:
-        st.markdown('<a href="#thursday-email" style="text-decoration:none;"><button style="width:100%;padding:10px;font-size:16px;cursor:pointer;">📧 Thursday Email</button></a>', unsafe_allow_html=True)
-    
-    st.markdown("---")
-    
-    # =========================================================
-    # LOAD LIVE DATA
-    # =========================================================
-    with st.spinner("Loading live market data..."):
-        live_data = load_live_data()
-    
-    if "error" in live_data:
-        st.error(f"Failed to load data: {live_data['error']}")
-        st.info("Make sure yfinance is installed: `pip install yfinance`")
+    if df.empty:
+        container.info("No trades executed. Check your entry parameters or try Synthetic (BS) pricing.")
         return
     
-    vix_close = live_data['vix_close']
-    uvxy_close = live_data['uvxy_close']
-    percentile = live_data['percentile']
-    regime = live_data['regime']
+    # Format for display
+    display_df = df.copy()
+    if "Entry Equity" in display_df.columns:
+        display_df["Entry Equity"] = display_df["Entry Equity"].apply(lambda x: f"${x:,.0f}" if pd.notna(x) else "N/A")
+    if "Exit Equity" in display_df.columns:
+        display_df["Exit Equity"] = display_df["Exit Equity"].apply(lambda x: f"${x:,.0f}" if pd.notna(x) else "N/A")
+    if "PnL ($)" in display_df.columns:
+        display_df["PnL ($)"] = display_df["PnL ($)"].apply(lambda x: f"${x:+,.0f}" if pd.notna(x) else "N/A")
+    if "PnL (%)" in display_df.columns:
+        display_df["PnL (%)"] = display_df["PnL (%)"].apply(lambda x: f"{x:+.2f}%" if pd.notna(x) else "N/A")
+    if "Strike" in display_df.columns:
+        display_df["Strike"] = display_df["Strike"].apply(lambda x: f"{x:.1f}" if pd.notna(x) and x > 0 else "N/A")
     
-    ENTRY_THRESHOLD = 0.35
-    signal_active = percentile <= ENTRY_THRESHOLD
+    container.dataframe(display_df, use_container_width=True, hide_index=True)
     
-    # =========================================================
-    # MARKET STATE SECTION
-    # =========================================================
-    st.markdown('<div id="market-state"></div>', unsafe_allow_html=True)
-    st.markdown("## 📊 Current Market State")
-    
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("VIX Close", f"${vix_close:.2f}")
-    col2.metric("52w Percentile", f"{percentile*100:.1f}%")
-    col3.metric("Regime", regime)
-    col4.metric("UVXY Spot", f"${uvxy_close:.2f}")
-    
-    if signal_active:
-        st.success(f"🟢 **ENTRY SIGNAL ACTIVE** — Percentile ({percentile*100:.1f}%) ≤ {ENTRY_THRESHOLD*100:.0f}% threshold")
-    else:
-        st.warning(f"🔴 **NO SIGNAL** — Percentile ({percentile*100:.1f}%) > {ENTRY_THRESHOLD*100:.0f}% threshold")
-    
-    st.markdown("---")
-    
-    # =========================================================
-    # GENERATE 5 VARIANTS
-    # =========================================================
-    initial_capital = st.session_state.get('live_initial_capital', 250000.0)
-    alloc_pct = st.session_state.get('live_alloc_pct', 0.01)
-    
-    variants = generate_5_variants(
-        uvxy_spot=uvxy_close,
-        percentile=percentile,
-        initial_capital=initial_capital,
-        alloc_pct=alloc_pct,
+    # Download button
+    csv = df.to_csv(index=False)
+    container.download_button(
+        "📥 Download Trade Log (CSV)",
+        data=csv,
+        file_name="trade_log.csv",
+        mime="text/csv",
     )
-    
-    # Store for email use
-    st.session_state['live_signal_data'] = {
-        'date': dt.date.today().isoformat(),
-        'vix_close': vix_close,
-        'uvxy_close': uvxy_close,
-        'percentile': percentile,
-        'regime': regime,
-        'signal_active': signal_active,
-        'variants': variants,
-    }
-    
-    # =========================================================
-    # 5 VARIANT SIGNALS SECTION
-    # =========================================================
-    st.markdown('<div id="variant-signals"></div>', unsafe_allow_html=True)
-    st.markdown("## 📋 5 Diagonal Variant Signals")
-    
-    # Expand/Collapse toggle — DEFAULT IS EXPANDED
-    col1, col2 = st.columns([3, 1])
-    with col2:
-        if 'expand_all' not in st.session_state:
-            st.session_state['expand_all'] = True  # DEFAULT EXPANDED
-        
-        btn_label = "🔽 Collapse All" if st.session_state['expand_all'] else "🔼 Expand All"
-        if st.button(btn_label, use_container_width=True):
-            st.session_state['expand_all'] = not st.session_state['expand_all']
-            st.rerun()
-    
-    expand_all = st.session_state.get('expand_all', True)
-    
-    # Display each variant — EXPANDED BY DEFAULT, DARK-MODE COMPATIBLE DESIGN
-    for i, v in enumerate(variants, 1):
-        with st.expander(f"**#{i} {v['name']}**", expanded=expand_all):
-            st.markdown(f"*{v['desc']}*")
-            
-            # Calculate actual expiration dates
-            today = dt.date.today()
-            long_exp_date = today + dt.timedelta(days=v['long_dte'])
-            short_exp_date = today + dt.timedelta(days=v['short_dte'])
-            long_exp_str = long_exp_date.strftime("%b %d, %Y")
-            short_exp_str = short_exp_date.strftime("%b %d, %Y")
-            
-            # Dark-mode compatible colored boxes
-            st.markdown(f"""
-<div style="background:rgba(76,175,80,0.15);padding:12px;margin:8px 0;border-left:4px solid #4caf50;border-radius:4px;">
-    <strong style="color:#81c784;font-size:18px;">📈 LONG LEG (Buy):</strong><br>
-    <span style="font-size:17px;color:#e0e0e0;">BUY {v['contracts']}x UVXY ${v['long_strike']:.1f}C @ ${v['long_price']:.2f}</span><br>
-    <span style="color:#aaaaaa;">Expires: <strong style="color:#81c784;">{long_exp_str}</strong> ({v['long_dte']} days)</span>
-</div>
-            """, unsafe_allow_html=True)
-            
-            st.markdown(f"""
-<div style="background:rgba(244,67,54,0.15);padding:12px;margin:8px 0;border-left:4px solid #f44336;border-radius:4px;">
-    <strong style="color:#e57373;font-size:18px;">📉 SHORT LEG (Sell):</strong><br>
-    <span style="font-size:17px;color:#e0e0e0;">SELL {v['contracts']}x UVXY ${v['short_strike']:.1f}C @ ${v['short_price']:.2f}</span><br>
-    <span style="color:#aaaaaa;">Expires: <strong style="color:#e57373;">{short_exp_str}</strong> ({v['short_dte']} days)</span>
-</div>
-            """, unsafe_allow_html=True)
-            
-            st.markdown(f"""
-<div style="background:rgba(33,150,243,0.15);padding:12px;margin:8px 0;border-left:4px solid #2196f3;border-radius:4px;">
-    <strong style="color:#64b5f6;font-size:18px;">💰 NET POSITION:</strong><br>
-    <span style="font-size:17px;color:#e0e0e0;"><strong>Net Debit:</strong> ${v['net_debit']:.2f}/spread (${v['net_debit'] * v['contracts'] * 100:.0f} total)</span><br>
-    <span style="font-size:16px;color:#bbbbbb;">Target: {v['target_mult']}x (${v['net_debit'] * v['target_mult']:.2f})</span><br>
-    <span style="font-size:16px;color:#bbbbbb;">Stop: {v['stop_mult']}x (${v['net_debit'] * v['stop_mult']:.2f})</span><br>
-    <strong style="font-size:17px;color:#64b5f6;">Suggested: {v['contracts']} contracts</strong>
-</div>
-            """, unsafe_allow_html=True)
-    
-    st.markdown("---")
-    
-    # =========================================================
-    # THURSDAY EMAIL SECTION
-    # =========================================================
-    st.markdown('<div id="thursday-email"></div>', unsafe_allow_html=True)
-    st.markdown("## 📧 Thursday Email")
-    
-    st.markdown("""
-    Send the signal report email with **exact data** shown above.  
-    Uses SMTP env vars: `SMTP_SERVER`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`
-    """)
-    
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        email_recipient = st.text_input("Recipient email", value="onoshin333@gmail.com", key="email_recipient")
-    
-    with col2:
-        st.markdown("<br>", unsafe_allow_html=True)
-        force_send = st.checkbox("Force send (even if no signal)", value=False)
-    
-    # Preview button
-    if st.button("👁️ Preview Email HTML", use_container_width=True):
-        data = st.session_state.get('live_signal_data', {})
-        if data:
-            html = format_email_html(data)
-            st.components.v1.html(html, height=800, scrolling=True)
-        else:
-            st.error("No signal data available")
-    
-    # Send button
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        if st.button("📤 Send Thursday Email", type="primary", use_container_width=True):
-            data = st.session_state.get('live_signal_data', {})
-            
-            if not data:
-                st.error("No signal data available. Refresh the page.")
-            elif not data.get('signal_active') and not force_send:
-                st.warning("No active signal. Check 'Force send' to send anyway.")
-            else:
-                with st.spinner("Sending email..."):
-                    success, message = send_thursday_email(data, email_recipient)
-                
-                if success:
-                    st.success(f"✅ {message}")
-                    st.balloons()
-                else:
-                    st.error(f"❌ {message}")
-    
-    with col2:
-        if st.button("💾 Save HTML Preview", use_container_width=True):
-            data = st.session_state.get('live_signal_data', {})
-            if data:
-                html = format_email_html(data)
-                st.download_button(
-                    label="Download HTML",
-                    data=html,
-                    file_name=f"vix_signal_{dt.date.today().isoformat()}.html",
-                    mime="text/html"
-                )
-    
-    # =========================================================
-    # DISCLAIMER
-    # =========================================================
-    st.markdown("---")
-    st.caption("""
-    ⚠️ **Disclaimer:** This is a research tool only, not financial advice. 
-    All prices are theoretical (Black-Scholes). Always verify quotes with your broker before trading.
-    Past performance does not guarantee future results.
-    """)
 
 
-# =====================================================================
-# SIMPLE SIDEBAR
-# =====================================================================
-
-def build_simple_sidebar() -> Dict[str, Any]:
-    """Build sidebar with page selection and key params."""
-    
-    st.sidebar.title("VIX 5% Weekly Suite")
-    
-    page = st.sidebar.radio(
-        "Page",
-        ["Dashboard", "Backtester", "Live Signals", "Trade Explorer"],
-        index=2,  # Default to Live Signals
-        key="page_select"
-    )
-    
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("### Settings")
-    
-    start_date = st.sidebar.date_input("Start date", value=dt.date(2015, 1, 1), key="sb_start_date")
-    end_date = st.sidebar.date_input("End date", value=dt.date.today(), key="sb_end_date")
-    
-    initial_capital = st.sidebar.number_input(
-        "Initial Capital ($)", min_value=10000.0, max_value=10000000.0,
-        value=250000.0, step=10000.0, key="sb_initial_capital"
-    )
-    
-    alloc_pct_raw = st.sidebar.slider(
-        "Allocation (%)", min_value=0.5, max_value=10.0,
-        value=1.0, step=0.5, key="sb_alloc_pct"
-    )
-    alloc_pct = alloc_pct_raw / 100.0
-    
-    # Store values for Live Signals page (use different keys)
-    st.session_state['live_initial_capital'] = initial_capital
-    st.session_state['live_alloc_pct'] = alloc_pct
-    
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("### Strategy")
-    
-    mode = st.sidebar.selectbox("Position Structure", ["diagonal", "long_only"], index=0, key="sb_mode")
-    entry_percentile = st.sidebar.slider("Entry Percentile", min_value=0.05, max_value=0.50, value=0.35, step=0.05, key="sb_entry_pct")
-    
-    return {
-        "page": page,
-        "start_date": start_date,
-        "end_date": end_date,
-        "initial_capital": initial_capital,
-        "alloc_pct": alloc_pct,
-        "mode": mode,
-        "entry_percentile": entry_percentile,
-        "pricing_source": "Synthetic (BS)",
-        "underlying_symbol": "UVXY",
-    }
-
-
-# =====================================================================
+# ---------------------------------------------------------------------
 # MAIN
-# =====================================================================
-
+# ---------------------------------------------------------------------
 def main():
     st.set_page_config(
         page_title="VIX 5% Weekly Suite",
-        page_icon="📈",
         layout="wide",
     )
+
+    # -------------------------------------------------
+    # 1. Read sidebar params
+    # -------------------------------------------------
+    params: Dict[str, Any] = build_sidebar()
+    page = params.get("page", "Dashboard")
+
+    start_date: dt.date = params["start_date"]
+    end_date: dt.date = params["end_date"]
+
+    # Basic UI selections
+    ui_pricing_source = params.get("pricing_source", "Synthetic (BS)")
+    ui_underlying_symbol = params.get("underlying_symbol", "^VIX")
     
-    params = build_simple_sidebar()
-    page = params["page"]
+    # Check for regime-adaptive mode
+    use_regime_adaptive = params.get("use_regime_adaptive", False)
+
+    # -------------------------------------------------
+    # 2. Load data (weekly underlying series)
+    # -------------------------------------------------
+    # Load based on underlying symbol
+    if ui_underlying_symbol == "^VIX":
+        vix_weekly = load_vix_weekly(start_date, end_date)
+    else:
+        try:
+            vix_weekly = load_weekly(ui_underlying_symbol, start_date, end_date)
+        except:
+            vix_weekly = load_vix_weekly(start_date, end_date)
     
-    if page == "Live Signals":
-        page_live_signals()
+    if vix_weekly is None or vix_weekly.empty:
+        st.error("No underlying data available for the selected date range.")
         return
-    
-    elif page == "Dashboard":
-        st.title("📊 VIX 5% Weekly — Dashboard")
-        st.info("Dashboard shows backtest equity curves and regime analysis.")
+
+    # -------------------------------------------------
+    # 3. Best-param override & effective params
+    # -------------------------------------------------
+    effective_params = apply_best_if_requested(params)
+
+    # Ensure pricing_source / underlying_symbol keys exist
+    if "pricing_source" not in effective_params:
+        effective_params["pricing_source"] = ui_pricing_source
+    if "underlying_symbol" not in effective_params:
+        effective_params["underlying_symbol"] = ui_underlying_symbol
+
+    pricing_source = effective_params.get("pricing_source", "Synthetic (BS)")
+    underlying_symbol = effective_params.get("underlying_symbol", "^VIX")
+
+    # Engine label
+    if use_regime_adaptive and REGIME_AVAILABLE:
+        engine_label = f"Regime-Adaptive ({underlying_symbol})"
+    elif pricing_source == "Massive historical":
+        engine_label = f"Massive historical ({underlying_symbol})"
+    else:
+        engine_label = "Synthetic (Black–Scholes)"
+
+    st.caption(f"🔧 Engine: {engine_label}")
+
+    # -------------------------------------------------
+    # 4. Run backtest
+    # -------------------------------------------------
+    bt = None
+
+    if use_regime_adaptive and REGIME_AVAILABLE:
+        # Regime-adaptive backtest
+        adapter = RegimeAdapter()
         
-        if HAS_YFINANCE:
-            with st.spinner("Loading VIX data..."):
-                try:
-                    df = yf.download("^VIX", start=params["start_date"], end=params["end_date"], progress=False)
-                    if not df.empty:
-                        vix_weekly = df["Close"].resample("W-FRI").last().dropna()
-                        st.markdown("### VIX Weekly Close")
-                        st.line_chart(vix_weekly)
-                        st.markdown("### 52-Week Percentile")
-                        pct = _compute_vix_percentile_local(vix_weekly, 52)
-                        st.area_chart(pct)
-                    else:
-                        st.warning("No VIX data available for selected range")
-                except Exception as e:
-                    st.error(f"Error loading data: {e}")
+        progress_text = st.empty()
+        progress_bar = st.progress(0.0)
+
+        def _progress_cb(step: int, total: int):
+            if total <= 0:
+                return
+            frac = min(max(step / float(total), 0.0), 1.0)
+            progress_bar.progress(frac)
+            progress_text.text(f"Regime-adaptive backtest: {step}/{total} weeks")
+
+        bt = run_regime_adaptive_backtest(
+            vix_weekly,
+            effective_params,
+            adapter=adapter,
+            progress_cb=_progress_cb,
+        )
+
+        progress_bar.empty()
+        progress_text.empty()
+        
+    elif pricing_source == "Massive historical":
+        # Massive historical backtest
+        progress_text = st.empty()
+        progress_bar = st.progress(0.0)
+
+        def _progress_cb(step: int, total: int):
+            if total <= 0:
+                return
+            frac = min(max(step / float(total), 0.0), 1.0)
+            progress_bar.progress(frac)
+            progress_text.text(f"Massive backtest: {step}/{total} weeks")
+
+        bt = run_backtest_massive(
+            vix_weekly,
+            effective_params,
+            symbol=underlying_symbol,
+            progress_cb=_progress_cb,
+        )
+
+        progress_bar.empty()
+        progress_text.empty()
+    else:
+        # Synthetic (Black–Scholes) engine
+        bt = run_backtest(vix_weekly, effective_params)
+
+    # -------------------------------------------------
+    # 5. Normalize results & core metrics
+    # -------------------------------------------------
+    equity = np.asarray(bt["equity"], dtype=float).ravel()
+    weekly_returns = np.asarray(bt.get("weekly_returns", []), dtype=float).ravel()
+    realized_weekly = np.asarray(bt.get("realized_weekly", []), dtype=float).ravel()
+    unrealized_weekly = np.asarray(bt.get("unrealized_weekly", []), dtype=float).ravel()
+    trade_log = bt.get("trade_log", [])
+    regime_log = bt.get("regime_log", [])
+
+    if len(equity) > 0:
+        final_eq = float(equity[-1])
+    else:
+        final_eq = float(effective_params.get("initial_capital", 0.0))
+
+    cagr = _compute_cagr(equity)
+    max_dd = _compute_max_dd(equity)
+    sharpe = _compute_sharpe(weekly_returns)
+
+    initial_cap = float(effective_params.get("initial_capital", 0.0))
+    if initial_cap > 0:
+        total_ret = final_eq / initial_cap - 1.0
+    else:
+        total_ret = 0.0
+
+    # =================================================================
+    # PAGE: Dashboard
+    # =================================================================
+    if page == "Dashboard":
+        st.title(f"VIX 5% Weekly — Dashboard")
+
+        # Key metrics
+        col1, col2, col3, col4, col5, col6 = st.columns(6)
+        col1.metric("Initial Capital", _fmt_dollar(initial_cap))
+        col2.metric("Final Equity", _fmt_dollar(final_eq))
+        col3.metric("Total Return", _fmt_pct(total_ret))
+        col4.metric("CAGR", _fmt_pct(cagr))
+        col5.metric("Max Drawdown", _fmt_pct(max_dd))
+        col6.metric("Sharpe", f"{sharpe:.2f}")
+
+        # Equity vs underlying chart
+        st.markdown(f"### Equity Curve vs {underlying_symbol}")
+        n_eq = len(equity)
+        under_vals = np.asarray(vix_weekly.iloc[:n_eq]).astype(float).ravel()
+
+        df_chart = pd.DataFrame({
+            "Equity": np.asarray(equity[:n_eq], dtype=float).ravel(),
+            underlying_symbol: under_vals,
+        }, index=vix_weekly.index[:n_eq])
+        st.line_chart(df_chart)
+
+        # Percentile strip
+        st.markdown(f"### 52-week {underlying_symbol} Percentile")
+        pct_lb = int(effective_params.get("entry_lookback_weeks", 52))
+        vix_pct = _compute_vix_percentile_local(vix_weekly, pct_lb)
+        df_pct = pd.DataFrame({"Percentile": vix_pct})
+        st.area_chart(df_pct)
+
+        # Quick trade summary
+        st.markdown("### Trade Summary")
+        _display_trade_statistics(bt)
+        
+        if len(trade_log) > 0:
+            with st.expander("📋 Recent Trades (last 10)", expanded=False):
+                recent_trades = trade_log[-10:]
+                _display_trade_log_table(recent_trades, vix_weekly)
+
+        return
+
+    # =================================================================
+    # PAGE: Backtester (with Grid Scan)
+    # =================================================================
+    if page == "Backtester":
+        st.title("VIX 5% Weekly — Backtester")
+
+        # Key metrics
+        col1, col2, col3, col4, col5, col6 = st.columns(6)
+        col1.metric("Initial Capital", _fmt_dollar(initial_cap))
+        col2.metric("Final Equity", _fmt_dollar(final_eq))
+        col3.metric("Total Return", _fmt_pct(total_ret))
+        col4.metric("CAGR", _fmt_pct(cagr))
+        col5.metric("Max Drawdown", _fmt_pct(max_dd))
+        col6.metric("Sharpe", f"{sharpe:.2f}")
+
+        # Equity & underlying chart
+        st.markdown(f"### Equity & {underlying_symbol}")
+        n_eq = len(equity)
+        vix_vals_eq = np.asarray(vix_weekly.iloc[:n_eq]).astype(float).ravel()
+
+        df_eq = pd.DataFrame({
+            "Equity": np.asarray(equity[:n_eq], dtype=float).ravel(),
+            underlying_symbol: vix_vals_eq,
+        }, index=vix_weekly.index[:n_eq])
+        st.line_chart(df_eq)
+
+        # Weekly PnL
+        st.markdown("### Weekly PnL (realized + unrealized)")
+        n_pnl = min(len(realized_weekly), len(unrealized_weekly), len(vix_weekly))
+        df_pnl = pd.DataFrame({
+            "realized": realized_weekly[:n_pnl],
+            "unrealized": unrealized_weekly[:n_pnl],
+        }, index=vix_weekly.index[:n_pnl])
+        st.bar_chart(df_pnl)
+
+        # ========== TRADE LOG SECTION ==========
+        st.markdown("---")
+        st.subheader("📊 Trade Log")
+        
+        trade_log = bt.get("trade_log", [])
+        trades_count = bt.get("trades", 0)
+        win_rate = bt.get("win_rate", 0)
+        avg_dur = bt.get("avg_trade_dur", 0)
+        
+        col_t1, col_t2, col_t3 = st.columns(3)
+        col_t1.metric("Total Trades", f"{trades_count}")
+        col_t2.metric("Win Rate", f"{win_rate * 100:.1f}%")
+        col_t3.metric("Avg Duration", f"{avg_dur:.1f} wks")
+        
+        if trade_log:
+            records = []
+            for tr in trade_log:
+                entry_idx = tr.get("entry_idx")
+                exit_idx = tr.get("exit_idx")
+                entry_date = vix_weekly.index[entry_idx] if entry_idx and entry_idx < len(vix_weekly) else None
+                exit_date = vix_weekly.index[exit_idx] if exit_idx and exit_idx < len(vix_weekly) else None
+                entry_eq = tr.get("entry_equity", 0)
+                exit_eq = tr.get("exit_equity", 0)
+                pnl = exit_eq - entry_eq if entry_eq else 0
+                pnl_pct = (pnl / entry_eq * 100) if entry_eq and entry_eq > 0 else 0
+                
+                records.append({
+                    "Entry": entry_date,
+                    "Exit": exit_date,
+                    "Weeks": tr.get("duration_weeks", 0),
+                    "PnL $": f"${pnl:+,.0f}",
+                    "PnL %": f"{pnl_pct:+.1f}%",
+                    "Strike": f"{tr.get('strike_long', 0):.1f}",
+                })
+            
+            st.dataframe(pd.DataFrame(records), use_container_width=True, hide_index=True)
+            
+            # CSV download
+            df_export = pd.DataFrame(records)
+            st.download_button("📥 Download CSV", df_export.to_csv(index=False), "trade_log.csv", "text/csv")
         else:
-            st.warning("Install yfinance: `pip install yfinance`")
-    
-    elif page == "Backtester":
-        st.title("🔬 VIX 5% Weekly — Backtester")
-        st.info("Backtester with grid scan for parameter optimization.")
-        st.markdown("*Full backtester functionality requires core modules.*")
+            st.info("No trades. Try 'Synthetic (BS)' pricing or higher entry percentile.")
+        # ========== END TRADE LOG ==========
+
+        st.markdown("---")
+
+        # ========== TRADE LOG SECTION (NEW) ==========
+        st.subheader("📊 Trade Log & Statistics")
         
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Initial Capital", _fmt_dollar(params["initial_capital"]))
-        col2.metric("Allocation", f"{params['alloc_pct']*100:.1f}%")
-        col3.metric("Entry Threshold", f"{params['entry_percentile']*100:.0f}%")
-    
-    elif page == "Trade Explorer":
-        st.title("🔍 VIX 5% Weekly — Trade Explorer")
-        st.info("Trade Explorer for analyzing individual trade entries and exits.")
-        st.markdown("*Coming soon: Detailed trade-by-trade analysis*")
+        _display_trade_statistics(bt)
+        
+        with st.expander("📋 Complete Trade Log", expanded=True):
+            _display_trade_log_table(trade_log, vix_weekly)
+
+        st.markdown("---")
+
+        # Grid Scan section
+        st.subheader("🔍 Grid Scan")
+
+        with st.expander("Grid scan parameter ranges", expanded=False):
+            ep_str = st.text_input(
+                "Entry percentiles (0–1, comma-separated)",
+                value="0.10,0.20,0.30,0.50,0.70,0.90",
+                key="grid_entry_percentiles",
+            )
+            sigma_str = st.text_input(
+                "Sigma multipliers for long option",
+                value="0.5,0.8,1.0,1.2",
+                key="grid_sigma_mults",
+            )
+            otm_str = st.text_input(
+                "OTM distances (underlying points)",
+                value="2,3,5,8,10,15",
+                key="grid_otm_pts",
+            )
+            dte_str = st.text_input(
+                "Long call DTE choices (weeks)",
+                value="5,8,13,26",
+                key="grid_long_dte_weeks",
+            )
+
+        entry_percentiles = _parse_float_list(ep_str)
+        sigma_mults = _parse_float_list(sigma_str)
+        otm_pts_list = _parse_float_list(otm_str)
+        long_dte_weeks_list = _parse_int_list(dte_str)
+
+        opt_mode = st.radio(
+            "Optimization focus",
+            ["Balanced: high CAGR & low Max DD", "Max CAGR only", "Min Max Drawdown only"],
+            index=0,
+            horizontal=True,
+            key="grid_opt_mode",
+        )
+
+        if "Balanced" in opt_mode:
+            criteria = "balanced"
+        elif "Max CAGR" in opt_mode:
+            criteria = "cagr"
+        else:
+            criteria = "maxdd"
+
+        if st.button("🚀 Run Grid Scan"):
+            with st.spinner("Running grid scan..."):
+                grid_df = run_grid_scan(
+                    vix_weekly,
+                    effective_params,
+                    criteria=criteria,
+                    entry_grid=entry_percentiles,
+                    sigma_grid=sigma_mults,
+                    otm_grid=otm_pts_list,
+                    dte_grid=long_dte_weeks_list,
+                )
+                st.session_state["grid_df"] = grid_df
+
+        grid_df = st.session_state.get("grid_df")
+        if grid_df is not None and not grid_df.empty:
+            st.dataframe(grid_df, use_container_width=True)
+
+            # Download XLSX
+            buf = io.BytesIO()
+            with pd.ExcelWriter(buf, engine="xlsxwriter") as writer:
+                grid_df.to_excel(writer, index=False, sheet_name="grid_scan")
+            buf.seek(0)
+            st.download_button(
+                "📥 Download Grid Scan (XLSX)",
+                data=buf,
+                file_name=f"{effective_params.get('mode', 'strategy')}_grid_scan.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+
+            st.markdown("#### Best Parameters")
+            best = get_best_for_strategy(effective_params.get("mode", "diagonal"))
+            if best:
+                st.json(best["row"])
+            else:
+                st.info("No best-parameter history yet for this mode.")
+        else:
+            st.info("Run the grid scan to see ranked parameter combos.")
+
+        return
+
+    # =================================================================
+    # PAGE: Trade Explorer
+    # =================================================================
+    if page == "Trade Explorer":
+        st.title("VIX 5% Weekly — Trade Explorer")
+
+        if not trade_log:
+            st.warning("No trades to explore. Run a backtest with trades first.")
+            st.info("💡 Tip: Try using 'Synthetic (BS)' pricing source with a higher entry percentile (e.g., 0.30)")
+            return
+
+        # Summary stats
+        st.markdown("### Trade Summary")
+        _display_trade_statistics(bt)
+
+        # Trade log table
+        st.markdown("### Complete Trade Log")
+        df_trades = _build_trade_log_df(trade_log, vix_weekly)
+        
+        # Color code PnL
+        def highlight_pnl(row):
+            if "PnL ($)" in row:
+                pnl = row["PnL ($)"]
+                if isinstance(pnl, (int, float)) and pnl > 0:
+                    return ['background-color: rgba(0, 255, 0, 0.1)'] * len(row)
+                elif isinstance(pnl, (int, float)) and pnl < 0:
+                    return ['background-color: rgba(255, 0, 0, 0.1)'] * len(row)
+            return [''] * len(row)
+
+        st.dataframe(
+            df_trades.style.apply(highlight_pnl, axis=1),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        # Trade analysis
+        st.markdown("### Trade Analysis")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("#### PnL Distribution")
+            if "PnL ($)" in df_trades.columns:
+                pnl_vals = df_trades["PnL ($)"].dropna()
+                if len(pnl_vals) > 0:
+                    st.bar_chart(pnl_vals.reset_index(drop=True))
+        
+        with col2:
+            st.markdown("#### Duration Distribution")
+            if "Duration (wks)" in df_trades.columns:
+                dur_vals = df_trades["Duration (wks)"].dropna()
+                if len(dur_vals) > 0:
+                    st.bar_chart(dur_vals.value_counts().sort_index())
+
+        # Trade on chart
+        st.markdown(f"### Trades on {underlying_symbol} Chart")
+        n_eq = len(equity)
+        
+        chart_df = pd.DataFrame({
+            underlying_symbol: np.asarray(vix_weekly.iloc[:n_eq]).astype(float).ravel(),
+        }, index=vix_weekly.index[:n_eq])
+        
+        # Add entry/exit markers as separate series
+        entry_dates = []
+        entry_prices = []
+        exit_dates = []
+        exit_prices = []
+        
+        for tr in trade_log:
+            entry_idx = tr.get("entry_idx")
+            exit_idx = tr.get("exit_idx")
+            
+            if entry_idx and entry_idx < len(vix_weekly):
+                entry_dates.append(vix_weekly.index[entry_idx])
+                entry_prices.append(float(vix_weekly.iloc[entry_idx]))
+            
+            if exit_idx and exit_idx < len(vix_weekly):
+                exit_dates.append(vix_weekly.index[exit_idx])
+                exit_prices.append(float(vix_weekly.iloc[exit_idx]))
+        
+        st.line_chart(chart_df)
+        
+        if entry_dates:
+            entry_df = pd.DataFrame({"Entry": entry_prices}, index=entry_dates)
+            st.caption(f"Entry points: {len(entry_dates)} trades")
+
+        # Download
+        csv = df_trades.to_csv(index=False)
+        st.download_button(
+            "📥 Download Trade Log (CSV)",
+            data=csv,
+            file_name="trade_explorer.csv",
+            mime="text/csv",
+        )
+
+        return
+
+    # =================================================================
+    # PAGE: Trade Logger
+    # =================================================================
+    if page == "Trade Logger":
+        render_trade_logger_page()
+        return
+
+    # =================================================================
+    # PAGE: Regime Analysis (if regime adapter available)
+    # =================================================================
+    if page == "Regime Analysis" and REGIME_AVAILABLE:
+        st.title("VIX 5% Weekly — Regime Analysis")
+        
+        if not regime_log:
+            st.warning("No regime data available. Enable 'Regime-Adaptive Mode' in the sidebar and run a backtest.")
+            return
+        
+        # Regime summary
+        st.markdown("### Regime Distribution")
+        regime_summary = get_regime_summary(regime_log)
+        if not regime_summary.empty:
+            col1, col2 = st.columns([1, 2])
+            with col1:
+                st.dataframe(regime_summary, use_container_width=True, hide_index=True)
+            with col2:
+                st.bar_chart(regime_summary.set_index("regime")["weeks"])
+        
+        # Trade stats by regime
+        st.markdown("### Trade Performance by Entry Regime")
+        regime_trade_stats = get_regime_trade_stats(trade_log)
+        if not regime_trade_stats.empty:
+            st.dataframe(regime_trade_stats.round(2), use_container_width=True, hide_index=True)
+        
+        # Regime timeline
+        st.markdown("### Regime Timeline")
+        if regime_log:
+            regime_df = pd.DataFrame(regime_log)
+            regime_df["date"] = pd.to_datetime(regime_df["date"])
+            regime_df = regime_df.set_index("date")
+            
+            # Map regimes to numeric for visualization
+            regime_map = {"Ultra Low": 1, "Low": 2, "Medium": 3, "High": 4, "Extreme": 5}
+            regime_df["regime_num"] = regime_df["regime"].map(regime_map).fillna(3)
+            
+            st.area_chart(regime_df["regime_num"])
+            st.caption("Regime levels: 1=Ultra Low, 2=Low, 3=Medium, 4=High, 5=Extreme")
+        
+        return
+
+    # Fallback
+    st.info("Select a page from the sidebar.")
 
 
+# ---------------------------------------------------------------------
 if __name__ == "__main__":
     main()

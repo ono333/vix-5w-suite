@@ -1,227 +1,196 @@
-# VIX 5% Weekly Suite — Regime-Adaptive Version
+# VIX 5% Weekly Suite - Improved Version
 
-A sophisticated VIX/UVXY options backtesting system with **adaptive parameter switching** based on market volatility regimes.
+## What's New
 
-## 🌟 Key Features
+### 1. **Trade Logger for 5 Paper Trade Variants** 📊
 
-### Regime-Based Adaptive Trading
-The system automatically detects five distinct market volatility regimes and applies optimized parameters for each:
+The new `trade_logger.py` module supports tracking trades from 5 different strategy variants:
 
-| Regime | VIX Percentile | Description | Strategy Stance |
-|--------|---------------|-------------|-----------------|
-| **Ultra Low** | 0-10% | Extremely calm markets | Aggressive entry, higher allocation |
-| **Low** | 10-25% | Primary entry zone | Standard positioning |
-| **Medium** | 25-50% | Normal volatility | Moderate, selective entries |
-| **High** | 50-75% | Elevated volatility | Defensive, long-only mode |
-| **Extreme** | 75-100% | Crisis/spike | Avoid new positions |
+| Variant | Name | Description |
+|---------|------|-------------|
+| **V1** | Static Baseline | Fixed parameters, no adaptation |
+| **V2** | Regime Adaptive | Adjusts params based on VIX percentile |
+| **V3** | Aggressive Entry | Higher entry threshold, larger positions |
+| **V4** | Conservative | Lower entry threshold, smaller positions |
+| **V5** | High VIX Contrarian | Enter when VIX is elevated |
 
-### Per-Regime Optimization
-Instead of using one-size-fits-all parameters, the system:
-1. Separates historical data by regime
-2. Runs independent grid scans for each regime's historical periods
-3. Stores optimized parameters per regime
-4. Dynamically applies the right parameters based on current conditions
+Each trade entry captures:
+- Variant ID and name
+- Entry/exit timestamps and prices
+- Position details (strikes, DTE, contracts)
+- P&L metrics
+- Regime at entry/exit
+- Strategy parameters used
 
----
+```python
+from trade_logger import TradeLogger, VariantConfig
 
-## 🚀 Getting Started
+# Initialize logger with persistence
+logger = TradeLogger(log_path="paper_trades.json")
 
-### Installation
+# Log a trade entry for Variant 1
+trade = logger.log_entry(
+    variant_id=1,
+    entry_date="2024-01-15",
+    entry_underlying=15.5,
+    contracts=10,
+    long_strike=20.0,
+    long_dte_weeks=26,
+    entry_cost=3500.0,
+    entry_percentile=0.22,
+    entry_threshold=0.25,
+)
 
+# Log exit when trade closes
+logger.log_exit(
+    trade_id=trade.trade_id,
+    exit_date="2024-02-01",
+    exit_underlying=18.2,
+    exit_value=4200.0,
+    exit_reason="target",
+)
+
+# Compare all variants
+stats_df = logger.get_all_variants_stats()
+print(stats_df)
+
+# Export to Excel with per-variant sheets
+logger.export_excel("paper_trade_comparison.xlsx")
+```
+
+### 2. **Trade Log Display** 📊
+The Backtester page now shows a complete trade log with:
+- Entry/Exit dates
+- Duration (weeks)
+- Entry/Exit equity
+- PnL ($ and %)
+- Strike prices
+- Entry/Exit regimes (in adaptive mode)
+
+### 2. **Trade Statistics**
+Key metrics displayed prominently:
+- Total Trades
+- Win Rate
+- Average Duration
+- Sharpe Ratio
+
+### 3. **Regime-Adaptive Strategy** 🎯
+Enable "Regime-Adaptive Mode" in the sidebar to automatically adjust parameters based on VIX percentile:
+
+| Regime | VIX Percentile | Entry % | DTE | Position Size | Behavior |
+|--------|---------------|---------|-----|---------------|----------|
+| Ultra Low | 0-10% | 0.35 | 26w | 1.5% | Aggressive, expect vol to stay low |
+| Low | 10-25% | 0.30 | 26w | 1.2% | Normal calm market params |
+| Medium | 25-50% | 0.25 | 15w | 1.0% | Balanced approach |
+| High | 50-75% | 0.20 | 8w | 0.8% | Defensive, smaller positions |
+| Extreme | 75-100% | 0.15 | 5w | 0.5% | Very defensive, quick exits |
+
+### 4. **Trade Explorer Page** 🔍
+Now fully functional with:
+- Complete trade log table
+- PnL distribution chart
+- Duration analysis
+- Trades marked on price chart
+- CSV export
+
+### 5. **Regime Analysis Page** 📈
+New page showing:
+- Time spent in each regime
+- Trade performance by entry regime
+- Regime timeline visualization
+
+## Installation
+
+1. **Copy the new files to your project:**
 ```bash
-# Clone/copy the project
-cd vix_suite
+# From the downloaded folder:
+cp app_improved.py /path/to/01_vix_5w_suite/app.py
+cp sidebar_improved.py /path/to/01_vix_5w_suite/ui/sidebar.py
+cp regime_adapter.py /path/to/01_vix_5w_suite/core/regime_adapter.py
+```
 
-# Install dependencies
-pip install -r requirements.txt
+2. **Or rename and keep both versions:**
+```bash
+mv app.py app_original.py
+mv app_improved.py app.py
+```
 
-# Run the app
+## Why Your Backtest Shows 0% Returns
+
+Looking at your screenshot, the issue is:
+
+1. **Massive Historical has no data** - The Massive API doesn't provide historical option chain snapshots via REST. Every chain query returns empty, so no trades execute.
+
+2. **Solution**: Switch to "Synthetic (BS)" pricing source in the sidebar. This uses Black-Scholes pricing which always works.
+
+3. **Entry percentile may be too restrictive** - If set to 0.10 (10th percentile), you'll only enter when VIX is very low. Try 0.25-0.35 for more trades.
+
+## Quick Start
+
+1. Run the app:
+```bash
+cd 01_vix_5w_suite
 streamlit run app.py
 ```
 
-### Quick Start Workflow
+2. In the sidebar:
+   - Set **Pricing source** to "Synthetic (BS)"
+   - Set **Entry percentile** to 0.25-0.35
+   - Enable **Regime-Adaptive Mode** (optional)
 
-1. **Dashboard**: View current market regime and historical distribution
-2. **Per-Regime Optimizer**: Run optimization for each regime (do this first!)
-3. **Adaptive Backtester**: Run backtest with regime-adaptive parameters
-4. **Live Signals**: Generate real-time trading recommendations
+3. Navigate to **Backtester** page to see trades and the trade log
 
----
+## Files Included
 
-## 📁 Project Structure
+| File | Description |
+|------|-------------|
+| `app_improved.py` | Main app with trade log display |
+| `sidebar_improved.py` | Updated sidebar with regime toggle |
+| `regime_adapter.py` | Regime-adaptive strategy logic (fixed) |
+| `trade_logger.py` | **NEW** - Multi-variant paper trade logger |
 
-```
-vix_suite/
-├── app.py                   # Main Streamlit app
-├── daily_signal.py          # Standalone email script
-├── requirements.txt         # Python dependencies
-│
-├── core/                    # Core backtesting modules
-│   ├── adaptive_backtester.py   # Regime-adaptive backtest engine
-│   ├── backtester.py           # Standard synthetic backtest
-│   ├── regime_adapter.py       # Regime detection & configuration
-│   ├── param_history.py        # Parameter storage & retrieval
-│   ├── data_loader.py          # VIX/UVXY data loading
-│   ├── indicators.py           # Technical indicators
-│   ├── metrics.py              # Performance calculations
-│   └── math_engine.py          # Black-Scholes pricing
-│
-├── experiments/             # Grid scanning & optimization
-│   ├── grid_scan.py            # Standard parameter grid scan
-│   ├── entry_rules.py          # Entry signal logic
-│   └── exit_rules.py           # Exit signal logic
-│
-├── ui/                      # User interface components
-│   ├── sidebar.py              # Sidebar controls
-│   ├── charts.py               # Chart rendering
-│   ├── tables.py               # Table displays
-│   └── styles.py               # CSS styling
-│
-└── config/                  # Configuration
-    ├── defaults.py             # Default parameters
-    └── massive_config.py       # Massive API config (if used)
+## Installation for 5-Variant Paper Trading
+
+1. **Copy files to your project:**
+```bash
+cp app_improved.py /path/to/01_vix_5w_suite/app.py
+cp sidebar_improved.py /path/to/01_vix_5w_suite/ui/sidebar.py
+cp regime_adapter.py /path/to/01_vix_5w_suite/core/regime_adapter.py
+cp trade_logger.py /path/to/01_vix_5w_suite/core/trade_logger.py
 ```
 
----
-
-## 📊 Pages
-
-### Dashboard
-- Current market regime detection
-- 52-week percentile visualization
-- Regime timeline and distribution
-
-### Backtester
-- Standard backtest with fixed parameters
-- Grid scan for parameter optimization
-- Equity curves and PnL breakdown
-- Results export to XLSX
-
-### Live Signals
-- Real-time UVXY signal generation
-- Multiple trade variants (different DTEs)
-- Email automation for Thursday signals
-- Position sizing recommendations
-
-### Trade Explorer
-- Detailed trade analysis
-- Entry/exit visualization
-
----
-
-## 📈 Strategy Logic
-
-### Entry Rules
-
-For each week:
-1. Calculate current VIX percentile vs last 52 weeks
-2. Determine regime (ultra_low/low/medium/high/extreme)
-3. Check if VIX percentile <= regime's `entry_percentile` threshold
-4. If yes, open position using regime's parameters
-
-### Position Structure
-
-#### Diagonal Spread (Low/Mid VIX)
-- **Long**: 26-week call, OTM by X points
-- **Short**: 1-week call, OTM by X points
-- Short rolled weekly until long expires or exit triggered
-
-#### Long-Only (High VIX)
-- **Long**: 8-week call only
-- No short leg (avoid negative gamma when VIX elevated)
-
-### Exit Rules
-
-1. **Profit target**: Long call value >= entry_cost × target_mult
-2. **Stop loss**: Long call value <= entry_cost × exit_mult
-3. **Expiration**: Long call DTE = 0
-
----
-
-## 🔧 Key Parameters
-
-| Parameter | Description | Typical Range |
-|-----------|-------------|---------------|
-| `entry_percentile` | VIX percentile threshold for entry | 0.05 - 0.30 |
-| `otm_pts` | OTM distance in VIX points | 5 - 20 |
-| `sigma_mult` | Volatility multiplier for pricing | 0.5 - 2.0 |
-| `long_dte_weeks` | LEAP option duration | 8 - 52 |
-| `alloc_pct` | Equity allocation per trade | 0.005 - 0.02 |
-| `target_mult` | Profit target multiplier | 1.10 - 1.50 |
-| `exit_mult` | Stop loss multiplier | 0.40 - 0.70 |
-| `realism` | P&L haircut (1.0 = none, 0.8 = 20%) | 0.5 - 1.0 |
-
----
-
-## ⚙️ Regime Configuration
-
-Edit `REGIME_CONFIGS` in `core/regime_adapter.py`:
-
+2. **Run backtests and log to trade logger:**
 ```python
-"low_vix": RegimeConfig(
-    name="Low VIX Regime",
-    percentile_range=(0.10, 0.25),
-    mode="diagonal",
-    alloc_pct=0.01,
-    entry_percentile=0.15,
-    target_mult=1.30,
-    exit_mult=0.50,
-    long_dte_weeks=26,
-    otm_pts=10.0,
-    sigma_mult=0.8,
-),
+from trade_logger import TradeLogger, create_trade_log_from_backtest
+
+# Run backtest for each variant
+logger = TradeLogger(log_path="paper_trades.json")
+
+# Variant 1: Static baseline
+bt1 = run_backtest(vix_weekly, params_v1)
+create_trade_log_from_backtest(bt1, variant_id=1, vix_weekly, params_v1, logger)
+
+# Variant 2: Regime adaptive  
+bt2 = run_regime_adaptive_backtest(vix_weekly, params_v2)
+create_trade_log_from_backtest(bt2, variant_id=2, vix_weekly, params_v2, logger)
+
+# ... repeat for V3, V4, V5
+
+# Export comparison
+logger.export_excel("variant_comparison.xlsx")
 ```
 
----
+## Regime Parameter Optimization
 
-## 📧 Email Automation
+The default regime parameters are based on general volatility trading principles. For best results:
 
-Thursday signal emails with compact HTML format:
-- Market state (VIX, UVXY, percentile, regime)
-- Multiple trade variants with bid/ask data
-- Position sizing recommendations
+1. Run the **Grid Scan** with regime-adaptive mode OFF to find optimal static parameters
+2. Use those results to customize the regime configs in `regime_adapter.py`
+3. Enable regime-adaptive mode for live trading
 
-### Setup Gmail SMTP
-```bash
-export GMAIL_USER="your.email@gmail.com"
-export GMAIL_APP_PASSWORD="xxxx xxxx xxxx xxxx"
-```
+## Key Insights from Your Project History
 
-### Send via script
-```bash
-python daily_signal.py --to your.email@gmail.com
-python daily_signal.py --force  # Send even if no signal
-```
-
----
-
-## ⚠️ Known Limitations
-
-1. **Synthetic Pricing** - Black-Scholes doesn't capture skew or liquidity
-2. **Weekly Execution** - Assumes trades at weekly close only
-3. **No Dynamic Hedging** - Positions held passively until exit
-4. **Percentile-Only Entry** - Doesn't consider VIX term structure
-
----
-
-## 📊 Performance Expectations
-
-### Synthetic Backtest
-- Realistic case: CAGR 10-30%, Max DD 30-50%
-- Results are optimistic vs real trading
-
-### With Real Data
-- Lower returns (wider spreads, worse fills)
-- More realistic drawdowns
-
----
-
-## 📄 License
-
-MIT License - Free to use, modify, distribute.
-
-**Disclaimer**: Educational purposes only. Not financial advice. Options trading involves substantial risk.
-
----
-
-*"Different market conditions demand different strategies. This system adapts automatically."*
+Based on your param_history.json:
+- Entry percentile around 0.90 (90th percentile - HIGH VIX) with sigma_mult=1.0 and otm_pts=5 showed good results
+- This suggests entering when VIX is elevated (contrarian approach)
+- Consider adjusting the regime adapter to reflect this insight
