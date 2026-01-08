@@ -1,530 +1,535 @@
-#!/usr/bin/env python3
 """
-Exit Detector for VIX/UVXY Suite
+Exit Detector for VIX 5% Weekly Suite
 
-Detects exit conditions and generates exit suggestions.
-
-Exit Types:
-- PLANNED: Defined at entry (decay target, time-based, expiration)
-- REGIME: Triggered by regime change (highest priority)
-- RISK: Triggered by risk thresholds (rare but loud)
-- INFORMATIONAL: Status updates only (no action required)
-
-Key Principles:
-- Exits are SUGGESTIONS, not automatic orders
-- Regime-based logic dominates price-based logic
-- Legs are treated independently (short may close before long)
-- Each suggestion requires explicit acknowledgment
+Monitors open trades and detects exit conditions based on:
+- Price targets (profit/loss)
+- Regime changes
+- Time stops
+- Expiration proximity
 """
 
 from __future__ import annotations
 
-import hashlib
-from dataclasses import dataclass, field
-from datetime import datetime
-from enum import Enum
-from typing import Dict, Any, List, Optional
-import json
-from pathlib import Path
+import datetime as dt
+from dataclasses import dataclass
+from typing import Optional, List, Dict, Any
 
-from regime_detector import RegimeState, VolatilityRegime
-from trade_log import Trade, TradeLeg, LegSide, LegStatus, TradeStatus
-from variant_generator import VariantRole
+from enums import VolatilityRegime, VariantRole, ExitReason
 
 
-class ExitType(Enum):
-    """Types of exit conditions."""
-    PLANNED = "planned"           # Expected exit (decay target, time, expiry)
-    REGIME = "regime"             # Regime change triggered
-    RISK = "risk"                 # Risk threshold triggered
-    INFORMATIONAL = "info"        # Status update only
-
-
-class ExitUrgency(Enum):
-    """Urgency level for exit suggestions."""
-    INFO = "info"                 # No action required
-    ACTIONABLE = "actionable"     # Should consider action
-    CRITICAL = "critical"         # Immediate attention needed
-
-
-class ExitStatus(Enum):
-    """Status of an exit event."""
-    PENDING = "pending"           # Detected, not yet processed
-    EMAILED = "emailed"           # Email sent
-    ACKNOWLEDGED = "acknowledged" # User acknowledged
-    EXECUTED = "executed"         # Action taken
-    IGNORED = "ignored"           # User chose to ignore
-    SNOOZED = "snoozed"           # Temporarily delayed
-
+# =============================================================================
+# EXIT SIGNAL DATA STRUCTURE
+# =============================================================================
 
 @dataclass
-class ExitEvent:
-    """A detected exit condition."""
-    event_id: str
+class ExitSignal:
+    """Signal indicating a trade should be closed."""
     trade_id: str
-    leg_id: Optional[str]  # None if trade-level
+    signal_time: dt.datetime
+    reason: ExitReason
+    urgency: str  # "immediate", "soon", "optional"
     
-    # Event type
-    exit_type: ExitType
-    urgency: ExitUrgency
+    # Current state
+    current_value: float
+    entry_value: float
+    pnl_pct: float
+    
+    # Context
+    current_regime: VolatilityRegime
+    entry_regime: VolatilityRegime
+    regime_changed: bool
     
     # Timing
-    detected_at: datetime
-    valid_until: datetime
+    days_held: int
+    days_to_expiration: int
     
     # Recommendation
-    suggested_action: str         # "CLOSE_SHORT", "CLOSE_LONG", "CLOSE_ALL", "HOLD"
-    rationale: str                # Human-readable explanation
-    confidence: str               # "HIGH", "MEDIUM", "LOW"
-    
-    # Status tracking
-    status: ExitStatus = ExitStatus.PENDING
-    emailed_at: Optional[datetime] = None
-    acknowledged_at: Optional[datetime] = None
-    executed_at: Optional[datetime] = None
-    
-    # Metadata
-    fingerprint: str = ""         # For deduplication
-    retry_count: int = 0
-    ignore_reason: str = ""
+    suggested_action: str
+    notes: str
     
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "event_id": self.event_id,
             "trade_id": self.trade_id,
-            "leg_id": self.leg_id,
-            "exit_type": self.exit_type.value,
-            "urgency": self.urgency.value,
-            "detected_at": self.detected_at.isoformat(),
-            "valid_until": self.valid_until.isoformat(),
+            "signal_time": self.signal_time.isoformat(),
+            "reason": self.reason.value,
+            "urgency": self.urgency,
+            "current_value": self.current_value,
+            "entry_value": self.entry_value,
+            "pnl_pct": self.pnl_pct,
+            "current_regime": self.current_regime.value,
+            "entry_regime": self.entry_regime.value,
+            "regime_changed": self.regime_changed,
+            "days_held": self.days_held,
+            "days_to_expiration": self.days_to_expiration,
             "suggested_action": self.suggested_action,
-            "rationale": self.rationale,
-            "confidence": self.confidence,
-            "status": self.status.value,
-            "emailed_at": self.emailed_at.isoformat() if self.emailed_at else None,
-            "acknowledged_at": self.acknowledged_at.isoformat() if self.acknowledged_at else None,
-            "executed_at": self.executed_at.isoformat() if self.executed_at else None,
-            "fingerprint": self.fingerprint,
-            "retry_count": self.retry_count,
-            "ignore_reason": self.ignore_reason,
+            "notes": self.notes,
         }
 
 
-def _generate_event_id(trade_id: str, exit_type: ExitType) -> str:
-    """Generate unique event ID."""
-    ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-    return f"EXIT_{trade_id}_{exit_type.value}_{ts}"
+# =============================================================================
+# EXIT DETECTION RULES
+# =============================================================================
+
+def check_profit_target(
+    current_value: float,
+    entry_value: float,
+    target_mult: float,
+) -> tuple[bool, str]:
+    """Check if profit target is hit."""
+    if entry_value <= 0:
+        return False, ""
+    
+    target_value = entry_value * target_mult
+    
+    if current_value >= target_value:
+        pnl_pct = (current_value / entry_value - 1) * 100
+        return True, f"Profit target hit: {pnl_pct:.1f}% gain (target: {(target_mult-1)*100:.0f}%)"
+    
+    return False, ""
 
 
-def _generate_fingerprint(trade_id: str, exit_type: ExitType, condition: str) -> str:
-    """Generate fingerprint for deduplication."""
-    content = f"{trade_id}|{exit_type.value}|{condition}"
-    return hashlib.md5(content.encode()).hexdigest()[:12]
+def check_stop_loss(
+    current_value: float,
+    entry_value: float,
+    stop_mult: float,
+) -> tuple[bool, str]:
+    """Check if stop loss is hit."""
+    if entry_value <= 0:
+        return False, ""
+    
+    stop_value = entry_value * stop_mult
+    
+    if current_value <= stop_value:
+        pnl_pct = (current_value / entry_value - 1) * 100
+        return True, f"Stop loss hit: {pnl_pct:.1f}% loss (stop: {(stop_mult-1)*100:.0f}%)"
+    
+    return False, ""
 
 
-def detect_planned_exits(
-    trade: Trade,
-    current_prices: Dict[str, float],
-) -> List[ExitEvent]:
-    """
-    Detect planned exit conditions:
-    - Decay target reached
-    - Time-based exit
-    - Approaching expiration
-    """
-    events = []
-    now = datetime.utcnow()
+def check_regime_exit(
+    current_regime: VolatilityRegime,
+    entry_regime: VolatilityRegime,
+    variant_role: VariantRole,
+) -> tuple[bool, str]:
+    """Check if regime change warrants exit."""
     
-    for leg in trade.legs:
-        if leg.status != LegStatus.OPEN:
-            continue
-        
-        current_price = current_prices.get(leg.instrument, leg.current_price)
-        
-        # Check TP
-        if leg.side == LegSide.SHORT:
-            # For shorts, TP is below entry (want price to decay)
-            if current_price <= leg.tp_price and leg.tp_price > 0:
-                events.append(ExitEvent(
-                    event_id=_generate_event_id(trade.trade_id, ExitType.PLANNED),
-                    trade_id=trade.trade_id,
-                    leg_id=leg.leg_id,
-                    exit_type=ExitType.PLANNED,
-                    urgency=ExitUrgency.ACTIONABLE,
-                    detected_at=now,
-                    valid_until=now.replace(hour=now.hour + 24),
-                    suggested_action="CLOSE_SHORT",
-                    rationale=f"Short leg decay target reached. Current: ${current_price:.2f}, Target: ${leg.tp_price:.2f}",
-                    confidence="HIGH",
-                    fingerprint=_generate_fingerprint(trade.trade_id, ExitType.PLANNED, "short_tp"),
-                ))
-        else:
-            # For longs, TP is above entry
-            if current_price >= leg.tp_price and leg.tp_price > 0:
-                events.append(ExitEvent(
-                    event_id=_generate_event_id(trade.trade_id, ExitType.PLANNED),
-                    trade_id=trade.trade_id,
-                    leg_id=leg.leg_id,
-                    exit_type=ExitType.PLANNED,
-                    urgency=ExitUrgency.ACTIONABLE,
-                    detected_at=now,
-                    valid_until=now.replace(hour=now.hour + 24),
-                    suggested_action="CLOSE_LONG",
-                    rationale=f"Long leg profit target reached. Current: ${current_price:.2f}, Target: ${leg.tp_price:.2f}",
-                    confidence="HIGH",
-                    fingerprint=_generate_fingerprint(trade.trade_id, ExitType.PLANNED, "long_tp"),
-                ))
-        
-        # Check expiration proximity
-        try:
-            exp_date = datetime.fromisoformat(leg.expiration.replace("Z", "+00:00"))
-            days_to_exp = (exp_date - now).days
-            
-            if days_to_exp <= 7 and days_to_exp > 0:
-                events.append(ExitEvent(
-                    event_id=_generate_event_id(trade.trade_id, ExitType.PLANNED),
-                    trade_id=trade.trade_id,
-                    leg_id=leg.leg_id,
-                    exit_type=ExitType.PLANNED,
-                    urgency=ExitUrgency.INFO if days_to_exp > 3 else ExitUrgency.ACTIONABLE,
-                    detected_at=now,
-                    valid_until=exp_date,
-                    suggested_action="REVIEW",
-                    rationale=f"Approaching expiration: {days_to_exp} days remaining",
-                    confidence="MEDIUM",
-                    fingerprint=_generate_fingerprint(trade.trade_id, ExitType.PLANNED, f"exp_{days_to_exp}"),
-                ))
-        except Exception:
-            pass
-    
-    return events
-
-
-def detect_regime_exits(
-    trade: Trade,
-    current_regime: RegimeState,
-    previous_regime: Optional[RegimeState],
-) -> List[ExitEvent]:
-    """
-    Detect regime-based exit conditions.
-    
-    Regime exits have highest priority and override price-based logic.
-    """
-    events = []
-    now = datetime.utcnow()
-    
-    if previous_regime is None:
-        return events
-    
-    # Check for regime transition
-    if current_regime.regime == previous_regime.regime:
-        return events
-    
-    variant_role = trade.variant_role
-    
-    # Define critical transitions per variant role
-    critical_transitions = {
-        # V1 Income: Exit on rising/stressed
-        VariantRole.INCOME.value: [
-            (VolatilityRegime.CALM, VolatilityRegime.RISING),
-            (VolatilityRegime.CALM, VolatilityRegime.STRESSED),
-        ],
-        # V2 Decay: Exit if regime reverses to rising
-        VariantRole.DECAY.value: [
-            (VolatilityRegime.DECLINING, VolatilityRegime.RISING),
-            (VolatilityRegime.DECLINING, VolatilityRegime.STRESSED),
-        ],
-        # V4 Convex: Don't exit on regime - hold for explosion
-        VariantRole.CONVEX.value: [],
+    # Define which regime changes trigger exits per variant
+    exit_triggers = {
+        VariantRole.INCOME: {
+            # Exit if market becomes stressed
+            VolatilityRegime.CALM: [VolatilityRegime.STRESSED, VolatilityRegime.EXTREME],
+            VolatilityRegime.DECLINING: [VolatilityRegime.STRESSED, VolatilityRegime.EXTREME],
+        },
+        VariantRole.DECAY: {
+            # Exit if VIX spikes again
+            VolatilityRegime.DECLINING: [VolatilityRegime.EXTREME, VolatilityRegime.RISING],
+        },
+        VariantRole.HEDGE: {
+            # Exit when crisis abates
+            VolatilityRegime.STRESSED: [VolatilityRegime.CALM],
+            VolatilityRegime.EXTREME: [VolatilityRegime.CALM, VolatilityRegime.DECLINING],
+        },
+        VariantRole.CONVEX: {
+            # Take profits when spike subsides
+            VolatilityRegime.EXTREME: [VolatilityRegime.DECLINING, VolatilityRegime.CALM],
+        },
+        VariantRole.ADAPTIVE: {
+            # No automatic regime exits for adaptive variant
+        },
     }
     
-    transitions = critical_transitions.get(variant_role, [])
-    transition = (previous_regime.regime, current_regime.regime)
+    triggers = exit_triggers.get(variant_role, {})
+    exit_regimes = triggers.get(entry_regime, [])
     
-    if transition in transitions:
-        # Determine action based on structure
-        if trade.structure == "diagonal":
-            suggested_action = "CLOSE_SHORT"
-            rationale = f"Regime flipped {previous_regime.regime.value} → {current_regime.regime.value}. Close short leg first."
-        else:
-            suggested_action = "REVIEW"
-            rationale = f"Regime changed: {previous_regime.regime.value} → {current_regime.regime.value}. Review position."
-        
-        events.append(ExitEvent(
-            event_id=_generate_event_id(trade.trade_id, ExitType.REGIME),
+    if current_regime in exit_regimes:
+        return True, f"Regime changed from {entry_regime.value} to {current_regime.value}"
+    
+    return False, ""
+
+
+def check_time_stop(
+    entry_date: dt.datetime,
+    max_hold_weeks: int,
+) -> tuple[bool, str]:
+    """Check if max holding period exceeded."""
+    days_held = (dt.datetime.now() - entry_date).days
+    max_days = max_hold_weeks * 7
+    
+    if days_held >= max_days:
+        return True, f"Max holding period exceeded: {days_held} days (max: {max_days})"
+    
+    return False, ""
+
+
+def check_expiration_proximity(
+    long_expiration: dt.date,
+    warning_days: int = 14,
+    critical_days: int = 7,
+) -> tuple[bool, str, str]:
+    """
+    Check if long leg is close to expiration.
+    
+    Returns:
+        (is_triggered, message, urgency)
+    """
+    days_to_exp = (long_expiration - dt.date.today()).days
+    
+    if days_to_exp <= critical_days:
+        return True, f"CRITICAL: Long leg expires in {days_to_exp} days", "immediate"
+    
+    if days_to_exp <= warning_days:
+        return True, f"WARNING: Long leg expires in {days_to_exp} days", "soon"
+    
+    return False, "", ""
+
+
+# =============================================================================
+# MAIN EXIT DETECTOR
+# =============================================================================
+
+def detect_exit_signals(
+    trade,  # Trade object from trade_log
+    current_regime: VolatilityRegime,
+    current_value: float,
+    long_expiration: Optional[dt.date] = None,
+) -> List[ExitSignal]:
+    """
+    Check all exit conditions for a trade.
+    
+    Args:
+        trade: Trade object with position details
+        current_regime: Current volatility regime
+        current_value: Current position value
+        long_expiration: Expiration of long leg
+    
+    Returns:
+        List of ExitSignal objects (empty if no exit triggered)
+    """
+    exit_signals = []
+    now = dt.datetime.now()
+    
+    # Calculate P&L
+    pnl_pct = (current_value / trade.entry_debit - 1) if trade.entry_debit > 0 else 0
+    
+    # Get long expiration from trade if not provided
+    if long_expiration is None:
+        for leg in trade.legs:
+            if leg.leg_type == "long_call":
+                long_expiration = leg.expiration
+                break
+    
+    days_to_exp = (long_expiration - dt.date.today()).days if long_expiration else 999
+    days_held = (now - trade.entry_date).days
+    regime_changed = current_regime != trade.entry_regime
+    
+    # 1. Check profit target
+    target_hit, target_msg = check_profit_target(
+        current_value, trade.entry_debit, trade.target_mult
+    )
+    if target_hit:
+        exit_signals.append(ExitSignal(
             trade_id=trade.trade_id,
-            leg_id=None,  # Trade-level
-            exit_type=ExitType.REGIME,
-            urgency=ExitUrgency.CRITICAL if current_regime.regime == VolatilityRegime.STRESSED else ExitUrgency.ACTIONABLE,
-            detected_at=now,
-            valid_until=now.replace(hour=now.hour + 48),
-            suggested_action=suggested_action,
-            rationale=rationale,
-            confidence="HIGH",
-            fingerprint=_generate_fingerprint(trade.trade_id, ExitType.REGIME, str(transition)),
+            signal_time=now,
+            reason=ExitReason.TARGET_HIT,
+            urgency="soon",
+            current_value=current_value,
+            entry_value=trade.entry_debit,
+            pnl_pct=pnl_pct,
+            current_regime=current_regime,
+            entry_regime=trade.entry_regime,
+            regime_changed=regime_changed,
+            days_held=days_held,
+            days_to_expiration=days_to_exp,
+            suggested_action="Close position to lock in profits",
+            notes=target_msg,
         ))
     
-    return events
-
-
-def detect_risk_exits(
-    trade: Trade,
-    current_prices: Dict[str, float],
-    max_loss_pct: float = 0.50,
-) -> List[ExitEvent]:
-    """
-    Detect risk-based exit conditions.
+    # 2. Check stop loss
+    stop_hit, stop_msg = check_stop_loss(
+        current_value, trade.entry_debit, trade.stop_mult
+    )
+    if stop_hit:
+        exit_signals.append(ExitSignal(
+            trade_id=trade.trade_id,
+            signal_time=now,
+            reason=ExitReason.STOP_HIT,
+            urgency="immediate",
+            current_value=current_value,
+            entry_value=trade.entry_debit,
+            pnl_pct=pnl_pct,
+            current_regime=current_regime,
+            entry_regime=trade.entry_regime,
+            regime_changed=regime_changed,
+            days_held=days_held,
+            days_to_expiration=days_to_exp,
+            suggested_action="Close position to limit losses",
+            notes=stop_msg,
+        ))
     
-    These are rare but loud alerts for significant losses.
-    """
-    events = []
-    now = datetime.utcnow()
+    # 3. Check regime exit
+    regime_exit, regime_msg = check_regime_exit(
+        current_regime, trade.entry_regime, trade.variant_role
+    )
+    if regime_exit:
+        urgency = "immediate" if current_regime == VolatilityRegime.EXTREME else "soon"
+        exit_signals.append(ExitSignal(
+            trade_id=trade.trade_id,
+            signal_time=now,
+            reason=ExitReason.REGIME_EXIT,
+            urgency=urgency,
+            current_value=current_value,
+            entry_value=trade.entry_debit,
+            pnl_pct=pnl_pct,
+            current_regime=current_regime,
+            entry_regime=trade.entry_regime,
+            regime_changed=True,
+            days_held=days_held,
+            days_to_expiration=days_to_exp,
+            suggested_action="Close position due to regime change",
+            notes=regime_msg,
+        ))
     
-    # Calculate total position value
-    total_entry_value = 0.0
-    total_current_value = 0.0
+    # 4. Check time stop
+    time_stop, time_msg = check_time_stop(
+        trade.entry_date, trade.max_hold_weeks if hasattr(trade, 'max_hold_weeks') else 12
+    )
+    if time_stop:
+        exit_signals.append(ExitSignal(
+            trade_id=trade.trade_id,
+            signal_time=now,
+            reason=ExitReason.TIME_STOP,
+            urgency="soon",
+            current_value=current_value,
+            entry_value=trade.entry_debit,
+            pnl_pct=pnl_pct,
+            current_regime=current_regime,
+            entry_regime=trade.entry_regime,
+            regime_changed=regime_changed,
+            days_held=days_held,
+            days_to_expiration=days_to_exp,
+            suggested_action="Close position - max hold time reached",
+            notes=time_msg,
+        ))
     
-    for leg in trade.legs:
-        if leg.status != LegStatus.OPEN:
-            continue
-        
-        current_price = current_prices.get(leg.instrument, leg.current_price)
-        entry_value = leg.entry_price * abs(leg.quantity) * 100
-        current_value = current_price * abs(leg.quantity) * 100
-        
-        total_entry_value += entry_value
-        total_current_value += current_value
-    
-    if total_entry_value > 0:
-        loss_pct = (total_entry_value - total_current_value) / total_entry_value
-        
-        if loss_pct >= max_loss_pct:
-            events.append(ExitEvent(
-                event_id=_generate_event_id(trade.trade_id, ExitType.RISK),
+    # 5. Check expiration proximity
+    if long_expiration:
+        exp_trigger, exp_msg, exp_urgency = check_expiration_proximity(long_expiration)
+        if exp_trigger:
+            exit_signals.append(ExitSignal(
                 trade_id=trade.trade_id,
-                leg_id=None,
-                exit_type=ExitType.RISK,
-                urgency=ExitUrgency.CRITICAL,
-                detected_at=now,
-                valid_until=now.replace(hour=now.hour + 24),
-                suggested_action="CLOSE_ALL",
-                rationale=f"Loss threshold exceeded: {loss_pct:.1%} loss (threshold: {max_loss_pct:.0%})",
-                confidence="LOW",  # Price-based = low confidence
-                fingerprint=_generate_fingerprint(trade.trade_id, ExitType.RISK, f"loss_{loss_pct:.2f}"),
+                signal_time=now,
+                reason=ExitReason.EXPIRATION,
+                urgency=exp_urgency,
+                current_value=current_value,
+                entry_value=trade.entry_debit,
+                pnl_pct=pnl_pct,
+                current_regime=current_regime,
+                entry_regime=trade.entry_regime,
+                regime_changed=regime_changed,
+                days_held=days_held,
+                days_to_expiration=days_to_exp,
+                suggested_action="Close or roll position before expiration",
+                notes=exp_msg,
             ))
     
-    return events
+    return exit_signals
 
 
-def detect_all_exits(
-    trades: List[Trade],
-    current_regime: RegimeState,
-    previous_regime: Optional[RegimeState],
-    current_prices: Dict[str, float],
-) -> List[ExitEvent]:
-    """
-    Detect all exit conditions for a list of trades.
+def get_highest_priority_exit(signals: List[ExitSignal]) -> Optional[ExitSignal]:
+    """Get the most urgent exit signal."""
+    if not signals:
+        return None
     
-    Returns deduplicated list of exit events.
+    # Priority order: immediate > soon > optional
+    urgency_order = {"immediate": 0, "soon": 1, "optional": 2}
+    
+    # Also prioritize by reason: STOP_HIT > others
+    reason_order = {
+        ExitReason.STOP_HIT: 0,
+        ExitReason.EXPIRATION: 1,
+        ExitReason.REGIME_EXIT: 2,
+        ExitReason.TARGET_HIT: 3,
+        ExitReason.TIME_STOP: 4,
+        ExitReason.MANUAL: 5,
+        ExitReason.ROLL: 6,
+    }
+    
+    sorted_signals = sorted(
+        signals,
+        key=lambda s: (urgency_order.get(s.urgency, 99), reason_order.get(s.reason, 99))
+    )
+    
+    return sorted_signals[0]
+
+
+def format_exit_signal(signal: ExitSignal) -> str:
+    """Format exit signal for display."""
+    urgency_emoji = {
+        "immediate": "🔴",
+        "soon": "🟠",
+        "optional": "🟡",
+    }
+    
+    emoji = urgency_emoji.get(signal.urgency, "⚪")
+    
+    lines = [
+        f"{emoji} **EXIT SIGNAL: {signal.reason.value.upper()}** ({signal.urgency})",
+        f"Trade: {signal.trade_id}",
+        f"P&L: ${signal.current_value - signal.entry_value:,.2f} ({signal.pnl_pct:.1%})",
+        f"",
+        f"**Context:**",
+        f"- Days held: {signal.days_held}",
+        f"- Days to expiration: {signal.days_to_expiration}",
+        f"- Regime: {signal.entry_regime.value} → {signal.current_regime.value}",
+        f"",
+        f"**Action:** {signal.suggested_action}",
+        f"**Notes:** {signal.notes}",
+    ]
+    
+    return "\n".join(lines)
+
+
+# =============================================================================
+# PORTFOLIO-LEVEL MONITORING
+# =============================================================================
+
+def scan_all_trades_for_exits(
+    trades: list,  # List of Trade objects
+    current_regime: VolatilityRegime,
+    value_lookup: dict,  # {trade_id: current_value}
+) -> Dict[str, List[ExitSignal]]:
     """
-    all_events = []
-    seen_fingerprints = set()
+    Scan all open trades for exit signals.
+    
+    Args:
+        trades: List of open Trade objects
+        current_regime: Current volatility regime
+        value_lookup: Dictionary mapping trade_id to current position value
+    
+    Returns:
+        Dictionary mapping trade_id to list of exit signals
+    """
+    all_signals = {}
     
     for trade in trades:
-        if trade.status != TradeStatus.OPEN:
-            continue
+        current_value = value_lookup.get(trade.trade_id, trade.entry_debit)
         
-        # Planned exits
-        planned = detect_planned_exits(trade, current_prices)
+        signals = detect_exit_signals(
+            trade=trade,
+            current_regime=current_regime,
+            current_value=current_value,
+        )
         
-        # Regime exits (highest priority)
-        regime = detect_regime_exits(trade, current_regime, previous_regime)
-        
-        # Risk exits
-        risk = detect_risk_exits(trade, current_prices)
-        
-        # Combine and deduplicate
-        for event in planned + regime + risk:
-            if event.fingerprint not in seen_fingerprints:
-                all_events.append(event)
-                seen_fingerprints.add(event.fingerprint)
+        if signals:
+            all_signals[trade.trade_id] = signals
     
-    # Sort by urgency (critical first) then by type (regime first)
-    urgency_order = {ExitUrgency.CRITICAL: 0, ExitUrgency.ACTIONABLE: 1, ExitUrgency.INFO: 2}
-    type_order = {ExitType.REGIME: 0, ExitType.RISK: 1, ExitType.PLANNED: 2, ExitType.INFORMATIONAL: 3}
-    
-    all_events.sort(key=lambda e: (urgency_order.get(e.urgency, 99), type_order.get(e.exit_type, 99)))
-    
-    return all_events
+    return all_signals
 
 
-class ExitEventStore:
-    """
-    Persistent storage for exit events.
+def get_exit_summary(exit_signals: Dict[str, List[ExitSignal]]) -> str:
+    """Generate summary of all exit signals."""
+    if not exit_signals:
+        return "✅ No exit signals detected"
     
-    Tracks event lifecycle and prevents duplicate emails.
-    """
+    immediate = []
+    soon = []
+    optional = []
     
-    def __init__(self, storage_path: Optional[Path] = None):
-        if storage_path is None:
-            storage_path = Path.home() / ".vix_suite" / "exit_events.json"
-        
-        self.storage_path = storage_path
-        self.storage_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        self.events: Dict[str, ExitEvent] = {}
-        self._load()
+    for trade_id, signals in exit_signals.items():
+        top_signal = get_highest_priority_exit(signals)
+        if top_signal:
+            if top_signal.urgency == "immediate":
+                immediate.append(f"- {trade_id}: {top_signal.reason.value}")
+            elif top_signal.urgency == "soon":
+                soon.append(f"- {trade_id}: {top_signal.reason.value}")
+            else:
+                optional.append(f"- {trade_id}: {top_signal.reason.value}")
     
-    def _load(self):
-        """Load events from disk."""
-        if self.storage_path.exists():
-            try:
-                with open(self.storage_path, "r") as f:
-                    data = json.load(f)
-                
-                for event_data in data.get("events", []):
-                    event = self._deserialize_event(event_data)
-                    self.events[event.event_id] = event
-            except Exception as e:
-                print(f"Warning: Could not load exit events: {e}")
+    lines = []
     
-    def _save(self):
-        """Save events to disk."""
-        try:
-            data = {
-                "version": "1.0",
-                "updated_at": datetime.utcnow().isoformat(),
-                "events": [e.to_dict() for e in self.events.values()],
-            }
-            with open(self.storage_path, "w") as f:
-                json.dump(data, f, indent=2)
-        except Exception as e:
-            print(f"Warning: Could not save exit events: {e}")
+    if immediate:
+        lines.append(f"🔴 **IMMEDIATE ACTION REQUIRED ({len(immediate)}):**")
+        lines.extend(immediate)
+        lines.append("")
     
-    def _deserialize_event(self, data: Dict[str, Any]) -> ExitEvent:
-        """Deserialize event from dict."""
-        data["exit_type"] = ExitType(data["exit_type"])
-        data["urgency"] = ExitUrgency(data["urgency"])
-        data["status"] = ExitStatus(data["status"])
-        data["detected_at"] = datetime.fromisoformat(data["detected_at"])
-        data["valid_until"] = datetime.fromisoformat(data["valid_until"])
-        
-        if data.get("emailed_at"):
-            data["emailed_at"] = datetime.fromisoformat(data["emailed_at"])
-        if data.get("acknowledged_at"):
-            data["acknowledged_at"] = datetime.fromisoformat(data["acknowledged_at"])
-        if data.get("executed_at"):
-            data["executed_at"] = datetime.fromisoformat(data["executed_at"])
-        
-        return ExitEvent(**data)
+    if soon:
+        lines.append(f"🟠 **Action Needed Soon ({len(soon)}):**")
+        lines.extend(soon)
+        lines.append("")
     
-    def add_event(self, event: ExitEvent) -> bool:
-        """
-        Add event if not duplicate.
-        
-        Returns True if added, False if duplicate.
-        """
-        # Check for existing event with same fingerprint
-        for existing in self.events.values():
-            if existing.fingerprint == event.fingerprint:
-                if existing.status not in [ExitStatus.EXECUTED, ExitStatus.IGNORED]:
-                    return False
-        
-        self.events[event.event_id] = event
-        self._save()
-        return True
+    if optional:
+        lines.append(f"🟡 **Optional Exits ({len(optional)}):**")
+        lines.extend(optional)
     
-    def mark_emailed(self, event_id: str):
-        """Mark event as emailed."""
-        if event_id in self.events:
-            self.events[event_id].emailed_at = datetime.utcnow()
-            self.events[event_id].status = ExitStatus.EMAILED
-            self._save()
-    
-    def acknowledge(self, event_id: str):
-        """Mark event as acknowledged."""
-        if event_id in self.events:
-            self.events[event_id].acknowledged_at = datetime.utcnow()
-            self.events[event_id].status = ExitStatus.ACKNOWLEDGED
-            self._save()
-    
-    def mark_executed(self, event_id: str):
-        """Mark event as executed."""
-        if event_id in self.events:
-            self.events[event_id].executed_at = datetime.utcnow()
-            self.events[event_id].status = ExitStatus.EXECUTED
-            self._save()
-    
-    def ignore(self, event_id: str, reason: str = ""):
-        """Mark event as ignored."""
-        if event_id in self.events:
-            self.events[event_id].status = ExitStatus.IGNORED
-            self.events[event_id].ignore_reason = reason
-            self._save()
-    
-    def snooze(self, event_id: str, hours: int = 24):
-        """Snooze event for specified hours."""
-        if event_id in self.events:
-            self.events[event_id].status = ExitStatus.SNOOZED
-            self.events[event_id].valid_until = datetime.utcnow().replace(
-                hour=datetime.utcnow().hour + hours
-            )
-            self._save()
-    
-    def get_pending_events(self) -> List[ExitEvent]:
-        """Get events that need attention."""
-        now = datetime.utcnow()
-        return [
-            e for e in self.events.values()
-            if e.status in [ExitStatus.PENDING, ExitStatus.EMAILED]
-            and e.valid_until > now
-        ]
-    
-    def get_events_for_email(self) -> List[ExitEvent]:
-        """Get events that should be emailed."""
-        return [
-            e for e in self.events.values()
-            if e.status == ExitStatus.PENDING
-            and e.urgency in [ExitUrgency.ACTIONABLE, ExitUrgency.CRITICAL]
-            and e.emailed_at is None
-            and e.retry_count < 3
-        ]
-    
-    def increment_retry(self, event_id: str):
-        """Increment retry count for failed email."""
-        if event_id in self.events:
-            self.events[event_id].retry_count += 1
-            self._save()
+    return "\n".join(lines) if lines else "✅ No exit signals detected"
 
 
-# Global instance
-_exit_store: Optional[ExitEventStore] = None
+# =============================================================================
+# TEST
+# =============================================================================
 
-
-def get_exit_store(storage_path: Optional[Path] = None) -> ExitEventStore:
-    """Get or create the global exit event store."""
-    global _exit_store
-    if _exit_store is None:
-        _exit_store = ExitEventStore(storage_path)
-    return _exit_store
-
-
-def get_exit_urgency_color(urgency: ExitUrgency) -> str:
-    """Get display color for urgency."""
-    colors = {
-        ExitUrgency.INFO: "#17a2b8",       # Cyan
-        ExitUrgency.ACTIONABLE: "#ffc107", # Yellow
-        ExitUrgency.CRITICAL: "#dc3545",   # Red
-    }
-    return colors.get(urgency, "#6c757d")
-
-
-def get_exit_type_icon(exit_type: ExitType) -> str:
-    """Get icon for exit type."""
-    icons = {
-        ExitType.PLANNED: "📅",
-        ExitType.REGIME: "🔄",
-        ExitType.RISK: "⚠️",
-        ExitType.INFORMATIONAL: "ℹ️",
-    }
-    return icons.get(exit_type, "•")
+if __name__ == "__main__":
+    print("Testing exit detector...")
+    
+    # Mock trade for testing
+    from dataclasses import dataclass as dc
+    
+    @dc
+    class MockLeg:
+        leg_type: str
+        expiration: dt.date
+    
+    @dc  
+    class MockTrade:
+        trade_id: str
+        entry_date: dt.datetime
+        entry_debit: float
+        entry_regime: VolatilityRegime
+        variant_role: VariantRole
+        target_mult: float
+        stop_mult: float
+        legs: list
+    
+    trade = MockTrade(
+        trade_id="TEST001",
+        entry_date=dt.datetime.now() - dt.timedelta(days=30),
+        entry_debit=1500.0,
+        entry_regime=VolatilityRegime.CALM,
+        variant_role=VariantRole.INCOME,
+        target_mult=1.20,
+        stop_mult=0.50,
+        legs=[MockLeg(leg_type="long_call", expiration=dt.date.today() + dt.timedelta(days=10))]
+    )
+    
+    # Test with profit target hit
+    signals = detect_exit_signals(
+        trade=trade,
+        current_regime=VolatilityRegime.CALM,
+        current_value=1900.0,  # 26% gain
+    )
+    
+    print(f"\nTest 1 - Profit target hit:")
+    for sig in signals:
+        print(format_exit_signal(sig))
+    
+    # Test with stop loss hit
+    signals = detect_exit_signals(
+        trade=trade,
+        current_regime=VolatilityRegime.CALM,
+        current_value=700.0,  # 53% loss
+    )
+    
+    print(f"\nTest 2 - Stop loss hit:")
+    for sig in signals:
+        print(format_exit_signal(sig))
+    
+    # Test with regime change
+    signals = detect_exit_signals(
+        trade=trade,
+        current_regime=VolatilityRegime.EXTREME,
+        current_value=1500.0,
+    )
+    
+    print(f"\nTest 3 - Regime change:")
+    for sig in signals:
+        print(format_exit_signal(sig))

@@ -1,403 +1,436 @@
-#!/usr/bin/env python3
 """
-Robustness Scorer for VIX/UVXY Suite
+Robustness Scorer for VIX 5% Weekly Suite
 
-Calculates execution survivability scores for variant signals.
+Scores trading signals based on multiple factors to assess
+execution survivability and trade quality.
 
-The robustness score is NOT a performance metric.
-It answers: "If this signal is executed later, worse, or not at all - does it still make sense?"
-
-Components:
-- Bid-ask spread tightness (slippage tolerance)
-- Credit envelope width (entry price sensitivity)
-- Liquidity (OI, volume) - fill probability
-- Time-to-expiry buffer (delayed execution survivability)
-- Structure sensitivity (vertical vs diagonal)
-- Regime stability (likelihood of regime flip)
-
-Each component is normalized 0-1 and weighted to produce:
-    robustness_score ∈ [0, 100]
-
-Display interpretation:
-- Green ≥ 70: Execution-friendly
-- Yellow 40-69: Caution
-- Red < 40: Theoretical only
+Factors considered:
+- Liquidity (bid-ask spread, volume)
+- Market conditions alignment
+- Strike distance from spot
+- Time to expiration
+- Regime stability
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Any, Optional, List
-import numpy as np
+from typing import Optional, Dict, Any
+import datetime as dt
 
-from regime_detector import RegimeState, VolatilityRegime
-from variant_generator import VariantParams, VariantRole
+from enums import VolatilityRegime, VariantRole
 
 
 @dataclass
-class RobustnessComponents:
-    """Individual components of the robustness score."""
-    spread_score: float = 0.0       # Bid-ask spread tightness
-    envelope_score: float = 0.0     # Credit envelope width
-    liquidity_score: float = 0.0    # OI and volume
-    time_buffer_score: float = 0.0  # DTE buffer for delayed execution
-    structure_score: float = 0.0    # Structure complexity
-    regime_score: float = 0.0       # Regime stability
+class RobustnessScore:
+    """Detailed robustness scoring breakdown."""
+    total_score: float  # 0-100
+    confidence: str     # "low", "medium", "high"
     
-    def to_dict(self) -> Dict[str, float]:
-        return {
-            "spread_score": self.spread_score,
-            "envelope_score": self.envelope_score,
-            "liquidity_score": self.liquidity_score,
-            "time_buffer_score": self.time_buffer_score,
-            "structure_score": self.structure_score,
-            "regime_score": self.regime_score,
-        }
-
-
-@dataclass
-class RobustnessResult:
-    """Complete robustness assessment."""
-    total_score: float              # 0-100
-    components: RobustnessComponents
-    weakest_component: str
-    strongest_component: str
-    recommendation: str             # Human-readable guidance
+    # Component scores (0-100 each)
+    liquidity_score: float
+    regime_score: float
+    strike_score: float
+    timing_score: float
+    structure_score: float
+    
+    # Flags
+    warnings: list
+    recommendations: list
     
     def to_dict(self) -> Dict[str, Any]:
         return {
             "total_score": self.total_score,
-            "components": self.components.to_dict(),
-            "weakest_component": self.weakest_component,
-            "strongest_component": self.strongest_component,
-            "recommendation": self.recommendation,
+            "confidence": self.confidence,
+            "liquidity_score": self.liquidity_score,
+            "regime_score": self.regime_score,
+            "strike_score": self.strike_score,
+            "timing_score": self.timing_score,
+            "structure_score": self.structure_score,
+            "warnings": self.warnings,
+            "recommendations": self.recommendations,
         }
-
-
-# Component weights (should sum to 1.0)
-WEIGHTS = {
-    "spread": 0.20,
-    "envelope": 0.15,
-    "liquidity": 0.25,
-    "time_buffer": 0.15,
-    "structure": 0.10,
-    "regime": 0.15,
-}
-
-
-def score_spread(
-    bid: float,
-    ask: float,
-    threshold_pct: float = 0.20,
-) -> float:
-    """
-    Score bid-ask spread tightness.
-    
-    Tighter spread = higher score.
-    Spread > threshold_pct = 0 score.
-    """
-    if bid <= 0 or ask <= bid:
-        return 0.0
-    
-    mid = (bid + ask) / 2
-    spread_pct = (ask - bid) / mid
-    
-    if spread_pct >= threshold_pct:
-        return 0.0
-    
-    # Linear scaling: 0% spread = 1.0, threshold = 0.0
-    return 1.0 - (spread_pct / threshold_pct)
-
-
-def score_credit_envelope(
-    credit_low: float,
-    credit_high: float,
-    min_acceptable: float = 0.20,
-) -> float:
-    """
-    Score credit envelope width.
-    
-    Wider envelope with good minimum = higher score.
-    """
-    if credit_low <= 0:
-        return 0.0
-    
-    if credit_low < min_acceptable:
-        # Below minimum acceptable credit
-        return 0.3 * (credit_low / min_acceptable)
-    
-    # Envelope width relative to mid
-    mid = (credit_low + credit_high) / 2
-    if mid <= 0:
-        return 0.0
-    
-    width = credit_high - credit_low
-    width_pct = width / mid
-    
-    # Narrower envelope = higher score (less sensitive to fill)
-    # But also need decent credit level
-    credit_score = min(1.0, credit_low / (min_acceptable * 2))
-    width_score = max(0.0, 1.0 - width_pct)
-    
-    return 0.6 * credit_score + 0.4 * width_score
 
 
 def score_liquidity(
-    open_interest: int,
-    volume: int,
-    min_oi: int = 100,
-    min_vol: int = 50,
-) -> float:
+    estimated_debit: float,
+    suggested_contracts: int,
+    underlying_symbol: str = "^VIX",
+) -> tuple[float, list]:
     """
-    Score liquidity based on OI and volume.
+    Score based on estimated liquidity.
     
-    Higher OI and volume = higher score.
+    Returns:
+        (score, warnings)
     """
-    oi_score = min(1.0, open_interest / (min_oi * 5)) if open_interest >= min_oi else 0.5 * (open_interest / min_oi)
-    vol_score = min(1.0, volume / (min_vol * 5)) if volume >= min_vol else 0.5 * (volume / min_vol) if min_vol > 0 else 0.5
+    warnings = []
     
-    return 0.6 * oi_score + 0.4 * vol_score
+    # VIX options generally liquid, UVXY less so
+    if underlying_symbol in ("UVXY", "VXX"):
+        base_score = 70  # Less liquid
+        if suggested_contracts > 10:
+            warnings.append("UVXY/VXX may have liquidity issues for larger positions")
+            base_score -= 10
+    else:
+        base_score = 85  # VIX options typically liquid
+    
+    # Penalize very large positions
+    if suggested_contracts > 20:
+        warnings.append("Large position size may face execution challenges")
+        base_score -= 15
+    elif suggested_contracts > 10:
+        base_score -= 5
+    
+    # Penalize very small or very large debits
+    if estimated_debit < 100:
+        warnings.append("Very small position - commission impact significant")
+        base_score -= 10
+    elif estimated_debit > 50000:
+        warnings.append("Large debit - consider scaling in")
+        base_score -= 5
+    
+    return max(0, min(100, base_score)), warnings
 
 
-def score_time_buffer(
-    dte_days: int,
-    execution_delay_days: int = 3,
-    min_buffer_days: int = 7,
-) -> float:
+def score_regime(
+    regime: VolatilityRegime,
+    variant_role: VariantRole,
+    vix_percentile: float,
+    regime_duration_days: int = 0,
+) -> tuple[float, list]:
     """
-    Score time buffer for delayed execution.
+    Score based on regime alignment with variant strategy.
     
-    Longer DTE = higher score (more buffer for delayed execution).
+    Returns:
+        (score, warnings)
     """
-    effective_dte = dte_days - execution_delay_days
+    warnings = []
     
-    if effective_dte <= 0:
-        return 0.0
-    
-    if effective_dte < min_buffer_days:
-        return 0.5 * (effective_dte / min_buffer_days)
-    
-    # Diminishing returns after 30 days
-    return min(1.0, 0.5 + 0.5 * (effective_dte / 30))
-
-
-def score_structure(structure: str, role: VariantRole) -> float:
-    """
-    Score structure complexity and execution difficulty.
-    
-    Simpler structures = higher score.
-    """
-    # Base structure scores
-    structure_scores = {
-        "long_only": 0.95,      # Simplest
-        "calendar": 0.80,
-        "diagonal": 0.70,
-        "credit_spread": 0.60,  # Most sensitive to entry price
-        "meta": 1.0,            # V5 (no trade)
+    # Define ideal regime/variant alignments
+    ideal_alignments = {
+        VariantRole.INCOME: [VolatilityRegime.CALM],
+        VariantRole.DECAY: [VolatilityRegime.DECLINING],
+        VariantRole.HEDGE: [VolatilityRegime.STRESSED, VolatilityRegime.EXTREME],
+        VariantRole.CONVEX: [VolatilityRegime.EXTREME],
+        VariantRole.ADAPTIVE: list(VolatilityRegime),  # All regimes
     }
     
-    base = structure_scores.get(structure, 0.5)
+    ideal = ideal_alignments.get(variant_role, [])
     
-    # Role-specific adjustments
-    if role == VariantRole.CONVEX:
-        # Convex positions are inherently less sensitive to entry timing
-        base = min(1.0, base + 0.1)
-    elif role == VariantRole.INCOME:
-        # Income positions need precise entry
-        base = max(0.0, base - 0.1)
-    
-    return base
-
-
-def score_regime_stability(
-    regime: RegimeState,
-    variant_active_regimes: List[VolatilityRegime],
-) -> float:
-    """
-    Score regime stability and alignment with variant.
-    
-    Higher score if:
-    - High regime confidence
-    - Current regime matches variant's preferred regimes
-    - Low probability of regime flip
-    """
-    # Base: regime confidence
-    base = regime.confidence
-    
-    # Alignment with variant's preferred regimes
-    if regime.regime in variant_active_regimes:
-        alignment = 1.0
+    if regime in ideal:
+        base_score = 90
     else:
-        alignment = 0.3
+        base_score = 60
+        warnings.append(f"{variant_role.value} not ideal for {regime.value} regime")
     
-    # Stability indicator (low slope = more stable)
-    slope_abs = abs(regime.vix_slope)
-    stability = max(0.0, 1.0 - slope_abs * 5)  # Penalize high slope
+    # Bonus for regime stability
+    if regime_duration_days > 30:
+        base_score += 5
+    elif regime_duration_days < 7:
+        base_score -= 5
+        warnings.append("Recent regime transition - increased uncertainty")
     
-    return 0.4 * base + 0.3 * alignment + 0.3 * stability
+    # Check percentile edge cases
+    if vix_percentile < 0.05:
+        warnings.append("Extremely low VIX - potential complacency")
+    elif vix_percentile > 0.95:
+        warnings.append("Extremely high VIX - potential mean reversion")
+    
+    return max(0, min(100, base_score)), warnings
 
 
-def calculate_robustness(
-    variant: VariantParams,
-    regime: RegimeState,
-    market_data: Optional[Dict[str, Any]] = None,
-) -> RobustnessResult:
+def score_strike_selection(
+    vix_level: float,
+    long_strike: float,
+    short_strike: Optional[float],
+    position_type: str,
+) -> tuple[float, list]:
     """
-    Calculate comprehensive robustness score for a variant.
+    Score based on strike selection relative to spot.
     
-    Parameters
-    ----------
-    variant : VariantParams
-        The variant to score
-    regime : RegimeState
-        Current regime state
-    market_data : Optional[Dict]
-        Market data including:
-        - bid, ask: Option prices
-        - open_interest, volume: Liquidity metrics
-        - dte_days: Days to expiration
-        
-    Returns
-    -------
-    RobustnessResult
-        Complete robustness assessment
+    Returns:
+        (score, warnings)
     """
-    # Default market data if not provided
-    if market_data is None:
-        market_data = {
-            "bid": 0.50,
-            "ask": 0.60,
-            "open_interest": 200,
-            "volume": 50,
-            "dte_days": variant.long_dte_weeks * 7,
-        }
+    warnings = []
     
-    components = RobustnessComponents()
+    # Calculate OTM distance
+    otm_distance = long_strike - vix_level
+    otm_pct = otm_distance / vix_level if vix_level > 0 else 0
     
-    # Calculate each component
-    components.spread_score = score_spread(
-        market_data.get("bid", 0),
-        market_data.get("ask", 0),
+    base_score = 80
+    
+    # Penalize ITM long calls
+    if otm_distance < 0:
+        warnings.append("Long strike is ITM - higher cost, lower leverage")
+        base_score -= 20
+    
+    # Penalize very far OTM
+    if otm_pct > 0.50:  # More than 50% OTM
+        warnings.append("Long strike very far OTM - low delta, may expire worthless")
+        base_score -= 15
+    elif otm_pct > 0.30:
+        base_score -= 5
+    
+    # For diagonals, check short strike
+    if short_strike is not None and position_type == "diagonal":
+        short_distance = short_strike - vix_level
+        if short_distance < otm_distance:
+            warnings.append("Short strike closer than long - inverted diagonal")
+            base_score -= 25
+    
+    return max(0, min(100, base_score)), warnings
+
+
+def score_timing(
+    long_dte_days: int,
+    short_dte_days: Optional[int],
+    position_type: str,
+    signal_time: dt.datetime,
+) -> tuple[float, list]:
+    """
+    Score based on option timing and DTE.
+    
+    Returns:
+        (score, warnings)
+    """
+    warnings = []
+    base_score = 80
+    
+    # Check long leg DTE
+    if long_dte_days < 14:
+        warnings.append("Very short DTE on long leg - high theta decay")
+        base_score -= 20
+    elif long_dte_days < 30:
+        warnings.append("Short DTE on long leg - accelerated decay")
+        base_score -= 10
+    elif long_dte_days > 180:
+        base_score += 5  # More time = more flexibility
+    
+    # For diagonals, check short leg timing
+    if position_type == "diagonal" and short_dte_days is not None:
+        if short_dte_days < 5:
+            warnings.append("Short leg close to expiration - roll needed soon")
+            base_score -= 5
+        elif short_dte_days > 14:
+            base_score += 5  # More premium capture time
+    
+    # Check day of week (prefer Thurs/Fri signals for weekly options)
+    dow = signal_time.weekday()
+    if dow in (3, 4):  # Thursday or Friday
+        base_score += 5
+    elif dow == 0:  # Monday
+        base_score -= 5
+        warnings.append("Monday signal - wait for mid-week for better pricing")
+    
+    return max(0, min(100, base_score)), warnings
+
+
+def score_structure(
+    position_type: str,
+    variant_role: VariantRole,
+    estimated_debit: float,
+    max_loss: float,
+    target_mult: float,
+) -> tuple[float, list]:
+    """
+    Score based on trade structure and risk/reward.
+    
+    Returns:
+        (score, warnings)
+    """
+    warnings = []
+    base_score = 75
+    
+    # Check risk/reward
+    if target_mult < 1.10:
+        warnings.append("Low profit target - tight margin for error")
+        base_score -= 10
+    elif target_mult > 3.0:
+        base_score += 5  # High reward target
+    
+    # Check structure alignment with variant
+    structure_match = {
+        VariantRole.INCOME: ["diagonal"],
+        VariantRole.DECAY: ["diagonal"],
+        VariantRole.HEDGE: ["long_call", "put_spread"],
+        VariantRole.CONVEX: ["long_call"],
+        VariantRole.ADAPTIVE: ["diagonal", "long_call", "adaptive"],
+    }
+    
+    ideal_structures = structure_match.get(variant_role, [])
+    if position_type in ideal_structures:
+        base_score += 10
+    else:
+        warnings.append(f"Structure '{position_type}' may not be ideal for {variant_role.value}")
+    
+    # Check max loss vs debit
+    if max_loss > estimated_debit * 1.5:
+        warnings.append("Max loss exceeds debit significantly - check position sizing")
+        base_score -= 10
+    
+    return max(0, min(100, base_score)), warnings
+
+
+def calculate_robustness_score(
+    # Signal details
+    variant_role: VariantRole,
+    regime: VolatilityRegime,
+    vix_level: float,
+    vix_percentile: float,
+    underlying_symbol: str,
+    
+    # Position details
+    position_type: str,
+    long_strike: float,
+    long_dte_days: int,
+    short_strike: Optional[float] = None,
+    short_dte_days: Optional[int] = None,
+    
+    # Sizing
+    suggested_contracts: int = 1,
+    estimated_debit: float = 0.0,
+    max_loss: float = 0.0,
+    target_mult: float = 1.20,
+    
+    # Context
+    regime_duration_days: int = 0,
+    signal_time: Optional[dt.datetime] = None,
+) -> RobustnessScore:
+    """
+    Calculate comprehensive robustness score for a trading signal.
+    
+    Returns:
+        RobustnessScore with detailed breakdown
+    """
+    if signal_time is None:
+        signal_time = dt.datetime.now()
+    
+    all_warnings = []
+    all_recommendations = []
+    
+    # Score each component
+    liquidity, liq_warnings = score_liquidity(
+        estimated_debit, suggested_contracts, underlying_symbol
     )
+    all_warnings.extend(liq_warnings)
     
-    # Estimate credit envelope from bid/ask
-    bid = market_data.get("bid", 0)
-    ask = market_data.get("ask", 0)
-    components.envelope_score = score_credit_envelope(
-        credit_low=bid,
-        credit_high=bid + 0.35 * (ask - bid),  # Conservative fill estimate
+    regime_sc, reg_warnings = score_regime(
+        regime, variant_role, vix_percentile, regime_duration_days
     )
+    all_warnings.extend(reg_warnings)
     
-    components.liquidity_score = score_liquidity(
-        market_data.get("open_interest", 0),
-        market_data.get("volume", 0),
+    strike, strike_warnings = score_strike_selection(
+        vix_level, long_strike, short_strike, position_type
     )
+    all_warnings.extend(strike_warnings)
     
-    components.time_buffer_score = score_time_buffer(
-        market_data.get("dte_days", variant.long_dte_weeks * 7),
+    timing, timing_warnings = score_timing(
+        long_dte_days, short_dte_days, position_type, signal_time
     )
+    all_warnings.extend(timing_warnings)
     
-    components.structure_score = score_structure(
-        variant.structure,
-        variant.role,
+    structure, struct_warnings = score_structure(
+        position_type, variant_role, estimated_debit, max_loss, target_mult
     )
-    
-    components.regime_score = score_regime_stability(
-        regime,
-        variant.active_in_regimes,
-    )
+    all_warnings.extend(struct_warnings)
     
     # Calculate weighted total
-    total = (
-        WEIGHTS["spread"] * components.spread_score +
-        WEIGHTS["envelope"] * components.envelope_score +
-        WEIGHTS["liquidity"] * components.liquidity_score +
-        WEIGHTS["time_buffer"] * components.time_buffer_score +
-        WEIGHTS["structure"] * components.structure_score +
-        WEIGHTS["regime"] * components.regime_score
-    ) * 100
-    
-    # Find weakest and strongest components
-    component_scores = {
-        "spread": components.spread_score,
-        "envelope": components.envelope_score,
-        "liquidity": components.liquidity_score,
-        "time_buffer": components.time_buffer_score,
-        "structure": components.structure_score,
-        "regime": components.regime_score,
+    weights = {
+        "liquidity": 0.15,
+        "regime": 0.25,
+        "strike": 0.20,
+        "timing": 0.20,
+        "structure": 0.20,
     }
     
-    weakest = min(component_scores, key=component_scores.get)
-    strongest = max(component_scores, key=component_scores.get)
+    total = (
+        liquidity * weights["liquidity"] +
+        regime_sc * weights["regime"] +
+        strike * weights["strike"] +
+        timing * weights["timing"] +
+        structure * weights["structure"]
+    )
     
-    # Generate recommendation
-    if total >= 70:
-        recommendation = f"Execution-friendly. Strength: {strongest}."
-    elif total >= 40:
-        recommendation = f"Proceed with caution. Weakness: {weakest}."
+    # Determine confidence
+    if total >= 80:
+        confidence = "high"
+        all_recommendations.append("Signal looks strong - proceed with normal sizing")
+    elif total >= 60:
+        confidence = "medium"
+        all_recommendations.append("Signal acceptable - consider reducing size")
     else:
-        recommendation = f"Theoretical only. Critical weakness: {weakest}."
+        confidence = "low"
+        all_recommendations.append("Signal weak - consider skipping or minimal size")
     
-    return RobustnessResult(
-        total_score=total,
-        components=components,
-        weakest_component=weakest,
-        strongest_component=strongest,
-        recommendation=recommendation,
+    # Add specific recommendations based on warnings
+    if len(all_warnings) > 3:
+        all_recommendations.append("Multiple concerns - extra caution advised")
+    
+    return RobustnessScore(
+        total_score=round(total, 1),
+        confidence=confidence,
+        liquidity_score=round(liquidity, 1),
+        regime_score=round(regime_sc, 1),
+        strike_score=round(strike, 1),
+        timing_score=round(timing, 1),
+        structure_score=round(structure, 1),
+        warnings=all_warnings,
+        recommendations=all_recommendations,
     )
 
 
-def get_robustness_color(score: float) -> str:
-    """Get display color for robustness score."""
-    if score >= 70:
-        return "#28a745"  # Green
-    elif score >= 40:
-        return "#ffc107"  # Yellow
-    else:
-        return "#dc3545"  # Red
+def format_robustness_display(score: RobustnessScore) -> str:
+    """Format robustness score for display."""
+    # Emoji based on confidence
+    emoji = {"high": "🟢", "medium": "🟡", "low": "🔴"}.get(score.confidence, "⚪")
+    
+    lines = [
+        f"{emoji} **Robustness: {score.total_score}/100** ({score.confidence.upper()})",
+        "",
+        "**Component Scores:**",
+        f"- Liquidity: {score.liquidity_score}/100",
+        f"- Regime: {score.regime_score}/100",
+        f"- Strike: {score.strike_score}/100",
+        f"- Timing: {score.timing_score}/100",
+        f"- Structure: {score.structure_score}/100",
+    ]
+    
+    if score.warnings:
+        lines.extend(["", "**⚠️ Warnings:**"])
+        for w in score.warnings:
+            lines.append(f"- {w}")
+    
+    if score.recommendations:
+        lines.extend(["", "**💡 Recommendations:**"])
+        for r in score.recommendations:
+            lines.append(f"- {r}")
+    
+    return "\n".join(lines)
 
 
-def get_robustness_label(score: float) -> str:
-    """Get label for robustness score."""
-    if score >= 70:
-        return "EXECUTION-FRIENDLY"
-    elif score >= 40:
-        return "CAUTION"
-    else:
-        return "THEORETICAL ONLY"
+# =============================================================================
+# TEST
+# =============================================================================
 
-
-def batch_score_variants(
-    variants: List[VariantParams],
-    regime: RegimeState,
-    market_data: Optional[Dict[str, Dict[str, Any]]] = None,
-) -> Dict[str, RobustnessResult]:
-    """
-    Score multiple variants at once.
+if __name__ == "__main__":
+    print("Testing robustness scorer...")
     
-    Parameters
-    ----------
-    variants : List[VariantParams]
-    regime : RegimeState
-    market_data : Optional[Dict]
-        Dict mapping variant_id to market data
+    score = calculate_robustness_score(
+        variant_role=VariantRole.INCOME,
+        regime=VolatilityRegime.CALM,
+        vix_level=14.5,
+        vix_percentile=0.15,
+        underlying_symbol="^VIX",
+        position_type="diagonal",
+        long_strike=20.0,
+        long_dte_days=180,
+        short_strike=20.0,
+        short_dte_days=7,
+        suggested_contracts=5,
+        estimated_debit=2500.0,
+        max_loss=2500.0,
+        target_mult=1.20,
+        regime_duration_days=30,
+    )
     
-    Returns
-    -------
-    Dict[str, RobustnessResult]
-        Mapping of variant_id to robustness result
-    """
-    results = {}
-    
-    for variant in variants:
-        variant_market_data = None
-        if market_data and variant.variant_id in market_data:
-            variant_market_data = market_data[variant.variant_id]
-        
-        result = calculate_robustness(variant, regime, variant_market_data)
-        results[variant.variant_id] = result
-        
-        # Update variant's robustness score
-        variant.robustness_score = result.total_score
-    
-    return results
+    print(format_robustness_display(score))
