@@ -23,6 +23,10 @@ Relies on:
 - experiments/grid_scan (parameter optimization)
 - Paper trading modules (regime_detector, variant_generator, trade_log, etc.)
 """
+import sys
+import os
+
+sys.path.insert(0, os.path.dirname(__file__))
 
 import io
 import datetime as dt
@@ -34,6 +38,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import streamlit as st
+
+from enums import VolatilityRegime
+from variant_generator import generate_all_variants
+
 
 # ============================================================
 # Import Guards - Handle missing modules gracefully
@@ -738,7 +746,16 @@ def render_signal_dashboard():
     
     if st.button("🔄 Generate New Signal Batch", type="primary"):
         with st.spinner("Generating variant signals..."):
+            from utils.regime_utils import extract_current_regime
+
+            current_regime = extract_current_regime(regime)
+
+            # QUICK FIX: ensure scalar regime
+            if hasattr(regime, "iloc"):
+                regime = regime.iloc[-1]
+
             batch = generate_all_variants(uvxy_data, regime)
+
             save_signal_batch(batch)
             st.success(f"Generated batch: {batch.batch_id}")
             st.rerun()
