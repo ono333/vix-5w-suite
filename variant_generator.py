@@ -22,7 +22,7 @@ Each variant is generated with:
 from __future__ import annotations
 
 from pandas import Series
-from enums import VolatilityRegime
+from 01_vix_5w_suite.enums import VolatilityRegime
 
 
 
@@ -37,10 +37,6 @@ import numpy as np
 
 from regime_detector import VolatilityRegime, RegimeState
 
-from enums import VolatilityRegime
-from utils.regime_utils import extract_current_regime
-
-from enums import VolatilityRegime
 from utils.regime_utils import extract_current_regime
 
 
@@ -201,7 +197,13 @@ def generate_income_variant(
     variant_id = _generate_variant_id(VariantRole.INCOME, batch_id)
     
     # Regime-specific adjustments
+    # FIX — ensure regime is a single enum, not a Series
+    if hasattr(regime, "iloc"):
+        regime = regime.iloc[-1]
+
     if regime == VolatilityRegime.CALM:
+        ...
+
         alloc_pct = 0.35
         status = "TRADE"
         status_reason = "Optimal conditions for income harvesting"
