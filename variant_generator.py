@@ -184,15 +184,15 @@ def generate_income_variant(
     variant_id = _generate_variant_id(VariantRole.INCOME, batch_id)
     
     # Regime-specific adjustments
-    if regime.regime == VolatilityRegime.CALM:
+    if regime == VolatilityRegime.CALM:
         alloc_pct = 0.35
         status = "TRADE"
         status_reason = "Optimal conditions for income harvesting"
-    elif regime.regime == VolatilityRegime.DECLINING:
+    elif regime == VolatilityRegime.DECLINING:
         alloc_pct = 0.25
         status = "TRADE"
         status_reason = "Decay conditions favorable"
-    elif regime.regime == VolatilityRegime.RISING:
+    elif regime == VolatilityRegime.RISING:
         alloc_pct = 0.10
         status = "TRADE"
         status_reason = "Reduced size due to rising volatility"
@@ -502,8 +502,11 @@ def generate_all_variants(
 
     # Replace the manual hour assignment with this:
     base_time = signal_time.replace(minute=0, second=0, microsecond=0)
-    valid_until = base_time + timedelta(hours=some_offset)
+    valid_until = signal_time.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
     
+    # Add this temporary line before line 511:
+    v1 = generate_income_variant(regime, base_config, batch_id)
+
     # Generate V1-V4 first
     v1 = generate_income_variant(regime, base_config, batch_id)
     v2 = generate_decay_variant(regime, base_config, batch_id)
