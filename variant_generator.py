@@ -21,6 +21,11 @@ Each variant is generated with:
 
 from __future__ import annotations
 
+from pandas import Series
+from enums import VolatilityRegime
+
+
+
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, Any, List, Optional
@@ -31,6 +36,18 @@ import json
 import numpy as np
 
 from regime_detector import VolatilityRegime, RegimeState
+
+from enums import VolatilityRegime
+from utils.regime_utils import extract_current_regime
+
+from enums import VolatilityRegime
+from utils.regime_utils import extract_current_regime
+
+
+def generate_all_variants(uvxy_data, regime):
+    regime = extract_current_regime(regime)
+
+    # existing code continues below
 
 
 class VariantRole(Enum):
