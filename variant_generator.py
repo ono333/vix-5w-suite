@@ -498,9 +498,11 @@ def generate_all_variants(
         signal_time = datetime.utcnow()
     
     batch_id = _generate_batch_id(signal_time)
-    valid_until = signal_time.replace(
-        hour=signal_time.hour + validity_hours
-    )
+    from datetime import timedelta
+
+    # Replace the manual hour assignment with this:
+    base_time = signal_time.replace(minute=0, second=0, microsecond=0)
+    valid_until = base_time + timedelta(hours=some_offset)
     
     # Generate V1-V4 first
     v1 = generate_income_variant(regime, base_config, batch_id)
