@@ -57,33 +57,11 @@ def load_weekly(
     if df is None or df.empty:
         return pd.Series(dtype=float)
 
-    # Handle multi-level columns from newer yfinance versions
-    if isinstance(df.columns, pd.MultiIndex):
-        # Flatten columns - take first level or specific column
-        df.columns = df.columns.get_level_values(0)
-    
-    # Try to get the requested column
     col = column if column in df.columns else "Close"
     if col not in df.columns:
-        # Try without space
-        col = column.replace(" ", "") if column.replace(" ", "") in df.columns else None
-        if col is None:
-            # Just take the first numeric column
-            for c in df.columns:
-                if df[c].dtype in [np.float64, np.float32, np.int64, np.int32]:
-                    col = c
-                    break
-        if col is None:
-            return pd.Series(dtype=float)
+        return pd.Series(dtype=float)
 
     ser = df[col].copy()
-    
-    # Ensure it's a 1D series
-    if isinstance(ser, pd.DataFrame):
-        ser = ser.iloc[:, 0]
-    
-    # Flatten any remaining structure
-    ser = pd.Series(ser.values.ravel(), index=ser.index, name=symbol)
 
     # Resample to weekly with last observed value
     weekly = ser.resample("W-FRI").last().dropna()

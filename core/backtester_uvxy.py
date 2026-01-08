@@ -41,13 +41,13 @@ from scipy.stats import norm
 
 
 # ---------------------------------------------------------------------
-# Black–Scholes call pricing
+# Blackâ€“Scholes call pricing
 # ---------------------------------------------------------------------
 
 
 def bs_call_price(S: float, K: float, r: float, sigma: float, T: float) -> float:
     """
-    Vanilla Black–Scholes call.
+    Vanilla Blackâ€“Scholes call.
 
     Returns 0 on any bad input instead of raising.
     """
@@ -113,7 +113,7 @@ def run_backtest_uvxy(uvxy_weekly: pd.Series, params: Dict[str, Any]) -> Dict[st
                           <= entry_cost * exit_mult
         fee_per_contract: float, commission per contract
         risk_free       : float, annual risk-free rate
-        realism         : float, 0.5–1.0, scales trade PnL only
+        realism         : float, 0.5â€“1.0, scales trade PnL only
     """
 
     # ----------------- parameters -----------------
@@ -125,7 +125,7 @@ def run_backtest_uvxy(uvxy_weekly: pd.Series, params: Dict[str, Any]) -> Dict[st
         alloc_pct = alloc_raw / 100.0
     else:
         alloc_pct = alloc_raw
-    alloc_pct = max(0.0, min(alloc_pct, 1.0))  # clamp 0–1
+    alloc_pct = max(0.0, min(alloc_pct, 1.0))  # clamp 0â€“1
 
     # Mode is kept only for compatibility; diagonal == long_only here.
     mode = params.get("mode", "long_only")

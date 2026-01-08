@@ -1,10 +1,22 @@
+# VIX 5% Weekly Suite - Dependencies
+# Install with: pip install -r requirements.txt
+
+# Core
 streamlit>=1.28.0
-yfinance>=0.2.31
 pandas>=2.0.0
 numpy>=1.24.0
-matplotlib>=3.7.0
-xlsxwriter>=3.1.0
 scipy>=1.11.0
-# Options data client - install one of these:
-# massive-client>=0.1.0
-polygon-api-client>=1.12.0
+
+# Data
+yfinance>=0.2.30
+
+# Visualization
+matplotlib>=3.7.0
+
+# Export
+xlsxwriter>=3.1.0
+openpyxl>=3.1.0
+
+# Optional: For email notifications
+# Uncomment if using notification_engine:
+# secure-smtplib

@@ -7,3 +7,4 @@ Or
 
 streamlit run 01_vix_5w_suite/app.py
 
+streamlit run app_paper_trading.py

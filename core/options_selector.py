@@ -13,8 +13,8 @@ from __future__ import annotations
 import math
 from typing import Any, Dict, List, Tuple
 
-from config.massive_config import TARGET_ANNUAL_IV
-from core.massive_client import get_option_chain
+from core.massive_config import TARGET_ANNUAL_IV
+from .massive_client import get_option_chain
 
 
 def _mid(bid: float, ask: float) -> float:

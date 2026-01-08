@@ -36,13 +36,8 @@ from typing import Dict, Any, List, Optional
 import numpy as np
 import pandas as pd
 
-try:
-    from core.backtester import run_backtest
-    from core.param_history import record_best_from_grid
-except ImportError:
-    # Fallback for different directory structures
-    from backtester import run_backtest
-    from param_history import record_best_from_grid
+from core.backtester import run_backtest
+from core.param_history import record_best_from_grid
 
 
 # ============================================================
