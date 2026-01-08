@@ -1,57 +1,39 @@
-# VIX Suite Fixes
+# VIX 5% Weekly Suite - Paper Trading Module Fixes
 
-## The Problem
-The import `from 01_vix_5w_suite.enums import VolatilityRegime` is invalid Python syntax because module names cannot start with numbers.
+## Files Included
 
-## Solution
-These files use local imports instead. Copy all `.py` files to your project root:
+| File | Exports |
+|------|---------|
+| `enums.py` | VolatilityRegime, VariantRole, TradeStatus, LegSide, LegStatus, ExitType, ExitUrgency, ExitStatus |
+| `regime_detector.py` | classify_regime, RegimeState, VolatilityRegime, get_regime_color, get_regime_description |
+| `variant_generator.py` | generate_all_variants, SignalBatch, VariantParams, VariantRole, get_variant_display_name, get_variant_color |
+| `robustness_scorer.py` | calculate_robustness, batch_score_variants, RobustnessResult, get_robustness_color, get_robustness_label |
+| `trade_log.py` | TradeLog, get_trade_log, Trade, TradeLeg, LegSide, LegStatus, TradeStatus |
+| `exit_detector.py` | detect_all_exits, ExitEvent, ExitType, ExitUrgency, ExitStatus, get_exit_store, get_exit_urgency_color, get_exit_type_icon |
+| `notification_engine.py` | get_notifier |
+
+## Installation
 
 ```bash
 cd ~/PRR/01_vix_5w_suite
-# Download the files from Claude, then:
-cp ~/Downloads/vix_fixes/*.py .
-```
 
-## Files Included
-1. **enums.py** - Contains all enum definitions (VolatilityRegime, VariantRole, TradeStatus, ExitReason)
-2. **variant_generator.py** - Signal generation for 5 strategy variants
-3. **regime_detector.py** - VIX regime classification
-4. **robustness_scorer.py** - Trade signal quality scoring
-5. **trade_log.py** - Trade management and storage
-6. **exit_detector.py** - Exit signal detection
+# Copy all files
+cp ~/Downloads/vix_fixes/enums.py .
+cp ~/Downloads/vix_fixes/regime_detector.py .
+cp ~/Downloads/vix_fixes/variant_generator.py .
+cp ~/Downloads/vix_fixes/robustness_scorer.py .
+cp ~/Downloads/vix_fixes/trade_log.py .
+cp ~/Downloads/vix_fixes/exit_detector.py .
+cp ~/Downloads/vix_fixes/notification_engine.py .
 
-## Key Change
-All files now import from local `enums.py`:
-```python
-# WRONG (was causing the error):
-from 01_vix_5w_suite.enums import VolatilityRegime
-
-# CORRECT (now fixed):
-from enums import VolatilityRegime
-```
-
-## After Copying
-Your project structure should look like:
-```
-01_vix_5w_suite/
-├── app.py
-├── enums.py          # NEW
-├── variant_generator.py  # FIXED
-├── regime_detector.py    # NEW
-├── robustness_scorer.py  # NEW
-├── trade_log.py          # NEW
-├── exit_detector.py      # NEW
-├── core/
-│   ├── backtester.py
-│   └── ...
-└── ...
+# Restart Streamlit
+streamlit run app.py
 ```
 
 ## Git Push
-After copying the files:
+
 ```bash
-cd ~/PRR/01_vix_5w_suite
-git add .
-git commit -m "Fix invalid module import + add paper trading modules"
+git add *.py
+git commit -m "Add paper trading modules"
 git push origin main
 ```

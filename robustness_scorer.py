@@ -1,42 +1,38 @@
 """
 Robustness Scorer for VIX 5% Weekly Suite
 
-Scores trading signals based on multiple factors to assess
-execution survivability and trade quality.
-
-Factors considered:
-- Liquidity (bid-ask spread, volume)
-- Market conditions alignment
-- Strike distance from spot
-- Time to expiration
-- Regime stability
+Exports:
+    - calculate_robustness
+    - batch_score_variants
+    - RobustnessResult
+    - get_robustness_color
+    - get_robustness_label
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Optional, Dict, Any
-import datetime as dt
+from dataclasses import dataclass, field
+from typing import List, Dict, Any, Optional
 
 from enums import VolatilityRegime, VariantRole
 
 
 @dataclass
-class RobustnessScore:
-    """Detailed robustness scoring breakdown."""
+class RobustnessResult:
+    """Result of robustness scoring."""
     total_score: float  # 0-100
     confidence: str     # "low", "medium", "high"
     
-    # Component scores (0-100 each)
-    liquidity_score: float
-    regime_score: float
-    strike_score: float
-    timing_score: float
-    structure_score: float
+    # Component scores
+    liquidity_score: float = 0.0
+    regime_score: float = 0.0
+    strike_score: float = 0.0
+    timing_score: float = 0.0
+    structure_score: float = 0.0
     
-    # Flags
-    warnings: list
-    recommendations: list
+    # Feedback
+    warnings: List[str] = field(default_factory=list)
+    recommendations: List[str] = field(default_factory=list)
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -52,306 +48,221 @@ class RobustnessScore:
         }
 
 
-def score_liquidity(
-    estimated_debit: float,
-    suggested_contracts: int,
-    underlying_symbol: str = "^VIX",
-) -> tuple[float, list]:
-    """
-    Score based on estimated liquidity.
-    
-    Returns:
-        (score, warnings)
-    """
-    warnings = []
-    
-    # VIX options generally liquid, UVXY less so
-    if underlying_symbol in ("UVXY", "VXX"):
-        base_score = 70  # Less liquid
-        if suggested_contracts > 10:
-            warnings.append("UVXY/VXX may have liquidity issues for larger positions")
-            base_score -= 10
+def get_robustness_color(score: float) -> str:
+    """Get color based on robustness score."""
+    if score >= 80:
+        return "#27AE60"  # Green
+    elif score >= 60:
+        return "#F1C40F"  # Yellow
+    elif score >= 40:
+        return "#E67E22"  # Orange
     else:
-        base_score = 85  # VIX options typically liquid
+        return "#E74C3C"  # Red
+
+
+def get_robustness_label(score: float) -> str:
+    """Get label based on robustness score."""
+    if score >= 80:
+        return "Strong"
+    elif score >= 60:
+        return "Moderate"
+    elif score >= 40:
+        return "Weak"
+    else:
+        return "Poor"
+
+
+def _score_liquidity(
+    contracts: int,
+    underlying: str,
+    estimated_debit: float,
+) -> tuple[float, List[str]]:
+    """Score liquidity factors."""
+    warnings = []
+    score = 80.0
     
-    # Penalize very large positions
-    if suggested_contracts > 20:
-        warnings.append("Large position size may face execution challenges")
-        base_score -= 15
-    elif suggested_contracts > 10:
-        base_score -= 5
+    if underlying in ("UVXY", "VXX"):
+        score -= 10
+        if contracts > 10:
+            warnings.append("UVXY/VXX may have liquidity issues for larger positions")
+            score -= 10
     
-    # Penalize very small or very large debits
+    if contracts > 20:
+        warnings.append("Large position - may face execution challenges")
+        score -= 15
+    
     if estimated_debit < 100:
-        warnings.append("Very small position - commission impact significant")
-        base_score -= 10
+        warnings.append("Very small position - commission impact high")
+        score -= 10
     elif estimated_debit > 50000:
         warnings.append("Large debit - consider scaling in")
-        base_score -= 5
+        score -= 5
     
-    return max(0, min(100, base_score)), warnings
+    return max(0, min(100, score)), warnings
 
 
-def score_regime(
+def _score_regime(
     regime: VolatilityRegime,
-    variant_role: VariantRole,
+    role: VariantRole,
     vix_percentile: float,
-    regime_duration_days: int = 0,
-) -> tuple[float, list]:
-    """
-    Score based on regime alignment with variant strategy.
-    
-    Returns:
-        (score, warnings)
-    """
+) -> tuple[float, List[str]]:
+    """Score regime alignment."""
     warnings = []
     
-    # Define ideal regime/variant alignments
-    ideal_alignments = {
+    ideal = {
         VariantRole.INCOME: [VolatilityRegime.CALM],
         VariantRole.DECAY: [VolatilityRegime.DECLINING],
         VariantRole.HEDGE: [VolatilityRegime.STRESSED, VolatilityRegime.EXTREME],
         VariantRole.CONVEX: [VolatilityRegime.EXTREME],
-        VariantRole.ADAPTIVE: list(VolatilityRegime),  # All regimes
+        VariantRole.ADAPTIVE: list(VolatilityRegime),
     }
     
-    ideal = ideal_alignments.get(variant_role, [])
-    
-    if regime in ideal:
-        base_score = 90
+    if regime in ideal.get(role, []):
+        score = 90.0
     else:
-        base_score = 60
-        warnings.append(f"{variant_role.value} not ideal for {regime.value} regime")
+        score = 60.0
+        warnings.append(f"{role.value} not ideal for {regime.value} regime")
     
-    # Bonus for regime stability
-    if regime_duration_days > 30:
-        base_score += 5
-    elif regime_duration_days < 7:
-        base_score -= 5
-        warnings.append("Recent regime transition - increased uncertainty")
-    
-    # Check percentile edge cases
     if vix_percentile < 0.05:
         warnings.append("Extremely low VIX - potential complacency")
     elif vix_percentile > 0.95:
         warnings.append("Extremely high VIX - potential mean reversion")
     
-    return max(0, min(100, base_score)), warnings
+    return max(0, min(100, score)), warnings
 
 
-def score_strike_selection(
+def _score_strike(
     vix_level: float,
     long_strike: float,
     short_strike: Optional[float],
     position_type: str,
-) -> tuple[float, list]:
-    """
-    Score based on strike selection relative to spot.
-    
-    Returns:
-        (score, warnings)
-    """
+) -> tuple[float, List[str]]:
+    """Score strike selection."""
     warnings = []
+    score = 80.0
     
-    # Calculate OTM distance
     otm_distance = long_strike - vix_level
     otm_pct = otm_distance / vix_level if vix_level > 0 else 0
     
-    base_score = 80
-    
-    # Penalize ITM long calls
     if otm_distance < 0:
-        warnings.append("Long strike is ITM - higher cost, lower leverage")
-        base_score -= 20
+        warnings.append("Long strike is ITM - higher cost")
+        score -= 20
     
-    # Penalize very far OTM
-    if otm_pct > 0.50:  # More than 50% OTM
-        warnings.append("Long strike very far OTM - low delta, may expire worthless")
-        base_score -= 15
+    if otm_pct > 0.50:
+        warnings.append("Long strike very far OTM - low delta")
+        score -= 15
     elif otm_pct > 0.30:
-        base_score -= 5
+        score -= 5
     
-    # For diagonals, check short strike
-    if short_strike is not None and position_type == "diagonal":
-        short_distance = short_strike - vix_level
-        if short_distance < otm_distance:
+    if short_strike and position_type == "diagonal":
+        if short_strike - vix_level < otm_distance:
             warnings.append("Short strike closer than long - inverted diagonal")
-            base_score -= 25
+            score -= 25
     
-    return max(0, min(100, base_score)), warnings
+    return max(0, min(100, score)), warnings
 
 
-def score_timing(
+def _score_timing(
     long_dte_days: int,
     short_dte_days: Optional[int],
     position_type: str,
-    signal_time: dt.datetime,
-) -> tuple[float, list]:
-    """
-    Score based on option timing and DTE.
-    
-    Returns:
-        (score, warnings)
-    """
+) -> tuple[float, List[str]]:
+    """Score timing factors."""
     warnings = []
-    base_score = 80
+    score = 80.0
     
-    # Check long leg DTE
     if long_dte_days < 14:
         warnings.append("Very short DTE on long leg - high theta decay")
-        base_score -= 20
+        score -= 20
     elif long_dte_days < 30:
-        warnings.append("Short DTE on long leg - accelerated decay")
-        base_score -= 10
+        warnings.append("Short DTE on long leg")
+        score -= 10
     elif long_dte_days > 180:
-        base_score += 5  # More time = more flexibility
+        score += 5
     
-    # For diagonals, check short leg timing
-    if position_type == "diagonal" and short_dte_days is not None:
+    if position_type == "diagonal" and short_dte_days:
         if short_dte_days < 5:
-            warnings.append("Short leg close to expiration - roll needed soon")
-            base_score -= 5
-        elif short_dte_days > 14:
-            base_score += 5  # More premium capture time
+            warnings.append("Short leg close to expiration - roll needed")
+            score -= 5
     
-    # Check day of week (prefer Thurs/Fri signals for weekly options)
-    dow = signal_time.weekday()
-    if dow in (3, 4):  # Thursday or Friday
-        base_score += 5
-    elif dow == 0:  # Monday
-        base_score -= 5
-        warnings.append("Monday signal - wait for mid-week for better pricing")
-    
-    return max(0, min(100, base_score)), warnings
+    return max(0, min(100, score)), warnings
 
 
-def score_structure(
+def _score_structure(
     position_type: str,
-    variant_role: VariantRole,
-    estimated_debit: float,
-    max_loss: float,
+    role: VariantRole,
     target_mult: float,
-) -> tuple[float, list]:
-    """
-    Score based on trade structure and risk/reward.
-    
-    Returns:
-        (score, warnings)
-    """
+) -> tuple[float, List[str]]:
+    """Score trade structure."""
     warnings = []
-    base_score = 75
+    score = 75.0
     
-    # Check risk/reward
     if target_mult < 1.10:
-        warnings.append("Low profit target - tight margin for error")
-        base_score -= 10
+        warnings.append("Low profit target - tight margin")
+        score -= 10
     elif target_mult > 3.0:
-        base_score += 5  # High reward target
+        score += 5
     
-    # Check structure alignment with variant
-    structure_match = {
+    ideal_structures = {
         VariantRole.INCOME: ["diagonal"],
         VariantRole.DECAY: ["diagonal"],
-        VariantRole.HEDGE: ["long_call", "put_spread"],
+        VariantRole.HEDGE: ["long_call"],
         VariantRole.CONVEX: ["long_call"],
         VariantRole.ADAPTIVE: ["diagonal", "long_call", "adaptive"],
     }
     
-    ideal_structures = structure_match.get(variant_role, [])
-    if position_type in ideal_structures:
-        base_score += 10
-    else:
-        warnings.append(f"Structure '{position_type}' may not be ideal for {variant_role.value}")
+    if position_type in ideal_structures.get(role, []):
+        score += 10
     
-    # Check max loss vs debit
-    if max_loss > estimated_debit * 1.5:
-        warnings.append("Max loss exceeds debit significantly - check position sizing")
-        base_score -= 10
-    
-    return max(0, min(100, base_score)), warnings
+    return max(0, min(100, score)), warnings
 
 
-def calculate_robustness_score(
-    # Signal details
-    variant_role: VariantRole,
+def calculate_robustness(
+    role: VariantRole,
     regime: VolatilityRegime,
     vix_level: float,
     vix_percentile: float,
-    underlying_symbol: str,
-    
-    # Position details
+    underlying: str,
     position_type: str,
     long_strike: float,
     long_dte_days: int,
     short_strike: Optional[float] = None,
     short_dte_days: Optional[int] = None,
-    
-    # Sizing
-    suggested_contracts: int = 1,
+    contracts: int = 1,
     estimated_debit: float = 0.0,
-    max_loss: float = 0.0,
     target_mult: float = 1.20,
-    
-    # Context
-    regime_duration_days: int = 0,
-    signal_time: Optional[dt.datetime] = None,
-) -> RobustnessScore:
-    """
-    Calculate comprehensive robustness score for a trading signal.
-    
-    Returns:
-        RobustnessScore with detailed breakdown
-    """
-    if signal_time is None:
-        signal_time = dt.datetime.now()
+) -> RobustnessResult:
+    """Calculate robustness score for a signal."""
     
     all_warnings = []
     all_recommendations = []
     
-    # Score each component
-    liquidity, liq_warnings = score_liquidity(
-        estimated_debit, suggested_contracts, underlying_symbol
-    )
-    all_warnings.extend(liq_warnings)
+    # Score components
+    liq_score, liq_warn = _score_liquidity(contracts, underlying, estimated_debit)
+    all_warnings.extend(liq_warn)
     
-    regime_sc, reg_warnings = score_regime(
-        regime, variant_role, vix_percentile, regime_duration_days
-    )
-    all_warnings.extend(reg_warnings)
+    reg_score, reg_warn = _score_regime(regime, role, vix_percentile)
+    all_warnings.extend(reg_warn)
     
-    strike, strike_warnings = score_strike_selection(
-        vix_level, long_strike, short_strike, position_type
-    )
-    all_warnings.extend(strike_warnings)
+    strike_score, strike_warn = _score_strike(vix_level, long_strike, short_strike, position_type)
+    all_warnings.extend(strike_warn)
     
-    timing, timing_warnings = score_timing(
-        long_dte_days, short_dte_days, position_type, signal_time
-    )
-    all_warnings.extend(timing_warnings)
+    time_score, time_warn = _score_timing(long_dte_days, short_dte_days, position_type)
+    all_warnings.extend(time_warn)
     
-    structure, struct_warnings = score_structure(
-        position_type, variant_role, estimated_debit, max_loss, target_mult
-    )
-    all_warnings.extend(struct_warnings)
+    struct_score, struct_warn = _score_structure(position_type, role, target_mult)
+    all_warnings.extend(struct_warn)
     
-    # Calculate weighted total
-    weights = {
-        "liquidity": 0.15,
-        "regime": 0.25,
-        "strike": 0.20,
-        "timing": 0.20,
-        "structure": 0.20,
-    }
-    
+    # Weighted total
     total = (
-        liquidity * weights["liquidity"] +
-        regime_sc * weights["regime"] +
-        strike * weights["strike"] +
-        timing * weights["timing"] +
-        structure * weights["structure"]
+        liq_score * 0.15 +
+        reg_score * 0.25 +
+        strike_score * 0.20 +
+        time_score * 0.20 +
+        struct_score * 0.20
     )
     
-    # Determine confidence
+    # Confidence
     if total >= 80:
         confidence = "high"
         all_recommendations.append("Signal looks strong - proceed with normal sizing")
@@ -362,75 +273,42 @@ def calculate_robustness_score(
         confidence = "low"
         all_recommendations.append("Signal weak - consider skipping or minimal size")
     
-    # Add specific recommendations based on warnings
     if len(all_warnings) > 3:
         all_recommendations.append("Multiple concerns - extra caution advised")
     
-    return RobustnessScore(
+    return RobustnessResult(
         total_score=round(total, 1),
         confidence=confidence,
-        liquidity_score=round(liquidity, 1),
-        regime_score=round(regime_sc, 1),
-        strike_score=round(strike, 1),
-        timing_score=round(timing, 1),
-        structure_score=round(structure, 1),
+        liquidity_score=round(liq_score, 1),
+        regime_score=round(reg_score, 1),
+        strike_score=round(strike_score, 1),
+        timing_score=round(time_score, 1),
+        structure_score=round(struct_score, 1),
         warnings=all_warnings,
         recommendations=all_recommendations,
     )
 
 
-def format_robustness_display(score: RobustnessScore) -> str:
-    """Format robustness score for display."""
-    # Emoji based on confidence
-    emoji = {"high": "🟢", "medium": "🟡", "low": "🔴"}.get(score.confidence, "⚪")
+def batch_score_variants(signals: List[Any]) -> Dict[str, RobustnessResult]:
+    """Score multiple signals at once."""
+    results = {}
     
-    lines = [
-        f"{emoji} **Robustness: {score.total_score}/100** ({score.confidence.upper()})",
-        "",
-        "**Component Scores:**",
-        f"- Liquidity: {score.liquidity_score}/100",
-        f"- Regime: {score.regime_score}/100",
-        f"- Strike: {score.strike_score}/100",
-        f"- Timing: {score.timing_score}/100",
-        f"- Structure: {score.structure_score}/100",
-    ]
+    for sig in signals:
+        result = calculate_robustness(
+            role=sig.role,
+            regime=sig.regime,
+            vix_level=sig.vix_level,
+            vix_percentile=sig.vix_percentile,
+            underlying=sig.underlying,
+            position_type=sig.position_type,
+            long_strike=sig.long_strike,
+            long_dte_days=sig.long_dte_days,
+            short_strike=sig.short_strike,
+            short_dte_days=sig.short_dte_days,
+            contracts=sig.contracts,
+            estimated_debit=sig.estimated_debit,
+            target_mult=sig.target_mult,
+        )
+        results[sig.signal_id] = result
     
-    if score.warnings:
-        lines.extend(["", "**⚠️ Warnings:**"])
-        for w in score.warnings:
-            lines.append(f"- {w}")
-    
-    if score.recommendations:
-        lines.extend(["", "**💡 Recommendations:**"])
-        for r in score.recommendations:
-            lines.append(f"- {r}")
-    
-    return "\n".join(lines)
-
-
-# =============================================================================
-# TEST
-# =============================================================================
-
-if __name__ == "__main__":
-    print("Testing robustness scorer...")
-    
-    score = calculate_robustness_score(
-        variant_role=VariantRole.INCOME,
-        regime=VolatilityRegime.CALM,
-        vix_level=14.5,
-        vix_percentile=0.15,
-        underlying_symbol="^VIX",
-        position_type="diagonal",
-        long_strike=20.0,
-        long_dte_days=180,
-        short_strike=20.0,
-        short_dte_days=7,
-        suggested_contracts=5,
-        estimated_debit=2500.0,
-        max_loss=2500.0,
-        target_mult=1.20,
-        regime_duration_days=30,
-    )
-    
-    print(format_robustness_display(score))
+    return results
