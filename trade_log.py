@@ -290,6 +290,7 @@ class TradeLog:
         return trade
     
     def get_statistics(self) -> Dict[str, Any]:
+        """Get overall statistics."""
         closed = self.get_closed_trades()
         open_trades = self.get_open_trades()
         
@@ -313,6 +314,61 @@ class TradeLog:
             "win_rate": len(wins) / len(closed),
             "total_pnl": total_pnl,
             "avg_pnl": total_pnl / len(closed),
+        }
+    
+    def get_summary(self) -> Dict[str, Any]:
+        """Get summary statistics for display (alias for get_statistics + extras)."""
+        stats = self.get_statistics()
+        
+        # Add more summary details
+        all_trades = self.get_all_trades()
+        open_trades = self.get_open_trades()
+        closed_trades = self.get_closed_trades()
+        
+        # Calculate by variant
+        variant_stats = {}
+        for role in VariantRole:
+            variant_trades = self.get_trades_by_variant(role)
+            closed_variant = [t for t in variant_trades if t.status == TradeStatus.CLOSED]
+            if closed_variant:
+                wins = [t for t in closed_variant if t.realized_pnl > 0]
+                variant_stats[role.value] = {
+                    "total": len(variant_trades),
+                    "open": len([t for t in variant_trades if t.status == TradeStatus.OPEN]),
+                    "closed": len(closed_variant),
+                    "win_rate": len(wins) / len(closed_variant) if closed_variant else 0.0,
+                    "total_pnl": sum(t.realized_pnl for t in closed_variant),
+                }
+            else:
+                variant_stats[role.value] = {
+                    "total": len(variant_trades),
+                    "open": len([t for t in variant_trades if t.status == TradeStatus.OPEN]),
+                    "closed": 0,
+                    "win_rate": 0.0,
+                    "total_pnl": 0.0,
+                }
+        
+        # Calculate unrealized P&L
+        total_unrealized = sum(t.unrealized_pnl for t in open_trades)
+        total_realized = sum(t.realized_pnl for t in closed_trades)
+        
+        # Average hold time
+        if closed_trades:
+            avg_hold_days = sum(t.days_held for t in closed_trades) / len(closed_trades)
+        else:
+            avg_hold_days = 0.0
+        
+        return {
+            **stats,
+            "total_unrealized_pnl": total_unrealized,
+            "total_realized_pnl": total_realized,
+            "combined_pnl": total_unrealized + total_realized,
+            "avg_hold_days": avg_hold_days,
+            "variant_stats": variant_stats,
+            "trades_this_week": len([t for t in all_trades 
+                                     if t.entry_date > dt.datetime.now() - dt.timedelta(days=7)]),
+            "trades_this_month": len([t for t in all_trades 
+                                      if t.entry_date > dt.datetime.now() - dt.timedelta(days=30)]),
         }
 
 

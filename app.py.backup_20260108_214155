@@ -687,87 +687,6 @@ def render_paper_sidebar() -> Dict[str, Any]:
     }
 
 
-
-
-def send_signal_email_smtp(batch, regime, recipient: str = "onoshin333@gmail.com"):
-    """Send email notification with signal summary via SMTP."""
-    import os
-    import smtplib
-    from email.mime.text import MIMEText
-    from email.mime.multipart import MIMEMultipart
-    
-    smtp_server = os.environ.get("SMTP_SERVER", "smtp.gmail.com")
-    smtp_port = int(os.environ.get("SMTP_PORT", 587))
-    smtp_user = os.environ.get("SMTP_USER")
-    smtp_pass = os.environ.get("SMTP_PASS")
-    
-    if not smtp_user or not smtp_pass:
-        return False, "SMTP credentials missing. Set SMTP_USER and SMTP_PASS environment variables."
-    
-    # Build email content
-    emoji = "🟢" if regime.vix_percentile <= 0.25 else "🟡" if regime.vix_percentile <= 0.50 else "🔴"
-    subject = f"{emoji} VIX Signal: {regime.regime.value.upper()} ({regime.vix_percentile:.0%})"
-    
-    html = f"""
-    <html>
-    <body style="font-family:Arial,sans-serif;font-size:14px;background:#fff;color:#333;padding:15px;max-width:700px;">
-    
-    <div style="text-align:center;border-bottom:2px solid #1f77b4;padding-bottom:10px;margin-bottom:15px;">
-        <span style="font-size:20px;font-weight:bold;color:#1f77b4;">VIX 5% WEEKLY SUITE</span><br>
-        <span style="color:#666;">Signal Notification • {batch.generated_at.strftime('%Y-%m-%d %H:%M UTC')}</span>
-    </div>
-    
-    <table style="width:100%;border-collapse:collapse;margin-bottom:15px;">
-        <tr>
-            <td style="padding:8px;background:#f5f5f5;border:1px solid #ddd;width:25%;"><b>Regime</b><br>{regime.regime.value.upper()}</td>
-            <td style="padding:8px;background:#f5f5f5;border:1px solid #ddd;width:25%;"><b>UVXY</b><br>${regime.vix_level:.2f}</td>
-            <td style="padding:8px;background:#f5f5f5;border:1px solid #ddd;width:25%;"><b>Percentile</b><br>{regime.vix_percentile:.0%}</td>
-            <td style="padding:8px;background:#f5f5f5;border:1px solid #ddd;width:25%;"><b>Confidence</b><br>{regime.confidence:.0%}</td>
-        </tr>
-    </table>
-    
-    <div style="font-size:15px;font-weight:bold;color:#1f77b4;margin-bottom:10px;">ACTIVE VARIANTS</div>
-    """
-    
-    for variant in batch.variants:
-        is_active = regime.regime in variant.active_in_regimes
-        if is_active:
-            html += f"""
-            <div style="border:1px solid #ddd;margin-bottom:8px;border-radius:4px;overflow:hidden;">
-                <div style="background:#4CAF50;color:#fff;padding:6px 10px;font-weight:bold;">
-                    ✅ {get_variant_display_name(variant.role)}
-                </div>
-                <div style="padding:8px;">
-                    Entry ≤{variant.entry_percentile:.0%} | +{variant.long_strike_offset}pts OTM | {variant.long_dte_weeks}w DTE<br>
-                    Target: {variant.tp_pct:.0%} | Stop: {variant.sl_pct:.0%}
-                </div>
-            </div>
-            """
-    
-    html += """
-    <div style="margin-top:15px;padding-top:10px;border-top:1px solid #ddd;color:#666;font-size:12px;">
-        VIX 5% Weekly Suite - Automated Signal
-    </div>
-    </body>
-    </html>
-    """
-    
-    try:
-        msg = MIMEMultipart()
-        msg['Subject'] = subject
-        msg['From'] = smtp_user
-        msg['To'] = recipient
-        msg.attach(MIMEText(html, 'html', 'utf-8'))
-        
-        with smtplib.SMTP(smtp_server, smtp_port) as server:
-            server.starttls()
-            server.login(smtp_user, smtp_pass)
-            server.send_message(msg)
-        
-        return True, f"Email sent to {recipient}!"
-    except Exception as e:
-        return False, f"Email failed: {e}"
-
 def render_signal_dashboard():
     """Signal Dashboard - Generate and freeze signals (Thursday 4:30 PM focus)."""
     st.title("📡 Signal Dashboard")
@@ -826,32 +745,20 @@ def render_signal_dashboard():
     st.subheader("Generate Signals")
     
     if st.button("🔄 Generate New Signal Batch", type="primary"):
-        try:
-            with st.spinner("Generating variant signals..."):
-                from utils.regime_utils import extract_current_regime
+        with st.spinner("Generating variant signals..."):
+            from utils.regime_utils import extract_current_regime
 
-                current_regime = extract_current_regime(regime)
+            current_regime = extract_current_regime(regime)
 
-                # Ensure scalar regime
-                if hasattr(regime, "iloc"):
-                    regime = regime.iloc[-1]
+            # QUICK FIX: ensure scalar regime
+            if hasattr(regime, "iloc"):
+                regime = regime.iloc[-1]
 
-                batch = generate_all_variants(uvxy_data, regime)
-                
-                if batch is None:
-                    st.error("Signal generation returned None")
-                elif not hasattr(batch, 'batch_id'):
-                    st.error(f"Invalid batch: {type(batch)}")
-                else:
-                    save_signal_batch(batch)
-                    st.success(f"✅ Generated batch: {batch.batch_id}")
-                    st.balloons()
-                    st.rerun()
-        except Exception as e:
-            st.error(f"❌ Generation failed: {e}")
-            import traceback
-            with st.expander("Error details"):
-                st.code(traceback.format_exc())
+            batch = generate_all_variants(uvxy_data, regime)
+
+            save_signal_batch(batch)
+            st.success(f"Generated batch: {batch.batch_id}")
+            st.rerun()
     
     # Display current batch
     batch = load_signal_batch()
@@ -893,37 +800,6 @@ def render_signal_dashboard():
                 save_signal_batch(batch)
                 st.success("Batch frozen! Ready for execution window.")
                 st.rerun()
-        
-        # ===== EMAIL SECTION =====
-        st.markdown("---")
-        st.subheader("📧 Thursday Email")
-        
-        col_email1, col_email2 = st.columns([2, 1])
-        with col_email1:
-            recipient = st.text_input("Recipient Email", value="onoshin333@gmail.com", key="email_recipient")
-        with col_email2:
-            force_send = st.checkbox("Send even if no active signal", key="force_email")
-        
-        # Check if any variant is active
-        has_active = any(regime.regime in v.active_in_regimes for v in batch.variants)
-        
-        if st.button("📤 Send Thursday Email Now", type="primary"):
-            if not has_active and not force_send:
-                st.warning("⚠️ No active signal. Check 'Send even if no active signal' to send anyway.")
-            else:
-                success, msg = send_signal_email_smtp(batch, regime, recipient)
-                if success:
-                    st.success(f"✅ {msg}")
-                else:
-                    st.error(f"❌ {msg}")
-        
-        # Quick copy button
-        if st.button("📋 Copy Signal Summary"):
-            summary_text = f"Batch: {batch.batch_id}\nRegime: {regime.regime.value}\nUVXY: ${regime.vix_level:.2f} ({regime.vix_percentile:.0%})\n\nActive Variants:\n"
-            for v in batch.variants:
-                if regime.regime in v.active_in_regimes:
-                    summary_text += f"- {get_variant_display_name(v.role)}: entry ≤{v.entry_percentile:.0%}, +{v.long_strike_offset}pts, {v.long_dte_weeks}w\n"
-            st.code(summary_text)
 
 
 def render_execution_window():
@@ -1237,90 +1113,6 @@ Regime:      {REGIME_HISTORY_FILE}
 # Main Application
 # ============================================================
 
-
-
-def render_trade_log():
-    """Trade Log - View and manage all paper trades."""
-    st.title("📒 Trade Log")
-    
-    if not PAPER_TRADING_AVAILABLE:
-        st.error("Paper trading modules not available")
-        return
-    
-    trade_log = get_trade_log()
-    summary = trade_log.get_summary()
-    
-    # Summary metrics
-    col1, col2, col3, col4, col5 = st.columns(5)
-    with col1:
-        st.metric("Total Trades", summary["total_trades"])
-    with col2:
-        st.metric("Open", summary["open_trades"])
-    with col3:
-        st.metric("Closed", summary["closed_trades"])
-    with col4:
-        st.metric("Win Rate", f"{summary['win_rate']:.0%}" if summary['closed_trades'] > 0 else "N/A")
-    with col5:
-        st.metric("Total P&L", f"${summary['combined_pnl']:,.0f}")
-    
-    st.markdown("---")
-    
-    # Filters
-    col1, col2 = st.columns(2)
-    with col1:
-        status_filter = st.selectbox(
-            "Filter by Status",
-            ["All", "Open", "Closed"],
-            key="trade_log_status_filter"
-        )
-    with col2:
-        variant_filter = st.selectbox(
-            "Filter by Variant",
-            ["All"] + [role.value for role in VariantRole],
-            key="trade_log_variant_filter"
-        )
-    
-    # Get trades based on filter
-    if status_filter == "Open":
-        trades = trade_log.get_open_trades()
-    elif status_filter == "Closed":
-        trades = trade_log.get_closed_trades()
-    else:
-        trades = trade_log.get_all_trades()
-    
-    # Apply variant filter
-    if variant_filter != "All":
-        trades = [t for t in trades if t.variant_role.value == variant_filter]
-    
-    # Display trades
-    if not trades:
-        st.info("No trades found. Execute signals to create trades.")
-        return
-    
-    st.subheader(f"Trades ({len(trades)})")
-    
-    for trade in sorted(trades, key=lambda t: t.entry_date, reverse=True):
-        status_icon = "🟢" if trade.status.value == "open" else "🔴"
-        pnl_color = "green" if trade.total_pnl >= 0 else "red"
-        
-        with st.expander(
-            f"{status_icon} {trade.variant_name} | {trade.entry_date.strftime('%Y-%m-%d')} | "
-            f"${trade.total_pnl:+,.0f}",
-            expanded=False
-        ):
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.write(f"**Trade ID:** {trade.trade_id}")
-                st.write(f"**Signal ID:** {trade.signal_id}")
-                st.write(f"**Entry:** {trade.entry_date.strftime('%Y-%m-%d %H:%M')}")
-            with col2:
-                st.write(f"**Regime:** {trade.entry_regime.value}")
-                st.write(f"**Contracts:** {trade.total_contracts}")
-                st.write(f"**Days Held:** {trade.days_held}")
-            with col3:
-                st.write(f"**Entry Debit:** ${trade.entry_debit:,.2f}")
-                st.markdown(f"**P&L:** <span style='color:{pnl_color}'>${trade.total_pnl:+,.2f}</span>", unsafe_allow_html=True)
-
 def main():
     st.set_page_config(
         page_title="VIX 5% Weekly Suite",
@@ -1417,9 +1209,8 @@ def main():
             "Paper Trading Pages",
             [
                 "Signal Dashboard",
-                "Execution Window", 
+                "Execution Window",
                 "Active Trades",
-                "Trade Log",
                 "Post-Mortem Review",
                 "Variant Analytics",
                 "System Health",
@@ -1442,8 +1233,6 @@ def main():
             render_post_mortem()
         elif page == "Variant Analytics":
             render_variant_analytics()
-        elif page == "Trade Log":
-            render_trade_log()
         elif page == "System Health":
             render_system_health()
 

@@ -1,75 +1,52 @@
 """
-Enums for VIX 5% Weekly Suite
+Core enums for VIX 5% Weekly Suite
 """
-
 from enum import Enum
 
-
 class VolatilityRegime(Enum):
-    """VIX percentile-based regime classification."""
-    CALM = "CALM"
-    RISING = "RISING"
-    STRESSED = "STRESSED"
-    DECLINING = "DECLINING"
-    EXTREME = "EXTREME"
-
+    CALM = "calm"
+    RISING = "rising"
+    STRESSED = "stressed"
+    DECLINING = "declining"
+    EXTREME = "extreme"
 
 class VariantRole(Enum):
-    """Strategy variant roles."""
-    INCOME = "V1_INCOME"
-    DECAY = "V2_DECAY"
-    HEDGE = "V3_HEDGE"
-    CONVEX = "V4_CONVEX"
-    ADAPTIVE = "V5_ADAPTIVE"
-
+    V1_INCOME_HARVESTER = "v1_income_harvester"
+    V2_MEAN_REVERSION = "v2_mean_reversion"
+    V3_SHOCK_ABSORBER = "v3_shock_absorber"
+    V4_TAIL_HUNTER = "v4_tail_hunter"
+    V5_REGIME_ALLOCATOR = "v5_regime_allocator"
 
 class TradeStatus(Enum):
-    """Trade lifecycle status."""
-    SIGNAL = "signal"
-    PENDING = "pending"
     OPEN = "open"
-    CLOSING = "closing"
     CLOSED = "closed"
-    EXPIRED = "expired"
     CANCELLED = "cancelled"
 
-
 class LegStatus(Enum):
-    """Individual leg status."""
-    PENDING = "pending"
     OPEN = "open"
     CLOSED = "closed"
     EXPIRED = "expired"
-    ROLLED = "rolled"
-
+    ASSIGNED = "assigned"
 
 class LegSide(Enum):
-    """Leg side (long/short)."""
     LONG = "long"
     SHORT = "short"
 
-
 class ExitType(Enum):
-    """Types of exit triggers."""
-    TARGET_HIT = "target_hit"
-    STOP_HIT = "stop_hit"
-    REGIME_EXIT = "regime_exit"
-    TIME_STOP = "time_stop"
-    EXPIRATION = "expiration"
+    TARGET = "target"
+    STOP = "stop"
+    EXPIRY = "expiry"
+    REGIME_CHANGE = "regime_change"
     MANUAL = "manual"
-    ROLL = "roll"
-
+    TIME_STOP = "time_stop"
 
 class ExitUrgency(Enum):
-    """Exit signal urgency levels."""
     IMMEDIATE = "immediate"
-    SOON = "soon"
-    OPTIONAL = "optional"
-
+    END_OF_DAY = "end_of_day"
+    END_OF_WEEK = "end_of_week"
+    MONITOR = "monitor"
 
 class ExitStatus(Enum):
-    """Exit event status."""
     PENDING = "pending"
-    ACKNOWLEDGED = "acknowledged"
     EXECUTED = "executed"
-    DISMISSED = "dismissed"
+    CANCELLED = "cancelled"

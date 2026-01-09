@@ -12,568 +12,454 @@ Exports:
 
 from __future__ import annotations
 
-import datetime as dt
-import json
+import uuid
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Dict, List, Optional, Any
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Any, Union
 
-# Re-export VariantRole
+import numpy as np
+import pandas as pd
+
 from enums import VolatilityRegime, VariantRole
 
 
-# =============================================================================
-# VARIANT DISPLAY HELPERS
-# =============================================================================
-
-def get_variant_display_name(role: VariantRole) -> str:
-    """Get human-readable name for a variant."""
-    names = {
-        VariantRole.INCOME: "V1 Income Harvester",
-        VariantRole.DECAY: "V2 Mean Reversion Accelerator",
-        VariantRole.HEDGE: "V3 Shock Absorber",
-        VariantRole.CONVEX: "V4 Convex Tail Hunter",
-        VariantRole.ADAPTIVE: "V5 Regime-Aware Allocator",
-    }
-    return names.get(role, role.value)
-
-
-def get_variant_color(role: VariantRole) -> str:
-    """Get display color for a variant."""
-    colors = {
-        VariantRole.INCOME: "#27AE60",    # Green
-        VariantRole.DECAY: "#3498DB",     # Blue
-        VariantRole.HEDGE: "#E67E22",     # Orange
-        VariantRole.CONVEX: "#9B59B6",    # Purple
-        VariantRole.ADAPTIVE: "#1ABC9C",  # Teal
-    }
-    return colors.get(role, "#95A5A6")
-
-
-def get_variant_emoji(role: VariantRole) -> str:
-    """Get emoji for a variant."""
-    emojis = {
-        VariantRole.INCOME: "💰",
-        VariantRole.DECAY: "📉",
-        VariantRole.HEDGE: "🛡️",
-        VariantRole.CONVEX: "🎯",
-        VariantRole.ADAPTIVE: "🔄",
-    }
-    return emojis.get(role, "📊")
-
-
-# =============================================================================
-# VARIANT PARAMETERS
-# =============================================================================
+# ============================================================
+# Variant Parameters
+# ============================================================
 
 @dataclass
 class VariantParams:
-    """Parameters for a variant strategy."""
-    role: VariantRole
+    """Parameters for a single strategy variant."""
+    variant_id: str
     name: str
-    description: str = ""
+    role: VariantRole
     
-    # Active regimes
-    active_regimes: List[VolatilityRegime] = field(default_factory=list)
+    # Entry conditions
+    entry_percentile: float = 0.25
+    entry_lookback_weeks: int = 52
     
     # Position structure
     position_type: str = "diagonal"
     long_dte_weeks: int = 26
     short_dte_weeks: int = 1
-    otm_points: float = 5.0
+    long_strike_offset: float = 5.0
+    short_strike_offset: float = 2.0
     
-    # Sizing
-    allocation_pct: float = 2.0
-    max_contracts: int = 10
+    # Volatility / pricing
+    sigma_mult: float = 1.0
     
     # Risk management
-    target_mult: float = 1.20
-    stop_mult: float = 0.50
-    max_hold_weeks: int = 12
+    alloc_pct: float = 0.01
+    tp_pct: float = 0.20
+    sl_pct: float = 0.50
+    max_hold_weeks: int = 8
     
-    # Entry conditions
-    entry_pct_low: float = 0.0
-    entry_pct_high: float = 0.25
+    # Regime activation
+    active_in_regimes: List[VolatilityRegime] = field(default_factory=list)
+    suppressed_in_regimes: List[VolatilityRegime] = field(default_factory=list)
     
-    # Priority (lower = higher priority)
-    priority: int = 5
+    # Calculated values (set during generation)
+    long_strike: float = 0.0
+    short_strike: float = 0.0
     
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "role": self.role.value,
+            "variant_id": self.variant_id,
             "name": self.name,
-            "description": self.description,
-            "active_regimes": [r.value for r in self.active_regimes],
+            "role": self.role.value,
+            "entry_percentile": self.entry_percentile,
+            "entry_lookback_weeks": self.entry_lookback_weeks,
             "position_type": self.position_type,
             "long_dte_weeks": self.long_dte_weeks,
             "short_dte_weeks": self.short_dte_weeks,
-            "otm_points": self.otm_points,
-            "allocation_pct": self.allocation_pct,
-            "max_contracts": self.max_contracts,
-            "target_mult": self.target_mult,
-            "stop_mult": self.stop_mult,
+            "long_strike_offset": self.long_strike_offset,
+            "short_strike_offset": self.short_strike_offset,
+            "sigma_mult": self.sigma_mult,
+            "alloc_pct": self.alloc_pct,
+            "tp_pct": self.tp_pct,
+            "sl_pct": self.sl_pct,
             "max_hold_weeks": self.max_hold_weeks,
-            "entry_pct_low": self.entry_pct_low,
-            "entry_pct_high": self.entry_pct_high,
-            "priority": self.priority,
-        }
-
-
-# Default variant configurations
-VARIANT_CONFIGS: Dict[VariantRole, VariantParams] = {
-    VariantRole.INCOME: VariantParams(
-        role=VariantRole.INCOME,
-        name="V1 Income Harvester",
-        description="Stability anchor - diagonal spreads in calm markets",
-        active_regimes=[VolatilityRegime.CALM, VolatilityRegime.DECLINING],
-        position_type="diagonal",
-        long_dte_weeks=26,
-        short_dte_weeks=1,
-        otm_points=5.0,
-        allocation_pct=2.0,
-        target_mult=1.20,
-        stop_mult=0.50,
-        max_contracts=10,
-        entry_pct_low=0.0,
-        entry_pct_high=0.25,
-        priority=1,
-    ),
-    VariantRole.DECAY: VariantParams(
-        role=VariantRole.DECAY,
-        name="V2 Mean Reversion Accelerator",
-        description="Post-spike decay capture",
-        active_regimes=[VolatilityRegime.DECLINING],
-        position_type="diagonal",
-        long_dte_weeks=13,
-        short_dte_weeks=1,
-        otm_points=3.0,
-        allocation_pct=3.0,
-        target_mult=1.50,
-        stop_mult=0.40,
-        max_contracts=15,
-        entry_pct_low=0.75,
-        entry_pct_high=0.90,
-        priority=2,
-    ),
-    VariantRole.HEDGE: VariantParams(
-        role=VariantRole.HEDGE,
-        name="V3 Shock Absorber",
-        description="Crisis hedge positions",
-        active_regimes=[VolatilityRegime.STRESSED, VolatilityRegime.EXTREME],
-        position_type="long_call",
-        long_dte_weeks=8,
-        short_dte_weeks=0,
-        otm_points=10.0,
-        allocation_pct=1.5,
-        target_mult=2.00,
-        stop_mult=0.30,
-        max_contracts=5,
-        entry_pct_low=0.50,
-        entry_pct_high=1.00,
-        priority=3,
-    ),
-    VariantRole.CONVEX: VariantParams(
-        role=VariantRole.CONVEX,
-        name="V4 Convex Tail Hunter",
-        description="Rare explosive payoffs",
-        active_regimes=[VolatilityRegime.EXTREME],
-        position_type="long_call",
-        long_dte_weeks=4,
-        short_dte_weeks=0,
-        otm_points=15.0,
-        allocation_pct=0.5,
-        target_mult=5.00,
-        stop_mult=0.20,
-        max_contracts=3,
-        entry_pct_low=0.90,
-        entry_pct_high=1.00,
-        priority=4,
-    ),
-    VariantRole.ADAPTIVE: VariantParams(
-        role=VariantRole.ADAPTIVE,
-        name="V5 Regime-Aware Allocator",
-        description="Dynamic meta-controller",
-        active_regimes=list(VolatilityRegime),
-        position_type="adaptive",
-        long_dte_weeks=13,
-        short_dte_weeks=1,
-        otm_points=5.0,
-        allocation_pct=1.0,
-        target_mult=1.30,
-        stop_mult=0.50,
-        max_contracts=5,
-        entry_pct_low=0.0,
-        entry_pct_high=1.00,
-        priority=5,
-    ),
-}
-
-
-# =============================================================================
-# VARIANT SIGNAL
-# =============================================================================
-
-@dataclass
-class VariantSignal:
-    """A trading signal from a variant."""
-    signal_id: str
-    role: VariantRole
-    name: str
-    generated_at: dt.datetime
-    valid_until: dt.datetime
-    
-    # Market context
-    regime: VolatilityRegime
-    vix_level: float
-    vix_percentile: float
-    underlying: str = "^VIX"
-    
-    # Position details
-    position_type: str = "diagonal"
-    long_strike: float = 0.0
-    long_dte_days: int = 0
-    long_expiration: Optional[dt.date] = None
-    long_price: float = 0.0
-    
-    short_strike: Optional[float] = None
-    short_dte_days: Optional[int] = None
-    short_expiration: Optional[dt.date] = None
-    short_price: Optional[float] = None
-    
-    # Sizing
-    contracts: int = 1
-    max_contracts: int = 10
-    estimated_debit: float = 0.0
-    max_loss: float = 0.0
-    
-    # Risk
-    target_mult: float = 1.20
-    stop_mult: float = 0.50
-    max_hold_weeks: int = 12
-    
-    # Scoring
-    robustness_score: float = 0.0
-    confidence: str = "medium"
-    
-    # Status
-    status: str = "pending"
-    notes: str = ""
-    
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "signal_id": self.signal_id,
-            "role": self.role.value,
-            "name": self.name,
-            "generated_at": self.generated_at.isoformat(),
-            "valid_until": self.valid_until.isoformat(),
-            "regime": self.regime.value,
-            "vix_level": self.vix_level,
-            "vix_percentile": self.vix_percentile,
-            "underlying": self.underlying,
-            "position_type": self.position_type,
+            "active_in_regimes": [r.value for r in self.active_in_regimes],
+            "suppressed_in_regimes": [r.value for r in self.suppressed_in_regimes],
             "long_strike": self.long_strike,
-            "long_dte_days": self.long_dte_days,
-            "long_expiration": self.long_expiration.isoformat() if self.long_expiration else None,
-            "long_price": self.long_price,
             "short_strike": self.short_strike,
-            "short_dte_days": self.short_dte_days,
-            "short_expiration": self.short_expiration.isoformat() if self.short_expiration else None,
-            "short_price": self.short_price,
-            "contracts": self.contracts,
-            "max_contracts": self.max_contracts,
-            "estimated_debit": self.estimated_debit,
-            "max_loss": self.max_loss,
-            "target_mult": self.target_mult,
-            "stop_mult": self.stop_mult,
-            "max_hold_weeks": self.max_hold_weeks,
-            "robustness_score": self.robustness_score,
-            "confidence": self.confidence,
-            "status": self.status,
-            "notes": self.notes,
         }
-    
-    @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "VariantSignal":
-        return cls(
-            signal_id=d["signal_id"],
-            role=VariantRole(d["role"]),
-            name=d["name"],
-            generated_at=dt.datetime.fromisoformat(d["generated_at"]),
-            valid_until=dt.datetime.fromisoformat(d["valid_until"]),
-            regime=VolatilityRegime(d["regime"]),
-            vix_level=d["vix_level"],
-            vix_percentile=d["vix_percentile"],
-            underlying=d.get("underlying", "^VIX"),
-            position_type=d.get("position_type", "diagonal"),
-            long_strike=d.get("long_strike", 0.0),
-            long_dte_days=d.get("long_dte_days", 0),
-            long_expiration=dt.date.fromisoformat(d["long_expiration"]) if d.get("long_expiration") else None,
-            long_price=d.get("long_price", 0.0),
-            short_strike=d.get("short_strike"),
-            short_dte_days=d.get("short_dte_days"),
-            short_expiration=dt.date.fromisoformat(d["short_expiration"]) if d.get("short_expiration") else None,
-            short_price=d.get("short_price"),
-            contracts=d.get("contracts", 1),
-            max_contracts=d.get("max_contracts", 10),
-            estimated_debit=d.get("estimated_debit", 0.0),
-            max_loss=d.get("max_loss", 0.0),
-            target_mult=d.get("target_mult", 1.20),
-            stop_mult=d.get("stop_mult", 0.50),
-            max_hold_weeks=d.get("max_hold_weeks", 12),
-            robustness_score=d.get("robustness_score", 0.0),
-            confidence=d.get("confidence", "medium"),
-            status=d.get("status", "pending"),
-            notes=d.get("notes", ""),
-        )
 
 
-# =============================================================================
-# SIGNAL BATCH
-# =============================================================================
+# ============================================================
+# Signal Batch
+# ============================================================
 
 @dataclass
 class SignalBatch:
-    """A batch of signals generated together."""
+    """A batch of variant signals generated together."""
     batch_id: str
-    generated_at: dt.datetime
-    regime: VolatilityRegime
-    vix_level: float
-    vix_percentile: float
-    underlying: str = "^VIX"
-    signals: List[VariantSignal] = field(default_factory=list)
-    status: str = "active"
-    frozen_at: Optional[dt.datetime] = None
-    notes: str = ""
+    generated_at: datetime
+    valid_until: datetime
+    regime_state: Any  # RegimeState
+    variants: List[VariantParams] = field(default_factory=list)
+    frozen: bool = False
+    
+    # Alias for compatibility
+    @property
+    def signals(self) -> List[VariantParams]:
+        return self.variants
     
     def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        regime_dict = {
+            "regime": self.regime_state.regime.value,
+            "confidence": getattr(self.regime_state, 'confidence', 0.8),
+            "vix_level": self.regime_state.vix_level,
+            "vix_percentile": self.regime_state.vix_percentile,
+            "vix_slope": getattr(self.regime_state, 'vix_slope', 0.0),
+            "term_structure": getattr(self.regime_state, 'term_structure', "normal"),
+            "regime_age_days": getattr(self.regime_state, 'regime_age_days', 0),
+        }
+        
         return {
             "batch_id": self.batch_id,
             "generated_at": self.generated_at.isoformat(),
-            "regime": self.regime.value,
-            "vix_level": self.vix_level,
-            "vix_percentile": self.vix_percentile,
-            "underlying": self.underlying,
-            "signals": [s.to_dict() for s in self.signals],
-            "status": self.status,
-            "frozen_at": self.frozen_at.isoformat() if self.frozen_at else None,
-            "notes": self.notes,
+            "valid_until": self.valid_until.isoformat(),
+            "regime_state": regime_dict,
+            "variants": [v.to_dict() for v in self.variants],
+            "frozen": self.frozen,
         }
-    
-    @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "SignalBatch":
-        return cls(
-            batch_id=d["batch_id"],
-            generated_at=dt.datetime.fromisoformat(d["generated_at"]),
-            regime=VolatilityRegime(d["regime"]),
-            vix_level=d["vix_level"],
-            vix_percentile=d["vix_percentile"],
-            underlying=d.get("underlying", "^VIX"),
-            signals=[VariantSignal.from_dict(s) for s in d.get("signals", [])],
-            status=d.get("status", "active"),
-            frozen_at=dt.datetime.fromisoformat(d["frozen_at"]) if d.get("frozen_at") else None,
-            notes=d.get("notes", ""),
-        )
-    
-    def freeze(self) -> None:
-        self.status = "frozen"
-        self.frozen_at = dt.datetime.now()
-    
-    def is_valid(self) -> bool:
-        if self.status == "expired":
-            return False
-        now = dt.datetime.now()
-        return any(s.valid_until > now for s in self.signals)
-    
-    def get_active_signals(self) -> List[VariantSignal]:
-        now = dt.datetime.now()
-        return [s for s in self.signals if s.valid_until > now and s.status == "pending"]
 
 
-# =============================================================================
-# SIGNAL GENERATION
-# =============================================================================
+# ============================================================
+# Variant Generators (V1-V5)
+# ============================================================
 
-def _estimate_option_price(spot: float, strike: float, dte_days: int, vol: float = 0.80) -> float:
-    """Simple option price estimate."""
-    from math import log, sqrt, exp
-    try:
-        from scipy.stats import norm
-    except ImportError:
-        # Fallback without scipy
-        return max(spot - strike, 0.0) + spot * 0.02 * sqrt(dte_days / 365.0)
-    
-    if dte_days <= 0:
-        return max(spot - strike, 0.0)
-    
-    T = dte_days / 365.0
-    r = 0.03
-    
-    try:
-        d1 = (log(spot / strike) + (r + 0.5 * vol ** 2) * T) / (vol * sqrt(T))
-        d2 = d1 - vol * sqrt(T)
-        return spot * norm.cdf(d1) - strike * exp(-r * T) * norm.cdf(d2)
-    except:
-        return max(spot - strike, 0.0) + spot * 0.02 * sqrt(T)
-
-
-def _next_friday(from_date: dt.date, weeks: int) -> dt.date:
-    """Calculate next Friday after N weeks."""
-    target = from_date + dt.timedelta(weeks=weeks)
-    days_to_friday = (4 - target.weekday()) % 7
-    return target + dt.timedelta(days=days_to_friday or 7)
-
-
-def generate_variant_signal(
-    params: VariantParams,
-    regime: VolatilityRegime,
-    vix_level: float,
-    vix_percentile: float,
-    underlying: str = "^VIX",
-    equity: float = 250000.0,
-    signal_time: Optional[dt.datetime] = None,
-) -> Optional[VariantSignal]:
-    """Generate a signal for a single variant."""
-    
-    # Check if variant is active in current regime
-    if regime not in params.active_regimes:
-        return None
-    
-    # Check percentile entry conditions
-    if not (params.entry_pct_low <= vix_percentile <= params.entry_pct_high):
-        return None
-    
-    if signal_time is None:
-        signal_time = dt.datetime.now()
-    
-    trade_date = signal_time.date()
-    
-    # Calculate strikes and expirations
-    long_strike = round((vix_level + params.otm_points) * 2) / 2  # Round to 0.5
-    long_expiration = _next_friday(trade_date, params.long_dte_weeks)
-    long_dte_days = (long_expiration - trade_date).days
-    long_price = _estimate_option_price(vix_level, long_strike, long_dte_days)
-    
-    short_strike = None
-    short_expiration = None
-    short_dte_days = None
-    short_price = None
-    
-    if params.short_dte_weeks > 0 and params.position_type == "diagonal":
-        short_strike = long_strike
-        short_expiration = _next_friday(trade_date, params.short_dte_weeks)
-        short_dte_days = (short_expiration - trade_date).days
-        short_price = _estimate_option_price(vix_level, short_strike, short_dte_days)
-    
-    # Calculate sizing
-    allocation = equity * (params.allocation_pct / 100.0)
-    if params.position_type == "diagonal" and short_price:
-        net_debit = (long_price - short_price) * 100
-    else:
-        net_debit = long_price * 100
-    
-    contracts = min(int(allocation / net_debit), params.max_contracts) if net_debit > 0 else 1
-    contracts = max(1, contracts)
-    
-    estimated_debit = net_debit * contracts
-    
-    # Generate signal
-    signal_id = f"{params.role.value}_{signal_time.strftime('%Y%m%d_%H%M%S')}"
-    valid_hours = 72 if regime == VolatilityRegime.CALM else 24
-    valid_until = signal_time + dt.timedelta(hours=valid_hours)
-    
-    return VariantSignal(
-        signal_id=signal_id,
-        role=params.role,
-        name=params.name,
-        generated_at=signal_time,
-        valid_until=valid_until,
-        regime=regime,
-        vix_level=vix_level,
-        vix_percentile=vix_percentile,
-        underlying=underlying,
-        position_type=params.position_type,
-        long_strike=long_strike,
-        long_dte_days=long_dte_days,
-        long_expiration=long_expiration,
-        long_price=long_price,
-        short_strike=short_strike,
-        short_dte_days=short_dte_days,
-        short_expiration=short_expiration,
-        short_price=short_price,
-        contracts=contracts,
-        max_contracts=params.max_contracts,
-        estimated_debit=estimated_debit,
-        max_loss=estimated_debit,
-        target_mult=params.target_mult,
-        stop_mult=params.stop_mult,
-        max_hold_weeks=params.max_hold_weeks,
-        robustness_score=0.0,
-        confidence="medium",
-        status="pending",
-        notes=f"Auto-generated for {regime.value} regime",
+def _generate_v1_income_harvester(vix_level: float, vix_percentile: float) -> VariantParams:
+    """V1: Income Harvester - Stable income in CALM/DECLINING regimes."""
+    return VariantParams(
+        variant_id=f"V1-{uuid.uuid4().hex[:8]}",
+        name="V1 Income Harvester",
+        role=VariantRole.V1_INCOME_HARVESTER,
+        entry_percentile=0.25,
+        entry_lookback_weeks=52,
+        position_type="diagonal",
+        long_dte_weeks=26,
+        short_dte_weeks=1,
+        long_strike_offset=5.0,
+        short_strike_offset=2.0,
+        sigma_mult=0.8,
+        alloc_pct=0.02,
+        tp_pct=0.15,
+        sl_pct=0.40,
+        max_hold_weeks=12,
+        active_in_regimes=[VolatilityRegime.CALM, VolatilityRegime.DECLINING],
+        suppressed_in_regimes=[VolatilityRegime.STRESSED, VolatilityRegime.EXTREME],
+        long_strike=vix_level + 5.0,
+        short_strike=vix_level + 2.0,
     )
 
 
-def generate_all_variants(
-    regime: VolatilityRegime,
-    vix_level: float,
-    vix_percentile: float,
-    underlying: str = "^VIX",
-    equity: float = 250000.0,
-    signal_time: Optional[dt.datetime] = None,
-) -> List[VariantSignal]:
-    """Generate signals for all active variants."""
-    signals = []
+def _generate_v2_mean_reversion(vix_level: float, vix_percentile: float) -> VariantParams:
+    """V2: Mean Reversion Accelerator - Post-spike decay capture."""
+    return VariantParams(
+        variant_id=f"V2-{uuid.uuid4().hex[:8]}",
+        name="V2 Mean Reversion",
+        role=VariantRole.V2_MEAN_REVERSION,
+        entry_percentile=0.60,
+        entry_lookback_weeks=26,
+        position_type="diagonal",
+        long_dte_weeks=13,
+        short_dte_weeks=1,
+        long_strike_offset=8.0,
+        short_strike_offset=3.0,
+        sigma_mult=1.0,
+        alloc_pct=0.015,
+        tp_pct=0.25,
+        sl_pct=0.35,
+        max_hold_weeks=8,
+        active_in_regimes=[VolatilityRegime.DECLINING],
+        suppressed_in_regimes=[VolatilityRegime.CALM, VolatilityRegime.RISING],
+        long_strike=vix_level + 8.0,
+        short_strike=vix_level + 3.0,
+    )
+
+
+def _generate_v3_shock_absorber(vix_level: float, vix_percentile: float) -> VariantParams:
+    """V3: Shock Absorber - Crisis hedge."""
+    return VariantParams(
+        variant_id=f"V3-{uuid.uuid4().hex[:8]}",
+        name="V3 Shock Absorber",
+        role=VariantRole.V3_SHOCK_ABSORBER,
+        entry_percentile=0.75,
+        entry_lookback_weeks=52,
+        position_type="long_call",
+        long_dte_weeks=8,
+        short_dte_weeks=0,
+        long_strike_offset=15.0,
+        short_strike_offset=0.0,
+        sigma_mult=1.2,
+        alloc_pct=0.01,
+        tp_pct=0.50,
+        sl_pct=0.60,
+        max_hold_weeks=6,
+        active_in_regimes=[VolatilityRegime.STRESSED, VolatilityRegime.EXTREME, VolatilityRegime.RISING],
+        suppressed_in_regimes=[VolatilityRegime.CALM],
+        long_strike=vix_level + 15.0,
+        short_strike=0.0,
+    )
+
+
+def _generate_v4_tail_hunter(vix_level: float, vix_percentile: float) -> VariantParams:
+    """V4: Convex Tail Hunter - Rare spike capture."""
+    return VariantParams(
+        variant_id=f"V4-{uuid.uuid4().hex[:8]}",
+        name="V4 Convex Tail Hunter",
+        role=VariantRole.V4_TAIL_HUNTER,
+        entry_percentile=0.90,
+        entry_lookback_weeks=104,
+        position_type="long_call",
+        long_dte_weeks=4,
+        short_dte_weeks=0,
+        long_strike_offset=20.0,
+        short_strike_offset=0.0,
+        sigma_mult=1.5,
+        alloc_pct=0.005,
+        tp_pct=1.00,
+        sl_pct=0.80,
+        max_hold_weeks=4,
+        active_in_regimes=[VolatilityRegime.EXTREME],
+        suppressed_in_regimes=[VolatilityRegime.CALM, VolatilityRegime.DECLINING],
+        long_strike=vix_level + 20.0,
+        short_strike=0.0,
+    )
+
+
+def _generate_v5_regime_allocator(vix_level: float, vix_percentile: float, regime: VolatilityRegime) -> VariantParams:
+    """V5: Regime-Aware Allocator - Meta-controller."""
+    # Adjust parameters based on regime
+    if regime == VolatilityRegime.CALM:
+        alloc = 0.025
+        tp = 0.12
+        sl = 0.35
+    elif regime == VolatilityRegime.DECLINING:
+        alloc = 0.02
+        tp = 0.18
+        sl = 0.40
+    elif regime == VolatilityRegime.RISING:
+        alloc = 0.01
+        tp = 0.25
+        sl = 0.45
+    elif regime == VolatilityRegime.STRESSED:
+        alloc = 0.008
+        tp = 0.35
+        sl = 0.50
+    else:  # EXTREME
+        alloc = 0.005
+        tp = 0.50
+        sl = 0.60
     
-    for params in VARIANT_CONFIGS.values():
-        signal = generate_variant_signal(
-            params=params,
+    return VariantParams(
+        variant_id=f"V5-{uuid.uuid4().hex[:8]}",
+        name="V5 Regime-Aware Allocator",
+        role=VariantRole.V5_REGIME_ALLOCATOR,
+        entry_percentile=0.35,
+        entry_lookback_weeks=52,
+        position_type="adaptive",
+        long_dte_weeks=13,
+        short_dte_weeks=1,
+        long_strike_offset=10.0,
+        short_strike_offset=3.0,
+        sigma_mult=1.0,
+        alloc_pct=alloc,
+        tp_pct=tp,
+        sl_pct=sl,
+        max_hold_weeks=10,
+        active_in_regimes=list(VolatilityRegime),  # Active in all
+        suppressed_in_regimes=[],
+        long_strike=vix_level + 10.0,
+        short_strike=vix_level + 3.0,
+    )
+
+
+# ============================================================
+# Helper Functions
+# ============================================================
+
+def _extract_regime(regime_input: Any) -> VolatilityRegime:
+    """Extract VolatilityRegime from various input types."""
+    if isinstance(regime_input, VolatilityRegime):
+        return regime_input
+    
+    # RegimeState object
+    if hasattr(regime_input, 'regime'):
+        return regime_input.regime
+    
+    # Dict
+    if isinstance(regime_input, dict):
+        regime_val = regime_input.get('regime') or regime_input.get('current_regime', 'CALM')
+        if isinstance(regime_val, VolatilityRegime):
+            return regime_val
+        return VolatilityRegime(regime_val.upper())
+    
+    # String
+    if isinstance(regime_input, str):
+        return VolatilityRegime(regime_input.upper())
+    
+    return VolatilityRegime.CALM
+
+
+def _calculate_percentile(data: Union[pd.Series, float], lookback: int = 52) -> float:
+    """Calculate percentile from data."""
+    if isinstance(data, pd.Series) and len(data) >= 2:
+        current = float(data.iloc[-1])
+        window = data.iloc[-lookback:] if len(data) >= lookback else data
+        return float((window < current).mean())
+    elif isinstance(data, (int, float)):
+        return 0.5  # Default if just a scalar
+    return 0.5
+
+
+def _get_vix_level(data: Union[pd.Series, float]) -> float:
+    """Extract VIX level from data."""
+    if isinstance(data, pd.Series) and len(data) > 0:
+        return float(data.iloc[-1])
+    elif isinstance(data, (int, float)):
+        return float(data)
+    return 20.0
+
+
+# ============================================================
+# Main Generator Function
+# ============================================================
+
+def generate_all_variants(
+    data: Union[pd.Series, "VolatilityRegime", float],
+    regime_or_percentile: Optional[Any] = None,
+    vix_percentile: Optional[float] = None,
+    lookback: int = 52,
+) -> SignalBatch:
+    """
+    Generate all variant signals for current market conditions.
+    
+    Flexible calling patterns:
+    1. generate_all_variants(uvxy_series, regime_state) - app.py pattern
+    2. generate_all_variants(regime, vix_level, vix_percentile) - explicit
+    3. generate_all_variants(vix_level, regime) - simpler
+    """
+    from regime_detector import RegimeState
+    
+    # Parse arguments flexibly
+    if isinstance(data, pd.Series):
+        # Pattern 1: Series + RegimeState
+        vix_level = _get_vix_level(data)
+        pct = _calculate_percentile(data, lookback)
+        
+        if regime_or_percentile is not None:
+            regime = _extract_regime(regime_or_percentile)
+            # If regime_or_percentile is a RegimeState, use its values
+            if hasattr(regime_or_percentile, 'vix_percentile'):
+                pct = regime_or_percentile.vix_percentile
+            if hasattr(regime_or_percentile, 'vix_level'):
+                vix_level = regime_or_percentile.vix_level
+            regime_state = regime_or_percentile if isinstance(regime_or_percentile, RegimeState) else None
+        else:
+            regime = VolatilityRegime.CALM
+            regime_state = None
+            
+    elif isinstance(data, VolatilityRegime):
+        # Pattern 2: regime enum first
+        regime = data
+        vix_level = float(regime_or_percentile) if regime_or_percentile is not None else 20.0
+        pct = vix_percentile if vix_percentile is not None else 0.5
+        regime_state = None
+        
+    elif isinstance(data, (int, float)):
+        # Pattern 3: vix_level first
+        vix_level = float(data)
+        regime = _extract_regime(regime_or_percentile) if regime_or_percentile else VolatilityRegime.CALM
+        pct = vix_percentile if vix_percentile is not None else 0.5
+        regime_state = None
+    else:
+        # Fallback
+        vix_level = 20.0
+        pct = 0.5
+        regime = VolatilityRegime.CALM
+        regime_state = None
+    
+    # Create RegimeState if we don't have one
+    if regime_state is None:
+        regime_state = RegimeState(
             regime=regime,
             vix_level=vix_level,
-            vix_percentile=vix_percentile,
-            underlying=underlying,
-            equity=equity,
-            signal_time=signal_time,
+            vix_percentile=pct,
+            confidence=0.7,
+            vix_slope=0.0,
+            term_structure="normal",
+            regime_age_days=0,
         )
-        if signal:
-            signals.append(signal)
     
-    # Sort by priority
-    signals.sort(key=lambda s: VARIANT_CONFIGS[s.role].priority)
+    # Generate batch ID and timing
+    batch_id = f"BATCH-{datetime.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
+    now = datetime.now()
     
-    return signals
+    # Valid until next Thursday 4:30 PM (or Monday if generated Thursday+)
+    days_until_thursday = (3 - now.weekday()) % 7
+    if days_until_thursday == 0 and now.hour >= 16:
+        days_until_thursday = 7
+    valid_until = (now + timedelta(days=days_until_thursday)).replace(hour=16, minute=30, second=0, microsecond=0)
+    
+    # Generate variants based on regime
+    variants: List[VariantParams] = []
+    
+    # V1: Income Harvester - active in CALM, DECLINING
+    if regime in [VolatilityRegime.CALM, VolatilityRegime.DECLINING]:
+        variants.append(_generate_v1_income_harvester(vix_level, pct))
+    
+    # V2: Mean Reversion - active in DECLINING
+    if regime == VolatilityRegime.DECLINING:
+        variants.append(_generate_v2_mean_reversion(vix_level, pct))
+    
+    # V3: Shock Absorber - active in RISING, STRESSED, EXTREME
+    if regime in [VolatilityRegime.RISING, VolatilityRegime.STRESSED, VolatilityRegime.EXTREME]:
+        variants.append(_generate_v3_shock_absorber(vix_level, pct))
+    
+    # V4: Tail Hunter - active in EXTREME only
+    if regime == VolatilityRegime.EXTREME:
+        variants.append(_generate_v4_tail_hunter(vix_level, pct))
+    
+    # V5: Regime Allocator - always active
+    variants.append(_generate_v5_regime_allocator(vix_level, pct, regime))
+    
+    return SignalBatch(
+        batch_id=batch_id,
+        generated_at=now,
+        valid_until=valid_until,
+        regime_state=regime_state,
+        variants=variants,
+        frozen=False,
+    )
 
 
-# =============================================================================
-# BATCH STORAGE
-# =============================================================================
+# ============================================================
+# Display Helpers
+# ============================================================
 
-BATCH_STORAGE_PATH = Path.home() / ".vix_suite" / "current_signal_batch.json"
-
-
-def save_signal_batch(batch: SignalBatch, path: Optional[Path] = None) -> None:
-    """Save batch to disk."""
-    p = path or BATCH_STORAGE_PATH
-    p.parent.mkdir(parents=True, exist_ok=True)
-    with open(p, "w") as f:
-        json.dump(batch.to_dict(), f, indent=2)
-
-
-def load_signal_batch(path: Optional[Path] = None) -> Optional[SignalBatch]:
-    """Load batch from disk."""
-    p = path or BATCH_STORAGE_PATH
-    if not p.exists():
-        return None
-    try:
-        with open(p, "r") as f:
-            return SignalBatch.from_dict(json.load(f))
-    except:
-        return None
+def get_variant_display_name(role: VariantRole) -> str:
+    """Get display name for variant role."""
+    names = {
+        VariantRole.V1_INCOME_HARVESTER: "V1 Income Harvester",
+        VariantRole.V2_MEAN_REVERSION: "V2 Mean Reversion",
+        VariantRole.V3_SHOCK_ABSORBER: "V3 Shock Absorber",
+        VariantRole.V4_TAIL_HUNTER: "V4 Tail Hunter",
+        VariantRole.V5_REGIME_ALLOCATOR: "V5 Regime Allocator",
+    }
+    return names.get(role, str(role))
 
 
-def get_current_batch() -> Optional[SignalBatch]:
-    """Get current active batch."""
-    batch = load_signal_batch()
-    if batch and batch.is_valid():
-        return batch
-    return None
+def get_variant_color(role: VariantRole) -> str:
+    """Get color for variant role."""
+    colors = {
+        VariantRole.V1_INCOME_HARVESTER: "#4CAF50",  # Green
+        VariantRole.V2_MEAN_REVERSION: "#2196F3",    # Blue
+        VariantRole.V3_SHOCK_ABSORBER: "#FF9800",    # Orange
+        VariantRole.V4_TAIL_HUNTER: "#F44336",       # Red
+        VariantRole.V5_REGIME_ALLOCATOR: "#9C27B0",  # Purple
+    }
+    return colors.get(role, "#757575")
