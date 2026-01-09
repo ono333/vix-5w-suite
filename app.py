@@ -690,7 +690,7 @@ def render_paper_sidebar() -> Dict[str, Any]:
 
 
 def send_signal_email_smtp(batch, regime, recipient: str = "onoshin333@gmail.com"):
-    """Send email notification with signal summary via SMTP."""
+    """Send email notification showing ALL 5 variants with contract sizes."""
     import os
     import smtplib
     from email.mime.text import MIMEText
@@ -704,54 +704,237 @@ def send_signal_email_smtp(batch, regime, recipient: str = "onoshin333@gmail.com
     if not smtp_user or not smtp_pass:
         return False, "SMTP credentials missing. Set SMTP_USER and SMTP_PASS environment variables."
     
-    # Build email content
-    emoji = "🟢" if regime.vix_percentile <= 0.25 else "🟡" if regime.vix_percentile <= 0.50 else "🔴"
-    subject = f"{emoji} VIX Signal: {regime.regime.value.upper()} ({regime.vix_percentile:.0%})"
+    # Constants
+    ACCOUNT_SIZE = 250_000
     
+    # Count active vs paper test
+    recommended_count = sum(1 for v in batch.variants if regime.regime in v.active_in_regimes)
+    paper_only_count = len(batch.variants) - recommended_count
+    
+    # Regime emoji
+    regime_emoji = {
+        "calm": "🟢", "declining": "🟡", "rising": "🟠", 
+        "stressed": "🔴", "extreme": "⚫"
+    }.get(regime.regime.value.lower(), "⚪")
+    
+    # Email subject
+    subject = f"{regime_emoji} [PAPER TEST] VIX Signal: {regime.regime.value.upper()} ({regime.vix_percentile:.0%}) — {recommended_count} Rec / {paper_only_count} Test"
+    
+    # Build HTML
     html = f"""
     <html>
-    <body style="font-family:Arial,sans-serif;font-size:14px;background:#fff;color:#333;padding:15px;max-width:700px;">
+    <body style="font-family:Arial,sans-serif;font-size:14px;background:#fff;color:#333;padding:20px;max-width:850px;margin:0 auto;">
     
-    <div style="text-align:center;border-bottom:2px solid #1f77b4;padding-bottom:10px;margin-bottom:15px;">
-        <span style="font-size:20px;font-weight:bold;color:#1f77b4;">VIX 5% WEEKLY SUITE</span><br>
-        <span style="color:#666;">Signal Notification • {batch.generated_at.strftime('%Y-%m-%d %H:%M UTC')}</span>
+    <!-- Header -->
+    <div style="text-align:center;border-bottom:3px solid #1f77b4;padding-bottom:15px;margin-bottom:20px;">
+        <span style="font-size:24px;font-weight:bold;color:#1f77b4;">VIX 5% WEEKLY SUITE</span><br>
+        <span style="font-size:16px;color:#666;background:#fff3cd;padding:4px 12px;border-radius:4px;display:inline-block;margin-top:8px;">
+            📋 PAPER TESTING MODE
+        </span>
     </div>
     
-    <table style="width:100%;border-collapse:collapse;margin-bottom:15px;">
-        <tr>
-            <td style="padding:8px;background:#f5f5f5;border:1px solid #ddd;width:25%;"><b>Regime</b><br>{regime.regime.value.upper()}</td>
-            <td style="padding:8px;background:#f5f5f5;border:1px solid #ddd;width:25%;"><b>UVXY</b><br>${regime.vix_level:.2f}</td>
-            <td style="padding:8px;background:#f5f5f5;border:1px solid #ddd;width:25%;"><b>Percentile</b><br>{regime.vix_percentile:.0%}</td>
-            <td style="padding:8px;background:#f5f5f5;border:1px solid #ddd;width:25%;"><b>Confidence</b><br>{regime.confidence:.0%}</td>
-        </tr>
-    </table>
+    <!-- Market State -->
+    <div style="background:#f8f9fa;border:1px solid #dee2e6;border-radius:8px;padding:15px;margin-bottom:20px;">
+        <div style="font-weight:bold;color:#495057;margin-bottom:10px;">📈 Market State</div>
+        <table style="width:100%;border-collapse:collapse;">
+            <tr>
+                <td style="padding:8px;text-align:center;border-right:1px solid #dee2e6;">
+                    <div style="font-size:12px;color:#6c757d;">Regime</div>
+                    <div style="font-size:20px;font-weight:bold;">{regime_emoji} {regime.regime.value.upper()}</div>
+                </td>
+                <td style="padding:8px;text-align:center;border-right:1px solid #dee2e6;">
+                    <div style="font-size:12px;color:#6c757d;">UVXY Price</div>
+                    <div style="font-size:20px;font-weight:bold;">${regime.vix_level:.2f}</div>
+                </td>
+                <td style="padding:8px;text-align:center;border-right:1px solid #dee2e6;">
+                    <div style="font-size:12px;color:#6c757d;">52w Percentile</div>
+                    <div style="font-size:20px;font-weight:bold;">{regime.vix_percentile:.0%}</div>
+                </td>
+                <td style="padding:8px;text-align:center;">
+                    <div style="font-size:12px;color:#6c757d;">Confidence</div>
+                    <div style="font-size:20px;font-weight:bold;">{regime.confidence:.0%}</div>
+                </td>
+            </tr>
+        </table>
+    </div>
     
-    <div style="font-size:15px;font-weight:bold;color:#1f77b4;margin-bottom:10px;">ACTIVE VARIANTS</div>
+    <!-- Variant Summary -->
+    <div style="display:flex;gap:15px;margin-bottom:20px;">
+        <div style="flex:1;background:#d4edda;border:1px solid #c3e6cb;border-radius:8px;padding:12px;text-align:center;">
+            <div style="font-size:28px;font-weight:bold;color:#155724;">{recommended_count}</div>
+            <div style="font-size:12px;color:#155724;">🟢 RECOMMENDED<br>(Live-Ready)</div>
+        </div>
+        <div style="flex:1;background:#cce5ff;border:1px solid #b8daff;border-radius:8px;padding:12px;text-align:center;">
+            <div style="font-size:28px;font-weight:bold;color:#004085;">{paper_only_count}</div>
+            <div style="font-size:12px;color:#004085;">🔵 PAPER TEST<br>(Observe Only)</div>
+        </div>
+        <div style="flex:1;background:#e2e3e5;border:1px solid #d6d8db;border-radius:8px;padding:12px;text-align:center;">
+            <div style="font-size:28px;font-weight:bold;color:#383d41;">5</div>
+            <div style="font-size:12px;color:#383d41;">📊 TOTAL<br>(All Generated)</div>
+        </div>
+    </div>
+    
+    <!-- Section: RECOMMENDED Variants -->
+    <div style="margin-bottom:25px;">
+        <div style="font-size:16px;font-weight:bold;color:#155724;background:#d4edda;padding:10px 15px;border-radius:6px 6px 0 0;border:1px solid #c3e6cb;border-bottom:none;">
+            🟢 RECOMMENDED VARIANTS (Would Execute in Live Mode)
+        </div>
+        <div style="border:1px solid #c3e6cb;border-radius:0 0 6px 6px;padding:10px;">
     """
     
+    # RECOMMENDED variants first
     for variant in batch.variants:
-        is_active = regime.regime in variant.active_in_regimes
-        if is_active:
-            html += f"""
-            <div style="border:1px solid #ddd;margin-bottom:8px;border-radius:4px;overflow:hidden;">
-                <div style="background:#4CAF50;color:#fff;padding:6px 10px;font-weight:bold;">
+        is_recommended = regime.regime in variant.active_in_regimes
+        if not is_recommended:
+            continue
+        
+        # Calculate contract size
+        alloc_dollars = ACCOUNT_SIZE * variant.alloc_pct
+        est_risk = variant.long_strike_offset * 100  # $100 per point
+        contracts = max(1, min(50, int(alloc_dollars / est_risk))) if est_risk > 0 else 1
+        total_risk = contracts * est_risk
+        
+        # Get roll DTE if exists
+        roll_dte = getattr(variant, 'roll_dte_days', 3)
+        
+        html += f"""
+            <div style="border:2px solid #28a745;margin-bottom:10px;border-radius:6px;overflow:hidden;">
+                <div style="background:#28a745;color:#fff;padding:10px 15px;font-weight:bold;font-size:15px;">
                     ✅ {get_variant_display_name(variant.role)}
                 </div>
-                <div style="padding:8px;">
-                    Entry ≤{variant.entry_percentile:.0%} | +{variant.long_strike_offset}pts OTM | {variant.long_dte_weeks}w DTE<br>
-                    Target: {variant.tp_pct:.0%} | Stop: {variant.sl_pct:.0%}
+                <div style="padding:12px;background:#f8fff8;">
+                    <table style="width:100%;font-size:13px;border-collapse:collapse;">
+                        <tr>
+                            <td style="padding:5px;width:50%;"><b>Entry:</b> ≤{variant.entry_percentile:.0%} percentile</td>
+                            <td style="padding:5px;"><b>Long Strike:</b> UVXY +{variant.long_strike_offset}pts</td>
+                        </tr>
+                        <tr>
+                            <td style="padding:5px;"><b>Long DTE:</b> {variant.long_dte_weeks}w</td>
+                            <td style="padding:5px;"><b>Short Strike:</b> UVXY +{variant.short_strike_offset}pts</td>
+                        </tr>
+                        <tr>
+                            <td style="padding:5px;"><b>Short DTE:</b> {variant.short_dte_weeks}w</td>
+                            <td style="padding:5px;"><b>Roll:</b> {roll_dte}d before exp</td>
+                        </tr>
+                        <tr style="background:#d4edda;">
+                            <td style="padding:8px;font-size:14px;"><b>💰 Allocation:</b> {variant.alloc_pct:.1%} (${alloc_dollars:,.0f})</td>
+                            <td style="padding:8px;font-size:14px;"><b>📦 Contracts:</b> {contracts}</td>
+                        </tr>
+                        <tr style="background:#d4edda;">
+                            <td style="padding:8px;"><b>🎯 Target:</b> +{variant.tp_pct:.0%}</td>
+                            <td style="padding:8px;"><b>🛑 Stop:</b> -{variant.sl_pct:.0%}</td>
+                        </tr>
+                        <tr>
+                            <td colspan="2" style="padding:8px;color:#666;font-size:12px;">
+                                <b>Max Risk:</b> ${total_risk:,.0f} ({total_risk/ACCOUNT_SIZE:.1%} of ${ACCOUNT_SIZE:,})
+                            </td>
+                        </tr>
+                    </table>
                 </div>
             </div>
-            """
+        """
     
     html += """
-    <div style="margin-top:15px;padding-top:10px;border-top:1px solid #ddd;color:#666;font-size:12px;">
-        VIX 5% Weekly Suite - Automated Signal
+        </div>
     </div>
+    
+    <!-- Section: PAPER TEST Variants -->
+    <div style="margin-bottom:25px;">
+        <div style="font-size:16px;font-weight:bold;color:#004085;background:#cce5ff;padding:10px 15px;border-radius:6px 6px 0 0;border:1px solid #b8daff;border-bottom:none;">
+            🔵 PAPER TEST VARIANTS (Observe & Compare — Not Live-Ready)
+        </div>
+        <div style="border:1px solid #b8daff;border-radius:0 0 6px 6px;padding:10px;">
+    """
+    
+    # PAPER TEST variants
+    for variant in batch.variants:
+        is_recommended = regime.regime in variant.active_in_regimes
+        if is_recommended:
+            continue
+        
+        # Calculate contract size
+        alloc_dollars = ACCOUNT_SIZE * variant.alloc_pct
+        est_risk = variant.long_strike_offset * 100
+        contracts = max(1, min(50, int(alloc_dollars / est_risk))) if est_risk > 0 else 1
+        total_risk = contracts * est_risk
+        
+        # Get roll DTE if exists
+        roll_dte = getattr(variant, 'roll_dte_days', 3)
+        
+        # Active regimes
+        active_regimes = ", ".join([r.value.upper() for r in variant.active_in_regimes])
+        
+        html += f"""
+            <div style="border:2px solid #6c757d;margin-bottom:10px;border-radius:6px;overflow:hidden;">
+                <div style="background:#6c757d;color:#fff;padding:10px 15px;font-weight:bold;font-size:15px;">
+                    🔬 {get_variant_display_name(variant.role)}
+                    <span style="float:right;font-size:12px;font-weight:normal;background:#495057;padding:2px 8px;border-radius:3px;">
+                        Paper Test Only
+                    </span>
+                </div>
+                <div style="padding:12px;background:#f8f9fa;">
+                    <div style="background:#fff3cd;border:1px solid #ffeeba;border-radius:4px;padding:8px;margin-bottom:10px;font-size:12px;color:#856404;">
+                        ⚠️ <b>Why not recommended:</b> This variant activates in <b>{active_regimes}</b> regime(s), not {regime.regime.value.upper()}.
+                        <br>Track it to validate this filtering logic.
+                    </div>
+                    <table style="width:100%;font-size:13px;border-collapse:collapse;">
+                        <tr>
+                            <td style="padding:5px;width:50%;"><b>Entry:</b> ≤{variant.entry_percentile:.0%} percentile</td>
+                            <td style="padding:5px;"><b>Long Strike:</b> UVXY +{variant.long_strike_offset}pts</td>
+                        </tr>
+                        <tr>
+                            <td style="padding:5px;"><b>Long DTE:</b> {variant.long_dte_weeks}w</td>
+                            <td style="padding:5px;"><b>Short Strike:</b> UVXY +{variant.short_strike_offset}pts</td>
+                        </tr>
+                        <tr>
+                            <td style="padding:5px;"><b>Short DTE:</b> {variant.short_dte_weeks}w</td>
+                            <td style="padding:5px;"><b>Roll:</b> {roll_dte}d before exp</td>
+                        </tr>
+                        <tr style="background:#e9ecef;">
+                            <td style="padding:8px;font-size:14px;"><b>💰 Allocation:</b> {variant.alloc_pct:.1%} (${alloc_dollars:,.0f})</td>
+                            <td style="padding:8px;font-size:14px;"><b>📦 Contracts:</b> {contracts}</td>
+                        </tr>
+                        <tr style="background:#e9ecef;">
+                            <td style="padding:8px;"><b>🎯 Target:</b> +{variant.tp_pct:.0%}</td>
+                            <td style="padding:8px;"><b>🛑 Stop:</b> -{variant.sl_pct:.0%}</td>
+                        </tr>
+                        <tr>
+                            <td colspan="2" style="padding:8px;color:#666;font-size:12px;">
+                                <b>Max Risk:</b> ${total_risk:,.0f} ({total_risk/ACCOUNT_SIZE:.1%}) | <b>Activates in:</b> {active_regimes}
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+        """
+    
+    html += f"""
+        </div>
+    </div>
+    
+    <!-- Paper Testing Notes -->
+    <div style="background:#e7f3ff;border:1px solid #b6d4fe;border-radius:8px;padding:15px;margin-bottom:20px;">
+        <div style="font-weight:bold;color:#084298;margin-bottom:8px;">📋 Paper Testing Protocol</div>
+        <ul style="margin:0;padding-left:20px;color:#084298;font-size:13px;">
+            <li><b>Execute ALL 5 variants</b> in paper trading to collect data</li>
+            <li><b>RECOMMENDED variants</b> = what live mode would trade</li>
+            <li><b>PAPER TEST variants</b> = observe to validate regime filtering</li>
+            <li>Track performance to confirm regime logic is correct</li>
+            <li>After 8-12 weeks, compare results to decide graduation</li>
+        </ul>
+    </div>
+    
+    <!-- Footer -->
+    <div style="text-align:center;padding:15px;border-top:1px solid #dee2e6;color:#6c757d;font-size:12px;">
+        VIX 5% Weekly Suite — Paper Testing Signal<br>
+        Generated: {batch.generated_at.strftime('%Y-%m-%d %H:%M UTC')} | Account Basis: ${ACCOUNT_SIZE:,}
+    </div>
+    
     </body>
     </html>
     """
     
+    # Send email
     try:
         msg = MIMEMultipart()
         msg['Subject'] = subject
@@ -764,7 +947,7 @@ def send_signal_email_smtp(batch, regime, recipient: str = "onoshin333@gmail.com
             server.login(smtp_user, smtp_pass)
             server.send_message(msg)
         
-        return True, f"Email sent to {recipient}!"
+        return True, f"Email sent to {recipient}! (5 variants: {recommended_count} recommended, {paper_only_count} paper test)"
     except Exception as e:
         return False, f"Email failed: {e}"
 

@@ -1,384 +1,434 @@
+#!/usr/bin/env python3
 """
-Trade Log for VIX 5% Weekly Suite
+Trade Log + Position Manager for VIX 5% Weekly Suite
 
-Exports:
-    - TradeLog
-    - get_trade_log
-    - Trade
-    - TradeLeg
-    - LegSide (re-exported from enums)
-    - LegStatus (re-exported from enums)
-    - TradeStatus (re-exported from enums)
+This module tracks:
+- All paper trades by variant
+- Open positions (long legs)
+- Entry/exit prices and P&L
+- DTE remaining
+- Regime at entry vs current
+
+Key Design:
+- Email reads from this to determine MANAGEMENT vs ENTRY mode
+- Each variant can have at most ONE open position
+- Positions are keyed by variant_id
 """
 
 from __future__ import annotations
 
-import datetime as dt
 import json
-from dataclasses import dataclass, field
+import os
+from dataclasses import dataclass, field, asdict
+from datetime import datetime, date
 from pathlib import Path
 from typing import Dict, List, Optional, Any
+from enum import Enum
 
-# Re-export enums
-from enums import (
-    VolatilityRegime, 
-    VariantRole, 
-    TradeStatus, 
-    LegStatus, 
-    LegSide,
-    ExitType,
-)
+# Try to import VariantRole, fallback to string if not available
+try:
+    from enums import VariantRole, VolatilityRegime
+except ImportError:
+    VariantRole = str
+    VolatilityRegime = str
 
 
-TRADE_LOG_PATH = Path.home() / ".vix_suite" / "trade_log.json"
+class PositionStatus(Enum):
+    OPEN = "open"
+    CLOSED = "closed"
+    EXPIRED = "expired"
+    ROLLED = "rolled"
 
 
 @dataclass
-class TradeLeg:
-    """Individual option leg."""
-    leg_id: str
-    side: LegSide
-    leg_type: str  # "call" or "put"
+class Position:
+    """
+    Represents a single position (long leg) for a variant.
+    """
+    position_id: str
+    variant_id: str  # e.g., "V1_INCOME_HARVESTER"
+    variant_name: str  # e.g., "V1 Income Harvester"
     
-    # Contract details
-    strike: float
-    expiration: dt.date
+    # Entry details
+    entry_date: str  # ISO format
+    entry_price: float  # Credit received (for short premium) or debit paid (for long)
+    entry_regime: str  # Regime at entry
+    entry_vix_level: float
+    entry_percentile: float
+    
+    # Position structure
+    underlying: str = "UVXY"
+    strike: float = 0.0
+    expiration_date: str = ""  # ISO format
+    contracts: int = 1
+    position_type: str = "diagonal"  # diagonal, long_call, etc.
+    
+    # Targets (computed at entry)
+    target_price: float = 0.0  # Price to close at for profit
+    stop_price: float = 0.0  # Price to close at for loss
+    target_pct: float = 0.40  # 40% gain target
+    stop_pct: float = 0.60  # 60% loss stop
+    
+    # Current state
+    status: str = "open"  # open, closed, expired, rolled
+    current_price: float = 0.0
+    current_pnl: float = 0.0
+    current_pnl_pct: float = 0.0
+    
+    # Exit details (filled when closed)
+    exit_date: Optional[str] = None
+    exit_price: Optional[float] = None
+    exit_reason: Optional[str] = None  # target_hit, stop_hit, expired, manual, rolled
+    final_pnl: Optional[float] = None
+    
+    # Allocation
+    allocation_pct: float = 2.0  # % of portfolio
+    allocation_dollars: float = 5000.0
+    
+    # Metadata
+    notes: str = ""
+    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    
+    def days_to_expiry(self) -> int:
+        """Calculate DTE from today."""
+        if not self.expiration_date:
+            return 0
+        try:
+            exp = datetime.fromisoformat(self.expiration_date).date()
+            today = date.today()
+            return max(0, (exp - today).days)
+        except:
+            return 0
+    
+    def is_open(self) -> bool:
+        return self.status == "open"
+    
+    def compute_targets(self) -> None:
+        """Compute target and stop prices based on entry price."""
+        if self.entry_price > 0:
+            # For short premium (credit received)
+            # Target: buy back cheaper (price goes down)
+            # Stop: buy back more expensive (price goes up)
+            self.target_price = self.entry_price * (1 - self.target_pct)
+            self.stop_price = self.entry_price * (1 + self.stop_pct)
+        else:
+            # For long positions (debit paid)
+            # Target: sell higher
+            # Stop: sell lower
+            abs_entry = abs(self.entry_price)
+            self.target_price = abs_entry * (1 + self.target_pct)
+            self.stop_price = abs_entry * (1 - self.stop_pct)
+    
+    def update_pnl(self, current_price: float) -> None:
+        """Update current P&L based on current price."""
+        self.current_price = current_price
+        if self.entry_price > 0:
+            # Short premium: profit when price drops
+            self.current_pnl = (self.entry_price - current_price) * 100 * self.contracts
+            self.current_pnl_pct = (self.entry_price - current_price) / self.entry_price
+        else:
+            # Long position: profit when price rises
+            self.current_pnl = (current_price - abs(self.entry_price)) * 100 * self.contracts
+            self.current_pnl_pct = (current_price - abs(self.entry_price)) / abs(self.entry_price)
+        self.updated_at = datetime.now().isoformat()
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "Position":
+        return cls(**data)
+
+
+@dataclass 
+class TradeRecord:
+    """Record of a completed trade (for history)."""
+    trade_id: str
+    variant_id: str
+    variant_name: str
+    entry_date: str
+    exit_date: str
+    entry_price: float
+    exit_price: float
+    pnl_dollars: float
+    pnl_pct: float
+    duration_days: int
+    exit_reason: str
+    entry_regime: str
+    exit_regime: str
     contracts: int
     
-    # Pricing
-    entry_price: float
-    current_price: float = 0.0
-    exit_price: Optional[float] = None
-    
-    # Status
-    status: LegStatus = LegStatus.OPEN
-    
     def to_dict(self) -> Dict[str, Any]:
-        return {
-            "leg_id": self.leg_id,
-            "side": self.side.value,
-            "leg_type": self.leg_type,
-            "strike": self.strike,
-            "expiration": self.expiration.isoformat(),
-            "contracts": self.contracts,
-            "entry_price": self.entry_price,
-            "current_price": self.current_price,
-            "exit_price": self.exit_price,
-            "status": self.status.value,
-        }
+        return asdict(self)
     
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "TradeLeg":
-        return cls(
-            leg_id=d["leg_id"],
-            side=LegSide(d["side"]),
-            leg_type=d["leg_type"],
-            strike=d["strike"],
-            expiration=dt.date.fromisoformat(d["expiration"]),
-            contracts=d["contracts"],
-            entry_price=d["entry_price"],
-            current_price=d.get("current_price", 0.0),
-            exit_price=d.get("exit_price"),
-            status=LegStatus(d.get("status", "open")),
-        )
-
-
-@dataclass
-class Trade:
-    """A complete trade."""
-    trade_id: str
-    signal_id: str
-    variant_role: VariantRole
-    variant_name: str
-    
-    # Timing
-    entry_date: dt.datetime
-    exit_date: Optional[dt.datetime] = None
-    
-    # Market context
-    entry_regime: VolatilityRegime = VolatilityRegime.CALM
-    entry_vix: float = 0.0
-    entry_percentile: float = 0.0
-    underlying: str = "^VIX"
-    
-    # Position
-    position_type: str = "diagonal"
-    legs: List[TradeLeg] = field(default_factory=list)
-    
-    # Sizing
-    total_contracts: int = 0
-    entry_debit: float = 0.0
-    max_risk: float = 0.0
-    
-    # Status
-    status: TradeStatus = TradeStatus.OPEN
-    exit_reason: Optional[ExitType] = None
-    
-    # P&L
-    realized_pnl: float = 0.0
-    unrealized_pnl: float = 0.0
-    
-    # Risk parameters
-    target_mult: float = 1.20
-    stop_mult: float = 0.50
-    target_price: float = 0.0
-    stop_price: float = 0.0
-    
-    # Notes
-    entry_notes: str = ""
-    exit_notes: str = ""
-    lessons_learned: str = ""
-    
-    @property
-    def total_pnl(self) -> float:
-        return self.realized_pnl + self.unrealized_pnl
-    
-    @property
-    def return_pct(self) -> float:
-        if self.entry_debit > 0:
-            return self.total_pnl / self.entry_debit
-        return 0.0
-    
-    @property
-    def days_held(self) -> int:
-        end = self.exit_date or dt.datetime.now()
-        return (end - self.entry_date).days
-    
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "trade_id": self.trade_id,
-            "signal_id": self.signal_id,
-            "variant_role": self.variant_role.value,
-            "variant_name": self.variant_name,
-            "entry_date": self.entry_date.isoformat(),
-            "exit_date": self.exit_date.isoformat() if self.exit_date else None,
-            "entry_regime": self.entry_regime.value,
-            "entry_vix": self.entry_vix,
-            "entry_percentile": self.entry_percentile,
-            "underlying": self.underlying,
-            "position_type": self.position_type,
-            "legs": [leg.to_dict() for leg in self.legs],
-            "total_contracts": self.total_contracts,
-            "entry_debit": self.entry_debit,
-            "max_risk": self.max_risk,
-            "status": self.status.value,
-            "exit_reason": self.exit_reason.value if self.exit_reason else None,
-            "realized_pnl": self.realized_pnl,
-            "unrealized_pnl": self.unrealized_pnl,
-            "target_mult": self.target_mult,
-            "stop_mult": self.stop_mult,
-            "target_price": self.target_price,
-            "stop_price": self.stop_price,
-            "entry_notes": self.entry_notes,
-            "exit_notes": self.exit_notes,
-            "lessons_learned": self.lessons_learned,
-        }
-    
-    @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "Trade":
-        return cls(
-            trade_id=d["trade_id"],
-            signal_id=d["signal_id"],
-            variant_role=VariantRole(d["variant_role"]),
-            variant_name=d["variant_name"],
-            entry_date=dt.datetime.fromisoformat(d["entry_date"]),
-            exit_date=dt.datetime.fromisoformat(d["exit_date"]) if d.get("exit_date") else None,
-            entry_regime=VolatilityRegime(d["entry_regime"]),
-            entry_vix=d["entry_vix"],
-            entry_percentile=d["entry_percentile"],
-            underlying=d.get("underlying", "^VIX"),
-            position_type=d["position_type"],
-            legs=[TradeLeg.from_dict(leg) for leg in d.get("legs", [])],
-            total_contracts=d["total_contracts"],
-            entry_debit=d["entry_debit"],
-            max_risk=d["max_risk"],
-            status=TradeStatus(d["status"]),
-            exit_reason=ExitType(d["exit_reason"]) if d.get("exit_reason") else None,
-            realized_pnl=d.get("realized_pnl", 0.0),
-            unrealized_pnl=d.get("unrealized_pnl", 0.0),
-            target_mult=d.get("target_mult", 1.20),
-            stop_mult=d.get("stop_mult", 0.50),
-            target_price=d.get("target_price", 0.0),
-            stop_price=d.get("stop_price", 0.0),
-            entry_notes=d.get("entry_notes", ""),
-            exit_notes=d.get("exit_notes", ""),
-            lessons_learned=d.get("lessons_learned", ""),
-        )
+    def from_dict(cls, data: Dict[str, Any]) -> "TradeRecord":
+        return cls(**data)
 
 
 class TradeLog:
-    """Manages trade storage and retrieval."""
+    """
+    Manages positions and trade history for all variants.
     
-    def __init__(self, storage_path: Optional[Path] = None):
-        self.storage_path = storage_path or TRADE_LOG_PATH
-        self.trades: Dict[str, Trade] = {}
+    Key methods for email integration:
+    - has_open_position(variant_id) -> bool
+    - get_open_position(variant_id) -> Optional[Position]
+    - get_all_open_positions() -> List[Position]
+    - get_variants_needing_entry() -> List[str]
+    """
+    
+    def __init__(self, storage_path: Optional[str] = None):
+        """Initialize trade log with optional file persistence."""
+        if storage_path is None:
+            storage_path = os.path.expanduser("~/.vix_suite/trade_log.json")
+        
+        self.storage_path = Path(storage_path)
+        self.storage_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Active positions by variant_id
+        self.positions: Dict[str, Position] = {}
+        
+        # Completed trade history
+        self.history: List[TradeRecord] = []
+        
+        # Load from disk
         self._load()
     
     def _load(self) -> None:
-        if self.storage_path.exists():
-            try:
-                with open(self.storage_path, "r") as f:
-                    data = json.load(f)
-                self.trades = {
-                    tid: Trade.from_dict(tdata)
-                    for tid, tdata in data.get("trades", {}).items()
-                }
-            except Exception as e:
-                print(f"Warning: Could not load trade log: {e}")
-                self.trades = {}
+        """Load positions and history from disk."""
+        if not self.storage_path.exists():
+            return
+        
+        try:
+            with open(self.storage_path, 'r') as f:
+                data = json.load(f)
+            
+            # Load positions
+            positions_data = data.get("positions", {})
+            for variant_id, pos_data in positions_data.items():
+                self.positions[variant_id] = Position.from_dict(pos_data)
+            
+            # Load history
+            history_data = data.get("history", [])
+            for record_data in history_data:
+                self.history.append(TradeRecord.from_dict(record_data))
+                
+        except Exception as e:
+            print(f"Warning: Could not load trade log: {e}")
     
     def _save(self) -> None:
-        self.storage_path.parent.mkdir(parents=True, exist_ok=True)
+        """Persist positions and history to disk."""
         try:
-            with open(self.storage_path, "w") as f:
-                json.dump(
-                    {"trades": {tid: t.to_dict() for tid, t in self.trades.items()}},
-                    f,
-                    indent=2,
-                )
+            data = {
+                "positions": {k: v.to_dict() for k, v in self.positions.items()},
+                "history": [r.to_dict() for r in self.history],
+                "updated_at": datetime.now().isoformat(),
+            }
+            with open(self.storage_path, 'w') as f:
+                json.dump(data, f, indent=2, default=str)
         except Exception as e:
             print(f"Warning: Could not save trade log: {e}")
     
-    def add_trade(self, trade: Trade) -> str:
-        self.trades[trade.trade_id] = trade
-        self._save()
-        return trade.trade_id
+    # ================================================================
+    # Position Query Methods (for email integration)
+    # ================================================================
     
-    def update_trade(self, trade: Trade) -> None:
-        self.trades[trade.trade_id] = trade
-        self._save()
+    def has_open_position(self, variant_id: str) -> bool:
+        """Check if variant has an open position."""
+        pos = self.positions.get(variant_id)
+        return pos is not None and pos.is_open()
     
-    def get_trade(self, trade_id: str) -> Optional[Trade]:
-        return self.trades.get(trade_id)
+    def get_open_position(self, variant_id: str) -> Optional[Position]:
+        """Get open position for variant, or None."""
+        pos = self.positions.get(variant_id)
+        if pos and pos.is_open():
+            return pos
+        return None
     
-    def get_open_trades(self) -> List[Trade]:
-        return [t for t in self.trades.values() if t.status == TradeStatus.OPEN]
+    def get_all_open_positions(self) -> List[Position]:
+        """Get all currently open positions."""
+        return [p for p in self.positions.values() if p.is_open()]
     
-    def get_closed_trades(self) -> List[Trade]:
-        return [t for t in self.trades.values() if t.status == TradeStatus.CLOSED]
+    def get_variants_with_open_positions(self) -> List[str]:
+        """Get list of variant_ids that have open positions."""
+        return [vid for vid, pos in self.positions.items() if pos.is_open()]
     
-    def get_all_trades(self) -> List[Trade]:
-        return list(self.trades.values())
+    def get_variants_needing_entry(self, all_variant_ids: List[str]) -> List[str]:
+        """
+        Given a list of all variant IDs, return those without open positions.
+        These are candidates for new entries.
+        """
+        open_variants = set(self.get_variants_with_open_positions())
+        return [vid for vid in all_variant_ids if vid not in open_variants]
     
-    def get_trades_by_variant(self, role: VariantRole) -> List[Trade]:
-        return [t for t in self.trades.values() if t.variant_role == role]
+    # ================================================================
+    # Position Management
+    # ================================================================
     
-    def get_trades_by_status(self, status: TradeStatus) -> List[Trade]:
-        return [t for t in self.trades.values() if t.status == status]
-    
-    def close_trade(
+    def open_position(
         self,
-        trade_id: str,
-        exit_reason: ExitType,
-        exit_notes: str = "",
-    ) -> Optional[Trade]:
-        trade = self.get_trade(trade_id)
-        if not trade:
+        variant_id: str,
+        variant_name: str,
+        entry_price: float,
+        entry_regime: str,
+        entry_vix_level: float,
+        entry_percentile: float,
+        strike: float = 0.0,
+        expiration_date: str = "",
+        contracts: int = 1,
+        allocation_pct: float = 2.0,
+        allocation_dollars: float = 5000.0,
+        target_pct: float = 0.40,
+        stop_pct: float = 0.60,
+        position_type: str = "diagonal",
+        notes: str = "",
+    ) -> Position:
+        """
+        Open a new position for a variant.
+        Raises error if position already exists.
+        """
+        if self.has_open_position(variant_id):
+            raise ValueError(f"Position already exists for {variant_id}")
+        
+        position_id = f"POS-{datetime.now().strftime('%Y%m%d%H%M%S')}-{variant_id[:3]}"
+        
+        pos = Position(
+            position_id=position_id,
+            variant_id=variant_id,
+            variant_name=variant_name,
+            entry_date=datetime.now().isoformat(),
+            entry_price=entry_price,
+            entry_regime=entry_regime,
+            entry_vix_level=entry_vix_level,
+            entry_percentile=entry_percentile,
+            strike=strike,
+            expiration_date=expiration_date,
+            contracts=contracts,
+            position_type=position_type,
+            allocation_pct=allocation_pct,
+            allocation_dollars=allocation_dollars,
+            target_pct=target_pct,
+            stop_pct=stop_pct,
+            notes=notes,
+        )
+        
+        # Compute target/stop prices
+        pos.compute_targets()
+        
+        self.positions[variant_id] = pos
+        self._save()
+        
+        return pos
+    
+    def close_position(
+        self,
+        variant_id: str,
+        exit_price: float,
+        exit_reason: str,
+        exit_regime: str = "",
+    ) -> Optional[TradeRecord]:
+        """
+        Close an open position and record to history.
+        Returns the trade record, or None if no position existed.
+        """
+        pos = self.get_open_position(variant_id)
+        if pos is None:
             return None
         
-        trade.exit_date = dt.datetime.now()
-        trade.exit_reason = exit_reason
-        trade.status = TradeStatus.CLOSED
-        trade.exit_notes = exit_notes
-        trade.realized_pnl = trade.unrealized_pnl
-        trade.unrealized_pnl = 0.0
+        # Calculate final P&L
+        if pos.entry_price > 0:
+            # Short premium
+            final_pnl = (pos.entry_price - exit_price) * 100 * pos.contracts
+            pnl_pct = (pos.entry_price - exit_price) / pos.entry_price
+        else:
+            # Long position
+            final_pnl = (exit_price - abs(pos.entry_price)) * 100 * pos.contracts
+            pnl_pct = (exit_price - abs(pos.entry_price)) / abs(pos.entry_price)
         
-        for leg in trade.legs:
-            leg.status = LegStatus.CLOSED
+        # Calculate duration
+        entry_dt = datetime.fromisoformat(pos.entry_date)
+        exit_dt = datetime.now()
+        duration_days = (exit_dt - entry_dt).days
+        
+        # Update position
+        pos.status = "closed"
+        pos.exit_date = exit_dt.isoformat()
+        pos.exit_price = exit_price
+        pos.exit_reason = exit_reason
+        pos.final_pnl = final_pnl
+        
+        # Create trade record
+        record = TradeRecord(
+            trade_id=f"TRADE-{exit_dt.strftime('%Y%m%d%H%M%S')}",
+            variant_id=variant_id,
+            variant_name=pos.variant_name,
+            entry_date=pos.entry_date,
+            exit_date=pos.exit_date,
+            entry_price=pos.entry_price,
+            exit_price=exit_price,
+            pnl_dollars=final_pnl,
+            pnl_pct=pnl_pct,
+            duration_days=duration_days,
+            exit_reason=exit_reason,
+            entry_regime=pos.entry_regime,
+            exit_regime=exit_regime,
+            contracts=pos.contracts,
+        )
+        
+        self.history.append(record)
+        
+        # Remove from active positions
+        del self.positions[variant_id]
         
         self._save()
-        return trade
+        return record
     
-    def get_statistics(self) -> Dict[str, Any]:
-        """Get overall statistics."""
-        closed = self.get_closed_trades()
-        open_trades = self.get_open_trades()
-        
-        if not closed:
-            return {
-                "total_trades": len(self.trades),
-                "open_trades": len(open_trades),
-                "closed_trades": 0,
-                "win_rate": 0.0,
-                "total_pnl": 0.0,
-                "avg_pnl": 0.0,
-            }
-        
-        wins = [t for t in closed if t.realized_pnl > 0]
-        total_pnl = sum(t.realized_pnl for t in closed)
-        
-        return {
-            "total_trades": len(self.trades),
-            "open_trades": len(open_trades),
-            "closed_trades": len(closed),
-            "win_rate": len(wins) / len(closed),
-            "total_pnl": total_pnl,
-            "avg_pnl": total_pnl / len(closed),
-        }
+    def update_position_price(self, variant_id: str, current_price: float) -> None:
+        """Update current price and P&L for a position."""
+        pos = self.get_open_position(variant_id)
+        if pos:
+            pos.update_pnl(current_price)
+            self._save()
+    
+    # ================================================================
+    # Summary & Analytics
+    # ================================================================
     
     def get_summary(self) -> Dict[str, Any]:
-        """Get summary statistics for display (alias for get_statistics + extras)."""
-        stats = self.get_statistics()
+        """Get summary statistics for dashboard display."""
+        open_positions = self.get_all_open_positions()
         
-        # Add more summary details
-        all_trades = self.get_all_trades()
-        open_trades = self.get_open_trades()
-        closed_trades = self.get_closed_trades()
+        total_pnl = sum(p.current_pnl for p in open_positions)
         
-        # Calculate by variant
-        variant_stats = {}
-        for role in VariantRole:
-            variant_trades = self.get_trades_by_variant(role)
-            closed_variant = [t for t in variant_trades if t.status == TradeStatus.CLOSED]
-            if closed_variant:
-                wins = [t for t in closed_variant if t.realized_pnl > 0]
-                variant_stats[role.value] = {
-                    "total": len(variant_trades),
-                    "open": len([t for t in variant_trades if t.status == TradeStatus.OPEN]),
-                    "closed": len(closed_variant),
-                    "win_rate": len(wins) / len(closed_variant) if closed_variant else 0.0,
-                    "total_pnl": sum(t.realized_pnl for t in closed_variant),
-                }
-            else:
-                variant_stats[role.value] = {
-                    "total": len(variant_trades),
-                    "open": len([t for t in variant_trades if t.status == TradeStatus.OPEN]),
-                    "closed": 0,
-                    "win_rate": 0.0,
-                    "total_pnl": 0.0,
-                }
-        
-        # Calculate unrealized P&L
-        total_unrealized = sum(t.unrealized_pnl for t in open_trades)
-        total_realized = sum(t.realized_pnl for t in closed_trades)
-        
-        # Average hold time
-        if closed_trades:
-            avg_hold_days = sum(t.days_held for t in closed_trades) / len(closed_trades)
-        else:
-            avg_hold_days = 0.0
+        history_pnl = sum(r.pnl_dollars for r in self.history)
+        wins = sum(1 for r in self.history if r.pnl_dollars > 0)
+        losses = sum(1 for r in self.history if r.pnl_dollars <= 0)
         
         return {
-            **stats,
-            "total_unrealized_pnl": total_unrealized,
-            "total_realized_pnl": total_realized,
-            "combined_pnl": total_unrealized + total_realized,
-            "avg_hold_days": avg_hold_days,
-            "variant_stats": variant_stats,
-            "trades_this_week": len([t for t in all_trades 
-                                     if t.entry_date > dt.datetime.now() - dt.timedelta(days=7)]),
-            "trades_this_month": len([t for t in all_trades 
-                                      if t.entry_date > dt.datetime.now() - dt.timedelta(days=30)]),
+            "open_positions": len(open_positions),
+            "open_pnl": total_pnl,
+            "total_trades": len(self.history),
+            "total_realized_pnl": history_pnl,
+            "wins": wins,
+            "losses": losses,
+            "win_rate": wins / max(1, wins + losses),
         }
+    
+    def get_variant_history(self, variant_id: str) -> List[TradeRecord]:
+        """Get trade history for a specific variant."""
+        return [r for r in self.history if r.variant_id == variant_id]
 
 
-# Singleton instance
+# ================================================================
+# Singleton instance for app-wide use
+# ================================================================
+
 _trade_log_instance: Optional[TradeLog] = None
 
-
-def get_trade_log(storage_path: Optional[Path] = None) -> TradeLog:
-    """Get or create TradeLog instance."""
+def get_trade_log() -> TradeLog:
+    """Get the global trade log instance."""
     global _trade_log_instance
     if _trade_log_instance is None:
-        _trade_log_instance = TradeLog(storage_path)
+        _trade_log_instance = TradeLog()
     return _trade_log_instance

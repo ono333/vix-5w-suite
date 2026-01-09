@@ -1,63 +1,51 @@
 #!/usr/bin/env python3
 """
-daily_signal.py - VIX 5% Weekly Suite Thursday Signal Generator
+VIX 5% Weekly Suite - Position-Aware Signal Generator
 
-PAPER TESTING MODE:
-- Always generates and shows ALL 5 variants
-- Marks 2-3 as "RECOMMENDED" (would trade live)
-- Marks others as "GENERATED" (paper test only)
-- NO variant is hidden or suppressed
+This script generates weekly trading signals that are POSITION-AWARE:
+- Reads from trade log to detect open positions
+- Shows MANAGEMENT mode for variants with positions (P&L, DTE, exits)
+- Shows ENTRY mode for variants without positions
+- Computes and displays target/stop prices
 
-Run via cron every Thursday at 4:30 PM ET:
-    30 16 * * 4 cd /path/to/01_vix_5w_suite && /path/to/python daily_signal.py
+Run: python3 daily_signal.py [--dry-run] [--to EMAIL]
 
-Or manually:
-    python3 daily_signal.py
-    python3 daily_signal.py --dry-run
-    python3 daily_signal.py --to other@email.com
-
-Environment variables:
-    SMTP_USER - Gmail address
-    SMTP_PASS - Gmail app password
+Cron setup for Thursday 4:30 PM ET:
+30 16 * * 4 cd /path/to/01_vix_5w_suite && /path/to/python daily_signal.py
 """
 
 import os
 import sys
 import argparse
 import smtplib
+from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from datetime import datetime, timedelta
-from pathlib import Path
+from typing import List, Optional, Tuple
+from dataclasses import dataclass
 
-import numpy as np
 import pandas as pd
 import yfinance as yf
 
 # Add project root to path
-PROJECT_ROOT = Path(__file__).parent
-sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from enums import VolatilityRegime, VariantRole
 from regime_detector import classify_regime, RegimeState
-from variant_generator import generate_all_variants, SignalBatch, get_variant_display_name
+from variant_generator import generate_all_variants, get_variant_display_name, SignalBatch, VariantParams
+from trade_log import get_trade_log, TradeLog, Position
 
 
-# =============================================================================
-# Configuration
-# =============================================================================
+# ============================================================
+# Market Data
+# ============================================================
 
-DEFAULT_RECIPIENT = "onoshin333@gmail.com"
-ACCOUNT_SIZE = 250_000
-LOOKBACK_WEEKS = 52
-
-
-# =============================================================================
-# Data Fetching
-# =============================================================================
-
-def fetch_uvxy_data(lookback_days: int = 400) -> pd.DataFrame:
-    """Fetch UVXY historical data."""
+def fetch_uvxy_data(lookback_days: int = 365) -> Tuple[float, float, float]:
+    """
+    Fetch UVXY data and compute current price, percentile, and slope.
+    
+    Returns: (current_price, percentile, slope_5d)
+    """
     end = datetime.now()
     start = end - timedelta(days=lookback_days)
     
@@ -66,402 +54,561 @@ def fetch_uvxy_data(lookback_days: int = 400) -> pd.DataFrame:
     df = yf.download("UVXY", start=start, end=end, progress=False)
     
     if df.empty:
-        raise RuntimeError("Failed to fetch UVXY data")
+        raise ValueError("No UVXY data returned from Yahoo Finance")
     
+    # Handle multi-level columns
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
     
-    print(f"   ✅ Got {len(df)} days of data")
-    return df
-
-
-def calculate_percentile(prices: pd.Series, lookback_weeks: int = 52) -> float:
-    """Calculate current price percentile."""
-    lookback_days = lookback_weeks * 5
-    if len(prices) < lookback_days:
-        lookback_days = len(prices)
+    close_col = 'Adj Close' if 'Adj Close' in df.columns else 'Close'
+    prices = df[close_col].dropna()
     
-    recent = prices.tail(lookback_days)
-    current = prices.iloc[-1]
-    return float((recent < current).mean())
-
-
-def calculate_slope(prices: pd.Series, days: int = 5) -> float:
-    """Calculate recent price slope."""
-    if len(prices) < days:
-        return 0.0
-    recent = prices.tail(days).values
-    x = np.arange(len(recent))
-    return float(np.polyfit(x, recent, 1)[0])
-
-
-# =============================================================================
-# Signal Generation
-# =============================================================================
-
-def generate_signal() -> tuple[SignalBatch, RegimeState]:
-    """Generate signal batch with ALL 5 variants."""
-    
-    df = fetch_uvxy_data()
-    prices = df["Close"]
+    print(f"   ✅ Got {len(prices)} days of data")
     
     current_price = float(prices.iloc[-1])
-    percentile = calculate_percentile(prices, LOOKBACK_WEEKS)
-    slope = calculate_slope(prices, 5)
+    
+    # 52-week percentile
+    window = min(252, len(prices))
+    rolling_min = prices.rolling(window=window).min()
+    rolling_max = prices.rolling(window=window).max()
+    
+    percentile = (current_price - rolling_min.iloc[-1]) / (rolling_max.iloc[-1] - rolling_min.iloc[-1] + 1e-10)
+    percentile = max(0, min(1, percentile))
+    
+    # 5-day slope (simple linear regression approximation)
+    if len(prices) >= 5:
+        recent = prices.iloc[-5:].values
+        slope = (recent[-1] - recent[0]) / recent[0]
+    else:
+        slope = 0.0
+    
+    return current_price, percentile, slope
+
+
+# ============================================================
+# Position-Aware Classification
+# ============================================================
+
+@dataclass
+class VariantState:
+    """State of a variant including position status."""
+    variant: VariantParams
+    has_position: bool
+    position: Optional[Position]
+    is_recommended: bool  # Would trade in live mode
+    
+    # Entry mode fields (when no position)
+    suggested_entry_credit: Optional[float] = None
+    suggested_target_price: Optional[float] = None
+    suggested_stop_price: Optional[float] = None
+    
+    # Management mode fields (when position exists)
+    current_pnl: Optional[float] = None
+    current_pnl_pct: Optional[float] = None
+    dte_remaining: Optional[int] = None
+    action_suggestion: Optional[str] = None  # hold, take_profit, stop_loss, roll, close
+
+
+def classify_variants(
+    batch: SignalBatch,
+    trade_log: TradeLog,
+    current_regime: VolatilityRegime,
+) -> List[VariantState]:
+    """
+    Classify each variant into management or entry mode based on position state.
+    """
+    states = []
+    
+    for variant in batch.variants:
+        variant_id = variant.role.value if hasattr(variant.role, 'value') else str(variant.role)
+        
+        # Check for open position
+        position = trade_log.get_open_position(variant_id)
+        has_position = position is not None
+        
+        # Is this variant recommended for current regime?
+        is_recommended = current_regime in variant.active_in_regimes
+        
+        state = VariantState(
+            variant=variant,
+            has_position=has_position,
+            position=position,
+            is_recommended=is_recommended,
+        )
+        
+        if has_position and position:
+            # MANAGEMENT MODE
+            state.current_pnl = position.current_pnl
+            state.current_pnl_pct = position.current_pnl_pct
+            state.dte_remaining = position.days_to_expiry()
+            
+            # Suggest action based on current state
+            if position.current_pnl_pct >= variant.target_pct:
+                state.action_suggestion = "🎯 TAKE PROFIT - Target reached"
+            elif position.current_pnl_pct <= -variant.stop_pct:
+                state.action_suggestion = "🛑 STOP LOSS - Stop level hit"
+            elif state.dte_remaining <= 5:
+                state.action_suggestion = "📅 ROLL or CLOSE - Low DTE"
+            elif not is_recommended:
+                state.action_suggestion = "⚠️ REGIME DRIFT - Consider closing"
+            else:
+                state.action_suggestion = "✋ HOLD - On track"
+        else:
+            # ENTRY MODE
+            # Estimate entry credit (this would come from real option chains in production)
+            # For now, use allocation as basis for suggested entry
+            vix_level = batch.regime_state.vix_level if batch.regime_state else 20.0
+            
+            # Rough estimate: entry credit scales with VIX level
+            state.suggested_entry_credit = round(1.0 + (vix_level - 15) * 0.1, 2)
+            
+            # Compute targets from estimated entry
+            if state.suggested_entry_credit > 0:
+                state.suggested_target_price = round(
+                    state.suggested_entry_credit * (1 - variant.target_pct), 2
+                )
+                state.suggested_stop_price = round(
+                    state.suggested_entry_credit * (1 + variant.stop_pct), 2
+                )
+        
+        states.append(state)
+    
+    return states
+
+
+# ============================================================
+# Email Generation - POSITION-AWARE FORMAT
+# ============================================================
+
+def build_position_aware_email(
+    batch: SignalBatch,
+    variant_states: List[VariantState],
+    account_size: float = 250_000.0,
+) -> str:
+    """
+    Build HTML email that reflects trading state, not just signals.
+    
+    Two main sections:
+    - OPEN POSITIONS (management mode)
+    - ENTRY CANDIDATES (entry mode)
+    """
+    regime_state = batch.regime_state
+    regime_name = regime_state.regime.value.upper() if regime_state else "UNKNOWN"
+    vix_level = regime_state.vix_level if regime_state else 0
+    vix_pct = regime_state.vix_percentile if regime_state else 0
+    
+    # Separate into management vs entry
+    management_variants = [s for s in variant_states if s.has_position]
+    entry_variants = [s for s in variant_states if not s.has_position]
+    
+    # Further split entry variants
+    recommended_entries = [s for s in entry_variants if s.is_recommended]
+    paper_test_entries = [s for s in entry_variants if not s.is_recommended]
+    
+    html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <style>
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #eee; padding: 20px; }}
+        .container {{ max-width: 700px; margin: 0 auto; }}
+        .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 25px; border-radius: 12px; margin-bottom: 20px; }}
+        .header h1 {{ margin: 0; font-size: 24px; }}
+        .header .subtitle {{ opacity: 0.9; margin-top: 8px; }}
+        .stats {{ display: flex; gap: 15px; margin: 20px 0; }}
+        .stat-box {{ background: #252542; padding: 15px 20px; border-radius: 8px; text-align: center; flex: 1; }}
+        .stat-box .value {{ font-size: 28px; font-weight: bold; }}
+        .stat-box .label {{ font-size: 11px; opacity: 0.7; margin-top: 4px; }}
+        .stat-green {{ border-left: 4px solid #4CAF50; }}
+        .stat-blue {{ border-left: 4px solid #2196F3; }}
+        .stat-orange {{ border-left: 4px solid #FF9800; }}
+        .section {{ background: #252542; border-radius: 10px; padding: 20px; margin: 20px 0; }}
+        .section-header {{ font-size: 16px; font-weight: 600; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid #444; }}
+        .position-card {{ background: #1a1a2e; border-radius: 8px; padding: 15px; margin: 10px 0; }}
+        .position-card.profit {{ border-left: 4px solid #4CAF50; }}
+        .position-card.loss {{ border-left: 4px solid #f44336; }}
+        .position-card.neutral {{ border-left: 4px solid #2196F3; }}
+        .variant-name {{ font-weight: 600; font-size: 15px; margin-bottom: 8px; }}
+        .metrics {{ display: flex; flex-wrap: wrap; gap: 15px; font-size: 13px; }}
+        .metric {{ }}
+        .metric-label {{ opacity: 0.6; font-size: 11px; }}
+        .metric-value {{ font-weight: 500; }}
+        .action {{ margin-top: 12px; padding: 8px 12px; background: #333; border-radius: 6px; font-size: 13px; }}
+        .entry-card {{ background: #1a1a2e; border-radius: 8px; padding: 15px; margin: 10px 0; }}
+        .entry-card.recommended {{ border-left: 4px solid #4CAF50; }}
+        .entry-card.paper-test {{ border-left: 4px solid #9E9E9E; opacity: 0.8; }}
+        .targets {{ display: flex; gap: 20px; margin-top: 10px; }}
+        .target {{ padding: 8px 12px; background: #333; border-radius: 6px; }}
+        .target-label {{ font-size: 11px; opacity: 0.6; }}
+        .target-value {{ font-weight: 600; }}
+        .target.profit {{ color: #4CAF50; }}
+        .target.stop {{ color: #f44336; }}
+        .allocation {{ margin-top: 10px; font-size: 12px; opacity: 0.8; }}
+        .regime-warning {{ background: #442; border-left: 4px solid #FF9800; padding: 12px; margin: 10px 0; border-radius: 6px; font-size: 13px; }}
+        .footer {{ text-align: center; opacity: 0.5; font-size: 12px; margin-top: 30px; }}
+    </style>
+</head>
+<body>
+<div class="container">
+    
+    <div class="header">
+        <h1>📈 VIX 5% Weekly — Position Report</h1>
+        <div class="subtitle">
+            {datetime.now().strftime('%A, %B %d, %Y %I:%M %p')} ET
+        </div>
+    </div>
+    
+    <div class="stats">
+        <div class="stat-box stat-orange">
+            <div class="value">{regime_name}</div>
+            <div class="label">Current Regime</div>
+        </div>
+        <div class="stat-box">
+            <div class="value">${vix_level:.2f}</div>
+            <div class="label">UVXY Level</div>
+        </div>
+        <div class="stat-box">
+            <div class="value">{vix_pct:.0%}</div>
+            <div class="label">52w Percentile</div>
+        </div>
+    </div>
+    
+    <div class="stats">
+        <div class="stat-box stat-green">
+            <div class="value">{len(management_variants)}</div>
+            <div class="label">🔄 Open Positions</div>
+        </div>
+        <div class="stat-box stat-blue">
+            <div class="value">{len(recommended_entries)}</div>
+            <div class="label">🎯 Entry Candidates</div>
+        </div>
+        <div class="stat-box">
+            <div class="value">{len(paper_test_entries)}</div>
+            <div class="label">🔬 Paper Test Only</div>
+        </div>
+    </div>
+"""
+    
+    # ================================================================
+    # SECTION 1: OPEN POSITIONS (Management Mode)
+    # ================================================================
+    if management_variants:
+        html += """
+    <div class="section">
+        <div class="section-header">🔄 OPEN POSITIONS — Management Mode</div>
+"""
+        for state in management_variants:
+            pos = state.position
+            variant = state.variant
+            name = get_variant_display_name(variant.role)
+            
+            # Determine card class based on P&L
+            if state.current_pnl_pct and state.current_pnl_pct > 0.05:
+                card_class = "profit"
+            elif state.current_pnl_pct and state.current_pnl_pct < -0.05:
+                card_class = "loss"
+            else:
+                card_class = "neutral"
+            
+            pnl_dollars = state.current_pnl or 0
+            pnl_pct = (state.current_pnl_pct or 0) * 100
+            dte = state.dte_remaining or 0
+            
+            html += f"""
+        <div class="position-card {card_class}">
+            <div class="variant-name">{name}</div>
+            <div class="metrics">
+                <div class="metric">
+                    <div class="metric-label">Current P&L</div>
+                    <div class="metric-value">${pnl_dollars:+,.0f} ({pnl_pct:+.1f}%)</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">DTE Remaining</div>
+                    <div class="metric-value">{dte} days</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">Entry Price</div>
+                    <div class="metric-value">${pos.entry_price:.2f}</div>
+                </div>
+            </div>
+            <div class="targets">
+                <div class="target profit">
+                    <div class="target-label">Target Exit</div>
+                    <div class="target-value">${pos.target_price:.2f}</div>
+                </div>
+                <div class="target stop">
+                    <div class="target-label">Stop Loss</div>
+                    <div class="target-value">${pos.stop_price:.2f}</div>
+                </div>
+            </div>
+            <div class="action">{state.action_suggestion}</div>
+        </div>
+"""
+        html += "    </div>\n"
+    
+    # ================================================================
+    # SECTION 2: ENTRY CANDIDATES (Recommended)
+    # ================================================================
+    if recommended_entries:
+        html += """
+    <div class="section">
+        <div class="section-header">🎯 ENTRY CANDIDATES — Would Execute in Live Mode</div>
+"""
+        for state in recommended_entries:
+            variant = state.variant
+            name = get_variant_display_name(variant.role)
+            
+            alloc_dollars = account_size * (variant.allocation_pct / 100)
+            contracts = max(1, min(50, int(alloc_dollars / 500)))  # Rough estimate
+            
+            html += f"""
+        <div class="entry-card recommended">
+            <div class="variant-name">✅ {name}</div>
+            <div class="metrics">
+                <div class="metric">
+                    <div class="metric-label">Entry Trigger</div>
+                    <div class="metric-value">≤{variant.entry_percentile:.0%} percentile</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">Strike Offset</div>
+                    <div class="metric-value">+{variant.long_strike_offset:.0f} pts OTM</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">DTE</div>
+                    <div class="metric-value">{variant.long_dte_weeks}w</div>
+                </div>
+            </div>
+            <div class="targets">
+                <div class="target">
+                    <div class="target-label">Suggested Entry Credit</div>
+                    <div class="target-value">≥${state.suggested_entry_credit:.2f}</div>
+                </div>
+                <div class="target profit">
+                    <div class="target-label">Target Exit ({variant.target_pct:.0%} gain)</div>
+                    <div class="target-value">${state.suggested_target_price:.2f}</div>
+                </div>
+                <div class="target stop">
+                    <div class="target-label">Stop Loss ({variant.stop_pct:.0%} loss)</div>
+                    <div class="target-value">${state.suggested_stop_price:.2f}</div>
+                </div>
+            </div>
+            <div class="allocation">
+                💰 Allocation: {variant.allocation_pct:.1f}% (${alloc_dollars:,.0f}) → ~{contracts} contracts
+            </div>
+        </div>
+"""
+        html += "    </div>\n"
+    
+    # ================================================================
+    # SECTION 3: PAPER TEST VARIANTS (Not Recommended, but track)
+    # ================================================================
+    if paper_test_entries:
+        html += """
+    <div class="section" style="opacity: 0.75;">
+        <div class="section-header">🔬 PAPER TEST ONLY — Not Recommended for {regime_name}</div>
+""".format(regime_name=regime_name)
+        
+        for state in paper_test_entries:
+            variant = state.variant
+            name = get_variant_display_name(variant.role)
+            active_in = ", ".join([r.value.upper() for r in variant.active_in_regimes])
+            
+            html += f"""
+        <div class="entry-card paper-test">
+            <div class="variant-name">🔬 {name}</div>
+            <div class="metrics">
+                <div class="metric">
+                    <div class="metric-label">Entry</div>
+                    <div class="metric-value">≤{variant.entry_percentile:.0%} | +{variant.long_strike_offset:.0f}pts | {variant.long_dte_weeks}w</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">Activates In</div>
+                    <div class="metric-value">{active_in}</div>
+                </div>
+            </div>
+            <div class="regime-warning">
+                ⚠️ Not recommended for {regime_name} regime. Track in paper trading for validation.
+            </div>
+        </div>
+"""
+        html += "    </div>\n"
+    
+    # ================================================================
+    # REGIME WARNING (if any positions have regime drift)
+    # ================================================================
+    regime_drift = [s for s in management_variants if not s.is_recommended]
+    if regime_drift:
+        html += """
+    <div class="section" style="background: #442;">
+        <div class="section-header">⚠️ REGIME DRIFT WARNING</div>
+        <p style="font-size: 14px; margin: 0;">
+            The following positions were opened in a different regime and may need attention:
+        </p>
+        <ul style="margin: 10px 0;">
+"""
+        for state in regime_drift:
+            name = get_variant_display_name(state.variant.role)
+            entry_regime = state.position.entry_regime if state.position else "unknown"
+            html += f"            <li>{name} — Opened in {entry_regime}, now in {regime_name}</li>\n"
+        html += """        </ul>
+    </div>
+"""
+    
+    # Footer
+    html += f"""
+    <div class="footer">
+        VIX 5% Weekly Suite — Paper Trading Mode<br>
+        Generated {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ET<br>
+        Email is a VIEW of trading state, not a signal generator.
+    </div>
+    
+</div>
+</body>
+</html>
+"""
+    
+    return html
+
+
+# ============================================================
+# Email Sending
+# ============================================================
+
+def send_email(
+    html_body: str,
+    to_email: str,
+    subject: str,
+    smtp_user: Optional[str] = None,
+    smtp_pass: Optional[str] = None,
+) -> bool:
+    """Send HTML email via SMTP (Gmail)."""
+    smtp_user = smtp_user or os.environ.get("SMTP_USER", "")
+    smtp_pass = smtp_pass or os.environ.get("SMTP_PASS", "")
+    
+    if not smtp_user or not smtp_pass:
+        print("❌ SMTP credentials not set. Export SMTP_USER and SMTP_PASS.")
+        return False
+    
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = smtp_user
+    msg["To"] = to_email
+    
+    msg.attach(MIMEText(html_body, "html"))
+    
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(smtp_user, smtp_pass)
+            server.sendmail(smtp_user, to_email, msg.as_string())
+        print(f"✅ Email sent to {to_email}")
+        return True
+    except Exception as e:
+        print(f"❌ Email failed: {e}")
+        return False
+
+
+# ============================================================
+# Main
+# ============================================================
+
+def main():
+    parser = argparse.ArgumentParser(description="Position-Aware VIX Signal Generator")
+    parser.add_argument("--dry-run", action="store_true", help="Preview without sending")
+    parser.add_argument("--to", type=str, default="onoshin333@gmail.com", help="Recipient email")
+    parser.add_argument("--save-html", type=str, help="Save HTML to file")
+    args = parser.parse_args()
+    
+    print("=" * 65)
+    print("🚀 VIX 5% Weekly Suite - POSITION-AWARE Signal Generator")
+    print(f"   {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("=" * 65)
+    
+    # 1. Fetch market data
+    try:
+        current_price, percentile, slope = fetch_uvxy_data()
+    except Exception as e:
+        print(f"❌ Failed to fetch UVXY data: {e}")
+        sys.exit(1)
     
     print(f"\n📈 Current Market State:")
     print(f"   UVXY: ${current_price:.2f}")
     print(f"   Percentile: {percentile:.1%}")
     print(f"   5-day slope: {slope:+.3f}")
     
-    regime = classify_regime(current_price, vix_percentile=percentile)
+    # 2. Detect regime
+    regime_state = RegimeState(
+        regime=classify_regime(current_price, vix_percentile=percentile),
+        vix_level=current_price,
+        vix_percentile=percentile,
+        confidence=0.5 + abs(percentile - 0.5),
+        vix_slope=slope,
+    )
     
     print(f"\n🎯 Regime Detection:")
-    print(f"   Regime: {regime.regime.value.upper()}")
-    print(f"   Confidence: {regime.confidence:.0%}")
+    print(f"   Regime: {regime_state.regime.value.upper()}")
+    print(f"   Confidence: {regime_state.confidence:.0%}")
     
-    # Generate ALL 5 variants (no filtering)
-    batch = generate_all_variants(regime)
+    # 3. Generate all 5 variants
+    batch = generate_all_variants(regime_state)
+    print(f"\n📋 Generated {len(batch.variants)} variants")
     
-    recommended = sum(1 for v in batch.variants if regime.regime in v.active_in_regimes)
-    paper_only = len(batch.variants) - recommended
+    # 4. Load trade log and classify variants
+    trade_log = get_trade_log()
+    variant_states = classify_variants(batch, trade_log, regime_state.regime)
     
-    print(f"\n📋 Generated {len(batch.variants)} variants:")
-    print(f"   🟢 {recommended} RECOMMENDED (would trade live)")
-    print(f"   🔵 {paper_only} PAPER TEST ONLY (observe behavior)")
+    # Count by category
+    management = [s for s in variant_states if s.has_position]
+    recommended = [s for s in variant_states if not s.has_position and s.is_recommended]
+    paper_test = [s for s in variant_states if not s.has_position and not s.is_recommended]
     
-    return batch, regime
-
-
-# =============================================================================
-# Email Generation - PAPER TESTING FORMAT
-# =============================================================================
-
-def build_email_html(batch: SignalBatch, regime: RegimeState) -> str:
-    """
-    Build HTML email for PAPER TESTING mode.
+    print(f"   🔄 {len(management)} with OPEN POSITIONS (management mode)")
+    print(f"   🎯 {len(recommended)} ENTRY CANDIDATES (would trade)")
+    print(f"   🔬 {len(paper_test)} PAPER TEST ONLY (observe)")
     
-    Shows ALL 5 variants with clear distinction:
-    - 🟢 RECOMMENDED: Would trade in live mode
-    - 🔵 PAPER TEST: Generated for observation only
-    """
+    # 5. Build email
+    html = build_position_aware_email(batch, variant_states)
     
-    recommended_count = sum(1 for v in batch.variants if regime.regime in v.active_in_regimes)
-    paper_only_count = len(batch.variants) - recommended_count
+    # 6. Determine subject
+    subject = f"[VIX 5%] {regime_state.regime.value.upper()} ({percentile:.0%}) — "
+    subject += f"{len(management)} Open, {len(recommended)} Entry, {len(paper_test)} Observe"
     
-    # Regime emoji
-    regime_emoji = {
-        "calm": "🟢", "declining": "🟡", "rising": "🟠", 
-        "stressed": "🔴", "extreme": "⚫"
-    }.get(regime.regime.value.lower(), "⚪")
-    
-    html = f"""
-    <html>
-    <body style="font-family:Arial,sans-serif;font-size:14px;background:#fff;color:#333;padding:20px;max-width:850px;margin:0 auto;">
-    
-    <!-- Header -->
-    <div style="text-align:center;border-bottom:3px solid #1f77b4;padding-bottom:15px;margin-bottom:20px;">
-        <span style="font-size:24px;font-weight:bold;color:#1f77b4;">VIX 5% WEEKLY SUITE</span><br>
-        <span style="font-size:16px;color:#666;background:#fff3cd;padding:4px 12px;border-radius:4px;display:inline-block;margin-top:8px;">
-            📋 PAPER TESTING MODE
-        </span>
-    </div>
-    
-    <!-- Market State -->
-    <div style="background:#f8f9fa;border:1px solid #dee2e6;border-radius:8px;padding:15px;margin-bottom:20px;">
-        <div style="font-weight:bold;color:#495057;margin-bottom:10px;">📈 Market State</div>
-        <table style="width:100%;border-collapse:collapse;">
-            <tr>
-                <td style="padding:8px;text-align:center;border-right:1px solid #dee2e6;">
-                    <div style="font-size:12px;color:#6c757d;">Regime</div>
-                    <div style="font-size:20px;font-weight:bold;">{regime_emoji} {regime.regime.value.upper()}</div>
-                </td>
-                <td style="padding:8px;text-align:center;border-right:1px solid #dee2e6;">
-                    <div style="font-size:12px;color:#6c757d;">UVXY Price</div>
-                    <div style="font-size:20px;font-weight:bold;">${regime.vix_level:.2f}</div>
-                </td>
-                <td style="padding:8px;text-align:center;border-right:1px solid #dee2e6;">
-                    <div style="font-size:12px;color:#6c757d;">52w Percentile</div>
-                    <div style="font-size:20px;font-weight:bold;">{regime.vix_percentile:.0%}</div>
-                </td>
-                <td style="padding:8px;text-align:center;">
-                    <div style="font-size:12px;color:#6c757d;">Confidence</div>
-                    <div style="font-size:20px;font-weight:bold;">{regime.confidence:.0%}</div>
-                </td>
-            </tr>
-        </table>
-    </div>
-    
-    <!-- Variant Summary -->
-    <div style="display:flex;gap:15px;margin-bottom:20px;">
-        <div style="flex:1;background:#d4edda;border:1px solid #c3e6cb;border-radius:8px;padding:12px;text-align:center;">
-            <div style="font-size:28px;font-weight:bold;color:#155724;">{recommended_count}</div>
-            <div style="font-size:12px;color:#155724;">🟢 RECOMMENDED<br>(Live-Ready)</div>
-        </div>
-        <div style="flex:1;background:#cce5ff;border:1px solid #b8daff;border-radius:8px;padding:12px;text-align:center;">
-            <div style="font-size:28px;font-weight:bold;color:#004085;">{paper_only_count}</div>
-            <div style="font-size:12px;color:#004085;">🔵 PAPER TEST<br>(Observe Only)</div>
-        </div>
-        <div style="flex:1;background:#e2e3e5;border:1px solid #d6d8db;border-radius:8px;padding:12px;text-align:center;">
-            <div style="font-size:28px;font-weight:bold;color:#383d41;">5</div>
-            <div style="font-size:12px;color:#383d41;">📊 TOTAL<br>(All Generated)</div>
-        </div>
-    </div>
-    
-    <!-- Section: RECOMMENDED Variants -->
-    <div style="margin-bottom:25px;">
-        <div style="font-size:16px;font-weight:bold;color:#155724;background:#d4edda;padding:10px 15px;border-radius:6px 6px 0 0;border:1px solid #c3e6cb;border-bottom:none;">
-            🟢 RECOMMENDED VARIANTS (Would Execute in Live Mode)
-        </div>
-        <div style="border:1px solid #c3e6cb;border-radius:0 0 6px 6px;padding:10px;">
-    """
-    
-    # RECOMMENDED variants first
-    for variant in batch.variants:
-        is_recommended = regime.regime in variant.active_in_regimes
-        if not is_recommended:
-            continue
-            
-        alloc_dollars = ACCOUNT_SIZE * variant.alloc_pct
-        est_risk = variant.long_strike_offset * 100
-        contracts = max(1, min(50, int(alloc_dollars / est_risk))) if est_risk > 0 else 1
-        total_risk = contracts * est_risk
-        roll_dte = getattr(variant, 'roll_dte_days', 3)
+    # 7. Send or preview
+    if args.dry_run:
+        print("\n" + "=" * 65)
+        print("🔍 DRY RUN — Email Preview")
+        print("=" * 65)
+        print(f"\n   To: {args.to}")
+        print(f"   Subject: {subject}")
+        print(f"\n   🔄 OPEN POSITIONS ({len(management)}):")
+        for s in management:
+            name = get_variant_display_name(s.variant.role)
+            pnl = s.current_pnl or 0
+            dte = s.dte_remaining or 0
+            print(f"      • {name}: ${pnl:+,.0f} P&L, {dte} DTE")
+            print(f"        → {s.action_suggestion}")
         
-        html += f"""
-            <div style="border:2px solid #28a745;margin-bottom:10px;border-radius:6px;overflow:hidden;">
-                <div style="background:#28a745;color:#fff;padding:10px 15px;font-weight:bold;font-size:15px;">
-                    ✅ {get_variant_display_name(variant.role)}
-                </div>
-                <div style="padding:12px;background:#f8fff8;">
-                    <table style="width:100%;font-size:13px;border-collapse:collapse;">
-                        <tr>
-                            <td style="padding:5px;width:50%;"><b>Entry:</b> ≤{variant.entry_percentile:.0%} percentile</td>
-                            <td style="padding:5px;"><b>Long Strike:</b> UVXY +{variant.long_strike_offset}pts</td>
-                        </tr>
-                        <tr>
-                            <td style="padding:5px;"><b>Long DTE:</b> {variant.long_dte_weeks}w</td>
-                            <td style="padding:5px;"><b>Short Strike:</b> UVXY +{variant.short_strike_offset}pts</td>
-                        </tr>
-                        <tr>
-                            <td style="padding:5px;"><b>Short DTE:</b> {variant.short_dte_weeks}w</td>
-                            <td style="padding:5px;"><b>Roll:</b> {roll_dte}d before exp</td>
-                        </tr>
-                        <tr style="background:#d4edda;">
-                            <td style="padding:8px;font-size:14px;"><b>💰 Allocation:</b> {variant.alloc_pct:.1%} (${alloc_dollars:,.0f})</td>
-                            <td style="padding:8px;font-size:14px;"><b>📦 Contracts:</b> {contracts}</td>
-                        </tr>
-                        <tr style="background:#d4edda;">
-                            <td style="padding:8px;"><b>🎯 Target:</b> +{variant.tp_pct:.0%}</td>
-                            <td style="padding:8px;"><b>🛑 Stop:</b> -{variant.sl_pct:.0%}</td>
-                        </tr>
-                        <tr>
-                            <td colspan="2" style="padding:8px;color:#666;font-size:12px;">
-                                <b>Max Risk:</b> ${total_risk:,.0f} ({total_risk/ACCOUNT_SIZE:.1%} of ${ACCOUNT_SIZE:,})
-                            </td>
-                        </tr>
-                    </table>
-                </div>
-            </div>
-        """
-    
-    html += """
-        </div>
-    </div>
-    
-    <!-- Section: PAPER TEST Variants -->
-    <div style="margin-bottom:25px;">
-        <div style="font-size:16px;font-weight:bold;color:#004085;background:#cce5ff;padding:10px 15px;border-radius:6px 6px 0 0;border:1px solid #b8daff;border-bottom:none;">
-            🔵 PAPER TEST VARIANTS (Observe & Compare — Not Live-Ready)
-        </div>
-        <div style="border:1px solid #b8daff;border-radius:0 0 6px 6px;padding:10px;">
-    """
-    
-    # PAPER TEST variants
-    for variant in batch.variants:
-        is_recommended = regime.regime in variant.active_in_regimes
-        if is_recommended:
-            continue
-            
-        alloc_dollars = ACCOUNT_SIZE * variant.alloc_pct
-        est_risk = variant.long_strike_offset * 100
-        contracts = max(1, min(50, int(alloc_dollars / est_risk))) if est_risk > 0 else 1
-        total_risk = contracts * est_risk
-        roll_dte = getattr(variant, 'roll_dte_days', 3)
-        active_regimes = ", ".join([r.value.upper() for r in variant.active_in_regimes])
+        print(f"\n   🎯 ENTRY CANDIDATES ({len(recommended)}):")
+        for s in recommended:
+            name = get_variant_display_name(s.variant.role)
+            v = s.variant
+            print(f"      ✅ {name}")
+            print(f"         Entry ≤{v.entry_percentile:.0%} | +{v.long_strike_offset}pts | {v.long_dte_weeks}w")
+            print(f"         Target: ${s.suggested_target_price} | Stop: ${s.suggested_stop_price}")
         
-        html += f"""
-            <div style="border:2px solid #6c757d;margin-bottom:10px;border-radius:6px;overflow:hidden;">
-                <div style="background:#6c757d;color:#fff;padding:10px 15px;font-weight:bold;font-size:15px;">
-                    🔬 {get_variant_display_name(variant.role)}
-                    <span style="float:right;font-size:12px;font-weight:normal;background:#495057;padding:2px 8px;border-radius:3px;">
-                        Paper Test Only
-                    </span>
-                </div>
-                <div style="padding:12px;background:#f8f9fa;">
-                    <div style="background:#fff3cd;border:1px solid #ffeeba;border-radius:4px;padding:8px;margin-bottom:10px;font-size:12px;color:#856404;">
-                        ⚠️ <b>Why not recommended:</b> This variant activates in <b>{active_regimes}</b> regime(s), not {regime.regime.value.upper()}.
-                        <br>Track it to validate this filtering logic.
-                    </div>
-                    <table style="width:100%;font-size:13px;border-collapse:collapse;">
-                        <tr>
-                            <td style="padding:5px;width:50%;"><b>Entry:</b> ≤{variant.entry_percentile:.0%} percentile</td>
-                            <td style="padding:5px;"><b>Long Strike:</b> UVXY +{variant.long_strike_offset}pts</td>
-                        </tr>
-                        <tr>
-                            <td style="padding:5px;"><b>Long DTE:</b> {variant.long_dte_weeks}w</td>
-                            <td style="padding:5px;"><b>Short Strike:</b> UVXY +{variant.short_strike_offset}pts</td>
-                        </tr>
-                        <tr>
-                            <td style="padding:5px;"><b>Short DTE:</b> {variant.short_dte_weeks}w</td>
-                            <td style="padding:5px;"><b>Roll:</b> {roll_dte}d before exp</td>
-                        </tr>
-                        <tr style="background:#e9ecef;">
-                            <td style="padding:8px;"><b>💰 Allocation:</b> {variant.alloc_pct:.1%} (${alloc_dollars:,.0f})</td>
-                            <td style="padding:8px;"><b>📦 Contracts:</b> {contracts}</td>
-                        </tr>
-                        <tr style="background:#e9ecef;">
-                            <td style="padding:8px;"><b>🎯 Target:</b> +{variant.tp_pct:.0%}</td>
-                            <td style="padding:8px;"><b>🛑 Stop:</b> -{variant.sl_pct:.0%}</td>
-                        </tr>
-                        <tr>
-                            <td colspan="2" style="padding:8px;color:#666;font-size:12px;">
-                                <b>Max Risk:</b> ${total_risk:,.0f} ({total_risk/ACCOUNT_SIZE:.1%}) | <b>Activates in:</b> {active_regimes}
-                            </td>
-                        </tr>
-                    </table>
-                </div>
-            </div>
-        """
+        print(f"\n   🔬 PAPER TEST ({len(paper_test)}):")
+        for s in paper_test:
+            name = get_variant_display_name(s.variant.role)
+            active_in = ", ".join([r.value.upper() for r in s.variant.active_in_regimes])
+            print(f"      🔬 {name} (Activates in: {active_in})")
+    else:
+        send_email(html, args.to, subject)
     
-    html += f"""
-        </div>
-    </div>
-    
-    <!-- Paper Testing Notes -->
-    <div style="background:#e7f3ff;border:1px solid #b6d4fe;border-radius:8px;padding:15px;margin-bottom:20px;">
-        <div style="font-weight:bold;color:#084298;margin-bottom:8px;">📋 Paper Testing Protocol</div>
-        <ul style="margin:0;padding-left:20px;color:#084298;font-size:13px;">
-            <li><b>Execute ALL 5 variants</b> in paper trading to collect data</li>
-            <li><b>RECOMMENDED variants</b> = what live mode would trade</li>
-            <li><b>PAPER TEST variants</b> = observe to validate regime filtering</li>
-            <li>Track performance to confirm regime logic is correct</li>
-            <li>After 8-12 weeks, compare results to decide graduation</li>
-        </ul>
-    </div>
-    
-    <!-- Footer -->
-    <div style="text-align:center;padding:15px;border-top:1px solid #dee2e6;color:#6c757d;font-size:12px;">
-        VIX 5% Weekly Suite — Paper Testing Signal<br>
-        Generated: {batch.generated_at.strftime('%Y-%m-%d %H:%M UTC')} | Account Basis: ${ACCOUNT_SIZE:,}
-    </div>
-    
-    </body>
-    </html>
-    """
-    
-    return html
-
-
-def send_email(batch: SignalBatch, regime: RegimeState, recipient: str) -> tuple[bool, str]:
-    """Send signal email via SMTP."""
-    
-    smtp_user = os.environ.get("SMTP_USER", "")
-    smtp_pass = os.environ.get("SMTP_PASS", "")
-    
-    if not smtp_user or not smtp_pass:
-        return False, "SMTP credentials not configured. Set SMTP_USER and SMTP_PASS."
-    
-    recommended = sum(1 for v in batch.variants if regime.regime in v.active_in_regimes)
-    paper_only = len(batch.variants) - recommended
-    
-    regime_emoji = {
-        "calm": "🟢", "declining": "🟡", "rising": "🟠", 
-        "stressed": "🔴", "extreme": "⚫"
-    }.get(regime.regime.value.lower(), "⚪")
-    
-    subject = f"{regime_emoji} [PAPER TEST] {regime.regime.value.upper()} ({regime.vix_percentile:.0%}) — {recommended} Recommended / {paper_only} Observe"
-    
-    html = build_email_html(batch, regime)
-    
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = smtp_user
-    msg["To"] = recipient
-    msg.attach(MIMEText(html, "html"))
-    
-    try:
-        print(f"\n📧 Sending email to {recipient}...")
-        with smtplib.SMTP("smtp.gmail.com", 587) as server:
-            server.starttls()
-            server.login(smtp_user, smtp_pass)
-            server.sendmail(smtp_user, recipient, msg.as_string())
-        return True, f"Email sent to {recipient}"
-    except Exception as e:
-        return False, f"Email failed: {str(e)}"
-
-
-# =============================================================================
-# Main
-# =============================================================================
-
-def main():
-    parser = argparse.ArgumentParser(description="VIX 5% Weekly Suite - Paper Testing Signal Generator")
-    parser.add_argument("--dry-run", action="store_true", help="Generate without sending")
-    parser.add_argument("--to", type=str, default=DEFAULT_RECIPIENT, help="Email recipient")
-    parser.add_argument("--save-html", type=str, help="Save HTML to file")
-    
-    args = parser.parse_args()
-    
-    print("=" * 65)
-    print("🚀 VIX 5% Weekly Suite - PAPER TESTING Signal Generator")
-    print(f"   {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print("=" * 65)
-    
-    try:
-        batch, regime = generate_signal()
-        html = build_email_html(batch, regime)
-        
-        if args.save_html:
-            Path(args.save_html).write_text(html)
-            print(f"\n✅ HTML saved to {args.save_html}")
-            
-        elif args.dry_run:
-            print("\n" + "=" * 65)
-            print("🔍 DRY RUN — Email Preview")
-            print("=" * 65)
-            
-            recommended = sum(1 for v in batch.variants if regime.regime in v.active_in_regimes)
-            print(f"\n   To: {args.to}")
-            print(f"   Regime: {regime.regime.value.upper()} ({regime.vix_percentile:.0%})")
-            print(f"\n   🟢 RECOMMENDED ({recommended}):")
-            for v in batch.variants:
-                if regime.regime in v.active_in_regimes:
-                    print(f"      ✅ {get_variant_display_name(v.role)}")
-                    print(f"         Entry ≤{v.entry_percentile:.0%} | +{v.long_strike_offset}pts | {v.long_dte_weeks}w")
-                    print(f"         Alloc: {v.alloc_pct:.1%} | TP: +{v.tp_pct:.0%} | SL: -{v.sl_pct:.0%}")
-            
-            print(f"\n   🔵 PAPER TEST ({len(batch.variants) - recommended}):")
-            for v in batch.variants:
-                if regime.regime not in v.active_in_regimes:
-                    active_in = ", ".join([r.value.upper() for r in v.active_in_regimes])
-                    print(f"      🔬 {get_variant_display_name(v.role)}")
-                    print(f"         Entry ≤{v.entry_percentile:.0%} | +{v.long_strike_offset}pts | {v.long_dte_weeks}w")
-                    print(f"         Activates in: {active_in}")
-            
-        else:
-            success, message = send_email(batch, regime, args.to)
-            if success:
-                print(f"\n✅ {message}")
-            else:
-                print(f"\n❌ {message}")
-                sys.exit(1)
-                
-    except Exception as e:
-        print(f"\n❌ Error: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+    # 8. Save HTML if requested
+    if args.save_html:
+        with open(args.save_html, 'w') as f:
+            f.write(html)
+        print(f"\n📄 HTML saved to {args.save_html}")
     
     print("\n✅ Done!")
 
