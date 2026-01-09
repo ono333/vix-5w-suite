@@ -368,7 +368,7 @@ def build_position_aware_email(
             <div class="metrics">
                 <div class="metric">
                     <div class="metric-label">Entry Trigger</div>
-                    <div class="metric-value">≤{variant.entry_percentile:.0%} percentile</div>
+                    <div class="metric-value">${estimate_entry_credit(regime.vix_level, variant.long_strike_offset, variant.long_dte_weeks):.2f} est. credit</div>
                 </div>
                 <div class="metric">
                     <div class="metric-label">Strike Offset</div>
@@ -593,7 +593,9 @@ def main():
             name = get_variant_display_name(s.variant.role)
             v = s.variant
             print(f"      ✅ {name}")
-            print(f"         Entry ≤{v.entry_percentile:.0%} | +{v.long_strike_offset}pts | {v.long_dte_weeks}w")
+            est_cr = estimate_entry_credit(regime.vix_level, v.long_strike_offset, v.long_dte_weeks)
+            targets = compute_price_targets(est_cr, v.tp_pct, v.sl_pct)
+            print(f"         Credit: ${est_cr:.2f} | Target: ${targets['target']:.2f} | Stop: ${targets['stop']:.2f}")
             print(f"         Target: ${s.suggested_target_price} | Stop: ${s.suggested_stop_price}")
         
         print(f"\n   🔬 PAPER TEST ({len(paper_test)}):")

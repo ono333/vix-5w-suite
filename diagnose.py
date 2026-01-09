@@ -83,7 +83,7 @@ except Exception as e:
     imports_ok = False
 
 try:
-    from trade_log import TradeLog, get_trade_log, Trade
+    from trade_log import TradeLog, get_trade_log, Position
     print("   ✅ trade_log")
 except Exception as e:
     print(f"   ❌ trade_log: {e}")

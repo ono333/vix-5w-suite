@@ -706,6 +706,49 @@ def send_signal_email_smtp(batch, regime, recipient: str = "onoshin333@gmail.com
     
     # Constants
     ACCOUNT_SIZE = 250_000
+
+# ============================================================
+# Price Target Calculation Helpers
+# ============================================================
+
+def estimate_entry_credit(vix_level: float, strike_offset: float, dte_weeks: int) -> float:
+    """Estimate entry credit for diagonal spread based on VIX level."""
+    # Vol multiplier based on VIX environment
+    if vix_level < 15:
+        vol_mult = 0.6
+    elif vix_level < 25:
+        vol_mult = 0.8
+    elif vix_level < 40:
+        vol_mult = 1.0
+    else:
+        vol_mult = 1.3
+    
+    # Short weekly premium estimate
+    otm_pct = strike_offset / max(vix_level, 10)
+    short_premium = vix_level * 0.04 * vol_mult * max(0.2, 1 - otm_pct * 2)
+    
+    # Long LEAP cost (amortized)
+    dte_factor = min(dte_weeks / 26, 1.5)
+    long_cost = vix_level * 0.15 * vol_mult * dte_factor
+    expected_rolls = max(1, dte_weeks // 4)
+    amortized_long = (long_cost / expected_rolls) * 0.3
+    
+    net_credit = short_premium - amortized_long
+    return round(max(0.10, net_credit), 2)
+
+def compute_price_targets(entry_credit: float, target_pct: float, stop_pct: float) -> dict:
+    """Compute target/stop prices from entry credit."""
+    # For short premium: profit when price drops
+    target_price = round(entry_credit * (1 - target_pct), 2)
+    stop_price = round(entry_credit * (1 + stop_pct), 2)
+    return {
+        "target": target_price,
+        "stop": stop_price,
+        "profit_per_contract": round(entry_credit * target_pct * 100, 0),
+        "loss_per_contract": round(entry_credit * stop_pct * 100, 0),
+    }
+
+
     
     # Count active vs paper test
     recommended_count = sum(1 for v in batch.variants if regime.regime in v.active_in_regimes)
@@ -797,6 +840,12 @@ def send_signal_email_smtp(batch, regime, recipient: str = "onoshin333@gmail.com
         # Get roll DTE if exists
         roll_dte = getattr(variant, 'roll_dte_days', 3)
         
+        # Compute actual strike prices and entry credit
+        long_strike = regime.vix_level + variant.long_strike_offset
+        short_strike = regime.vix_level + variant.short_strike_offset
+        est_credit = estimate_entry_credit(regime.vix_level, variant.long_strike_offset, variant.long_dte_weeks)
+        price_targets = compute_price_targets(est_credit, variant.tp_pct, variant.sl_pct)
+        
         html += f"""
             <div style="border:2px solid #28a745;margin-bottom:10px;border-radius:6px;overflow:hidden;">
                 <div style="background:#28a745;color:#fff;padding:10px 15px;font-weight:bold;font-size:15px;">
@@ -805,24 +854,20 @@ def send_signal_email_smtp(batch, regime, recipient: str = "onoshin333@gmail.com
                 <div style="padding:12px;background:#f8fff8;">
                     <table style="width:100%;font-size:13px;border-collapse:collapse;">
                         <tr>
-                            <td style="padding:5px;width:50%;"><b>Entry:</b> ≤{variant.entry_percentile:.0%} percentile</td>
-                            <td style="padding:5px;"><b>Long Strike:</b> UVXY +{variant.long_strike_offset}pts</td>
+                            <td style="padding:5px;width:50%;"><b>Long Strike:</b> ${long_strike:.2f}</td>
+                            <td style="padding:5px;"><b>Short Strike:</b> ${short_strike:.2f}</td>
                         </tr>
                         <tr>
                             <td style="padding:5px;"><b>Long DTE:</b> {variant.long_dte_weeks}w</td>
-                            <td style="padding:5px;"><b>Short Strike:</b> UVXY +{variant.short_strike_offset}pts</td>
-                        </tr>
-                        <tr>
-                            <td style="padding:5px;"><b>Short DTE:</b> {variant.short_dte_weeks}w</td>
-                            <td style="padding:5px;"><b>Roll:</b> {roll_dte}d before exp</td>
+                            <td style="padding:5px;"><b>Short DTE:</b> {variant.short_dte_weeks}w (roll {roll_dte}d)</td>
                         </tr>
                         <tr style="background:#d4edda;">
-                            <td style="padding:8px;font-size:14px;"><b>💰 Allocation:</b> {variant.alloc_pct:.1%} (${alloc_dollars:,.0f})</td>
+                            <td style="padding:8px;font-size:14px;"><b>💵 Est. Credit:</b> ${est_credit:.2f}/contract</td>
                             <td style="padding:8px;font-size:14px;"><b>📦 Contracts:</b> {contracts}</td>
                         </tr>
                         <tr style="background:#d4edda;">
-                            <td style="padding:8px;"><b>🎯 Target:</b> +{variant.tp_pct:.0%}</td>
-                            <td style="padding:8px;"><b>🛑 Stop:</b> -{variant.sl_pct:.0%}</td>
+                            <td style="padding:8px;"><b>🎯 Target:</b> ${price_targets['target']:.2f} (+${price_targets['profit_per_contract']:.0f})</td>
+                            <td style="padding:8px;"><b>🛑 Stop:</b> ${price_targets['stop']:.2f} (-${price_targets['loss_per_contract']:.0f})</td>
                         </tr>
                         <tr>
                             <td colspan="2" style="padding:8px;color:#666;font-size:12px;">
@@ -1462,6 +1507,70 @@ def render_trade_log():
             ["All"] + [role.value for role in VariantRole],
             key="trade_log_variant_filter"
         )
+    
+    # Manual Trade Entry Form
+    with st.expander("➕ Add Trade Manually", expanded=False):
+        st.markdown("Record a trade you executed outside the system.")
+        
+        form_col1, form_col2 = st.columns(2)
+        with form_col1:
+            manual_variant = st.selectbox(
+                "Variant",
+                options=[role.value for role in VariantRole],
+                key="manual_trade_variant"
+            )
+            manual_entry_price = st.number_input(
+                "Entry Credit ($)",
+                min_value=0.01, max_value=50.0, value=1.50, step=0.05,
+                key="manual_trade_entry_price"
+            )
+            manual_contracts = st.number_input(
+                "Contracts",
+                min_value=1, max_value=100, value=5, step=1,
+                key="manual_trade_contracts"
+            )
+        with form_col2:
+            manual_strike = st.number_input(
+                "Strike Price",
+                min_value=1.0, max_value=200.0, value=40.0, step=0.5,
+                key="manual_trade_strike"
+            )
+            manual_expiration = st.date_input(
+                "Expiration Date",
+                key="manual_trade_expiration"
+            )
+            manual_notes = st.text_input(
+                "Notes (optional)",
+                key="manual_trade_notes"
+            )
+        
+        if st.button("📥 Record Trade", key="manual_trade_submit"):
+            try:
+                # Get variant display name
+                variant_names = {
+                    "v1_income_harvester": "V1 Income Harvester",
+                    "v2_mean_reversion": "V2 Mean Reversion",
+                    "v3_shock_absorber": "V3 Shock Absorber",
+                    "v4_tail_hunter": "V4 Tail Hunter",
+                    "v5_regime_allocator": "V5 Regime Allocator",
+                }
+                variant_name = variant_names.get(manual_variant, manual_variant)
+                
+                trade_log.create_trade(
+                    variant_id=manual_variant.upper(),
+                    variant_name=variant_name,
+                    entry_price=manual_entry_price,
+                    contracts=manual_contracts,
+                    strike=manual_strike,
+                    expiration_date=manual_expiration.isoformat() if manual_expiration else "",
+                    notes=manual_notes,
+                )
+                st.success(f"✅ Recorded {variant_name} trade!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Error: {e}")
+    
+    st.markdown("---")
     
     # Get trades based on filter
     if status_filter == "Open":

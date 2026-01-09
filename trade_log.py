@@ -406,6 +406,7 @@ class TradeLog:
         losses = sum(1 for r in self.history if r.pnl_dollars <= 0)
         
         return {
+            # New keys
             "open_positions": len(open_positions),
             "open_pnl": total_pnl,
             "total_trades": len(self.history),
@@ -413,11 +414,90 @@ class TradeLog:
             "wins": wins,
             "losses": losses,
             "win_rate": wins / max(1, wins + losses),
+            # Compatibility keys for app.py
+            "open_trades": len(open_positions),
+            "closed_trades": len(self.history),
+            "combined_pnl": history_pnl + total_pnl,
+            # Compatibility keys for app.py
+            "open_trades": len(open_positions),
+            "closed_trades": len(self.history),
+            "total_pnl": history_pnl + total_pnl,
+            "realized_pnl": history_pnl,
+            "unrealized_pnl": total_pnl,
         }
     
     def get_variant_history(self, variant_id: str) -> List[TradeRecord]:
         """Get trade history for a specific variant."""
         return [r for r in self.history if r.variant_id == variant_id]
+
+
+
+    # ============================================================
+    # Compatibility methods for app.py
+    # ============================================================
+    
+    def get_all_trades(self):
+        """Get all trades (open positions + closed history)."""
+        trades = []
+        for pos in self.positions.values():
+            trades.append({
+                "trade_id": pos.position_id,
+                "variant_id": pos.variant_id,
+                "variant_name": pos.variant_name,
+                "status": pos.status,
+                "entry_date": pos.entry_date,
+                "entry_price": pos.entry_price,
+                "current_price": pos.current_price,
+                "contracts": pos.contracts,
+                "pnl": pos.current_pnl,
+                "exit_date": pos.exit_date,
+                "exit_price": pos.exit_price,
+            })
+        for record in self.history:
+            trades.append({
+                "trade_id": record.trade_id,
+                "variant_id": record.variant_id,
+                "variant_name": record.variant_name,
+                "status": "closed",
+                "entry_date": record.entry_date,
+                "entry_price": record.entry_price,
+                "current_price": record.exit_price,
+                "contracts": record.contracts,
+                "pnl": record.pnl_dollars,
+                "exit_date": record.exit_date,
+                "exit_price": record.exit_price,
+            })
+        return trades
+    
+    def get_open_trades(self):
+        """Get only open trades."""
+        return [t for t in self.get_all_trades() if t["status"] == "open"]
+    
+    def get_closed_trades(self):
+        """Get only closed trades."""
+        return [t for t in self.get_all_trades() if t["status"] == "closed"]
+    
+    def get_trades_by_variant(self, variant_id):
+        """Get trades for a specific variant."""
+        return [t for t in self.get_all_trades() if t["variant_id"] == variant_id]
+    
+    def create_trade(self, variant_id, variant_name, entry_price, contracts=1, 
+                     entry_regime="CALM", entry_vix_level=20.0, entry_percentile=0.5, **kwargs):
+        """Create a new trade (alias for open_position)."""
+        return self.open_position(
+            variant_id=variant_id, variant_name=variant_name,
+            entry_price=entry_price, contracts=contracts,
+            entry_regime=entry_regime, entry_vix_level=entry_vix_level,
+            entry_percentile=entry_percentile, **kwargs
+        )
+    
+    def add_leg(self, trade_id, leg):
+        """Add a leg to an existing trade (placeholder)."""
+        pass
+    
+    def save(self):
+        """Explicit save."""
+        self._save()
 
 
 # ================================================================
@@ -432,3 +512,75 @@ def get_trade_log() -> TradeLog:
     if _trade_log_instance is None:
         _trade_log_instance = TradeLog()
     return _trade_log_instance
+
+# ============================================================
+# Compatibility aliases for app.py imports
+# ============================================================
+
+# Trade is an alias for Position
+Trade = Position
+
+# TradeStatus is an alias for PositionStatus
+TradeStatus = PositionStatus
+
+# Placeholder classes for leg tracking (not fully implemented yet)
+class LegSide:
+    LONG = "long"
+    SHORT = "short"
+
+class LegStatus:
+    OPEN = "open"
+    CLOSED = "closed"
+    EXPIRED = "expired"
+
+@dataclass
+class TradeLeg:
+    """Placeholder for individual leg tracking."""
+    leg_id: str = ""
+    side: str = "long"
+    strike: float = 0.0
+    expiration: str = ""
+    entry_price: float = 0.0
+    current_price: float = 0.0
+    status: str = "open"
+
+
+    # ============================================================
+# Singleton instance for app-wide use
+# ================================================================
+
+_trade_log_instance: Optional[TradeLog] = None
+
+def get_trade_log() -> TradeLog:
+    """Get the global trade log instance."""
+    global _trade_log_instance
+    if _trade_log_instance is None:
+        _trade_log_instance = TradeLog()
+    return _trade_log_instance
+
+# ============================================================
+# Compatibility aliases for app.py imports
+# ============================================================
+
+Trade = Position
+TradeStatus = PositionStatus
+
+class LegSide:
+    LONG = "long"
+    SHORT = "short"
+
+class LegStatus:
+    OPEN = "open"
+    CLOSED = "closed"
+    EXPIRED = "expired"
+
+@dataclass
+class TradeLeg:
+    """Placeholder for individual leg tracking."""
+    leg_id: str = ""
+    side: str = "long"
+    strike: float = 0.0
+    expiration: str = ""
+    entry_price: float = 0.0
+    current_price: float = 0.0
+    status: str = "open"
