@@ -118,18 +118,14 @@ def generate_signal() -> tuple[SignalBatch, RegimeState]:
     print(f"   Percentile: {percentile:.1%}")
     print(f"   5-day slope: {slope:+.3f}")
     
-    # Detect regime
-    regime = classify_regime(
-        level=current_price,
-        percentile=percentile,
-        slope=slope
-    )
+    # Detect regime - correct signature: classify_regime(data, vix_percentile, lookback)
+    regime = classify_regime(current_price, vix_percentile=percentile)
     
     print(f"\n🎯 Regime Detection:")
     print(f"   Regime: {regime.regime.value.upper()}")
     print(f"   Confidence: {regime.confidence:.0%}")
     
-    # Generate all variants
+    # Generate all 5 variants (no filtering!)
     batch = generate_all_variants(regime)
     
     active_count = sum(1 for v in batch.variants if regime.regime in v.active_in_regimes)
@@ -220,6 +216,9 @@ def build_email_html(batch: SignalBatch, regime: RegimeState) -> str:
         # Get active regimes for this variant
         active_regimes = ", ".join([r.value.upper() for r in variant.active_in_regimes])
         
+        # Get roll_dte_days with fallback
+        roll_dte = getattr(variant, 'roll_dte_days', 3)
+        
         html += f"""
         <div style="border:2px solid {border_color};margin-bottom:12px;border-radius:6px;overflow:hidden;">
             <div style="background:{header_bg};color:{header_text};padding:8px 12px;font-weight:bold;">
@@ -238,7 +237,7 @@ def build_email_html(batch: SignalBatch, regime: RegimeState) -> str:
                     </tr>
                     <tr>
                         <td style="padding:4px;"><b>Short DTE:</b> {variant.short_dte_weeks}w</td>
-                        <td style="padding:4px;"><b>Roll Threshold:</b> {variant.roll_dte_days}d</td>
+                        <td style="padding:4px;"><b>Roll Threshold:</b> {roll_dte}d</td>
                     </tr>
                     <tr style="background:{'#e8f5e9' if is_active else '#eeeeee'};">
                         <td style="padding:6px;"><b>Allocation:</b> {variant.alloc_pct:.1%} (${alloc_dollars:,.0f})</td>
@@ -372,11 +371,15 @@ def main():
             print(f"   To: {args.to}")
             print(f"   Active variants: {active_count}")
             print(f"   Suppressed variants: {len(batch.variants) - active_count}")
-            print("\n   Variants:")
+            print(f"\n   All {len(batch.variants)} variants:")
             for v in batch.variants:
                 is_active = regime.regime in v.active_in_regimes
                 status = "✅ ACTIVE" if is_active else "⏸️ SUPPRESSED"
+                active_in = ", ".join([r.value.upper() for r in v.active_in_regimes])
                 print(f"      {get_variant_display_name(v.role)}: {status}")
+                print(f"         Entry ≤{v.entry_percentile:.0%} | +{v.long_strike_offset}pts OTM | {v.long_dte_weeks}w DTE")
+                print(f"         Alloc: {v.alloc_pct:.1%} | TP: +{v.tp_pct:.0%} | SL: -{v.sl_pct:.0%}")
+                print(f"         Active in: {active_in}")
             
         else:
             # Send email
