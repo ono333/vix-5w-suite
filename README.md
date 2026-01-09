@@ -1,6 +1,17 @@
 # Position-Aware VIX 5% Weekly Suite
 
-This update transforms the email system from a **signal broadcast** into a **position-aware trading view**.
+This update transforms the system from a **signal broadcaster** into a **regime-aware, position-managed trading system**.
+
+## What's Included
+
+| File | Purpose |
+|------|---------|
+| `trade_log.py` | Position storage & tracking (backend) |
+| `daily_signal.py` | Position-aware email generator |
+| `position_ui.py` | Streamlit UI components |
+| `add_position_page.py` | Script to add Position Manager page |
+| `add_test_positions.py` | Add sample positions for testing |
+| `clear_positions.py` | Clear all positions |
 
 ## What Changed
 
@@ -25,21 +36,77 @@ This update transforms the email system from a **signal broadcast** into a **pos
 ## Installation
 
 ```bash
+cd ~/Downloads
+unzip -o position_aware_system.zip
+
 cd ~/PRR/01_vix_5w_suite
 
 # Backup existing files
 cp trade_log.py trade_log.py.backup 2>/dev/null
 cp daily_signal.py daily_signal.py.backup 2>/dev/null
 
-# Copy new files
-cp ~/Downloads/position_aware_system/trade_log.py .
-cp ~/Downloads/position_aware_system/daily_signal.py .
-cp ~/Downloads/position_aware_system/add_test_positions.py .
-cp ~/Downloads/position_aware_system/clear_positions.py .
+# Install all files
+cp ~/Downloads/position_aware_system/*.py .
+
+# Add Position Manager page to app.py
+python3 add_position_page.py
 
 # Clear cache
 find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null
+
+# Restart Streamlit
+streamlit run app.py
 ```
+
+## New UI Components
+
+### 1. Position Manager Page (Streamlit)
+
+A new page in the sidebar with three tabs:
+
+**🔄 Open Positions Tab**
+- Shows all open positions with:
+  - Entry credit & contracts
+  - Current P&L ($ and %)
+  - DTE remaining
+  - Target & stop prices
+  - Action suggestions (Hold, Take Profit, Stop Loss, Roll)
+- Close position button with exit price input
+- Update prices form to recalculate P&L
+
+**📝 Record Trade Tab**
+- Form to record actual fills:
+  - Variant selection (filters out those with positions)
+  - Entry credit received
+  - Contracts
+  - Strike price
+  - Expiration date
+  - Target/stop percentages
+- Auto-calculates target & stop prices
+- Saves to persistent trade log
+
+**📈 Performance Tab**
+- Overall metrics: Total trades, win rate, realized P&L
+- Per-variant breakdown: Trades, win rate, P&L
+- Complete trade history table
+
+### 2. Signal Suppression
+
+Entry signals are automatically suppressed for variants with open positions:
+
+```python
+from position_ui import should_suppress_entry
+
+if should_suppress_entry("V1_INCOME_HARVESTER"):
+    # Don't show entry signal - position exists
+```
+
+### 3. Position-Aware Email
+
+Email now has three sections:
+- **🔄 OPEN POSITIONS** - Management mode with P&L, DTE, actions
+- **🎯 ENTRY CANDIDATES** - Entry mode with targets
+- **🔬 PAPER TEST** - Variants to observe only
 
 ## Testing
 
