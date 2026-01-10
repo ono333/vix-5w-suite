@@ -689,6 +689,45 @@ def render_paper_sidebar() -> Dict[str, Any]:
 
 
 
+
+# ============================================================
+# Price Target Calculation Helpers
+# ============================================================
+
+def estimate_entry_credit(vix_level: float, strike_offset: float, dte_weeks: int) -> float:
+    """Estimate entry credit for diagonal spread based on VIX level."""
+    if vix_level < 15:
+        vol_mult = 0.6
+    elif vix_level < 25:
+        vol_mult = 0.8
+    elif vix_level < 40:
+        vol_mult = 1.0
+    else:
+        vol_mult = 1.3
+    
+    otm_pct = strike_offset / max(vix_level, 10)
+    short_premium = vix_level * 0.04 * vol_mult * max(0.2, 1 - otm_pct * 2)
+    
+    dte_factor = min(dte_weeks / 26, 1.5)
+    long_cost = vix_level * 0.15 * vol_mult * dte_factor
+    expected_rolls = max(1, dte_weeks // 4)
+    amortized_long = (long_cost / expected_rolls) * 0.3
+    
+    return round(max(0.10, short_premium - amortized_long), 2)
+
+
+def compute_price_targets(entry_credit: float, target_pct: float, stop_pct: float) -> dict:
+    """Compute target/stop prices from entry credit."""
+    target_price = round(entry_credit * (1 - target_pct), 2)
+    stop_price = round(entry_credit * (1 + stop_pct), 2)
+    return {
+        "target": target_price,
+        "stop": stop_price,
+        "profit_per_contract": round(entry_credit * target_pct * 100, 0),
+        "loss_per_contract": round(entry_credit * stop_pct * 100, 0),
+    }
+
+
 def send_signal_email_smtp(batch, regime, recipient: str = "onoshin333@gmail.com"):
     """Send email notification showing ALL 5 variants with contract sizes."""
     import os
@@ -707,49 +746,6 @@ def send_signal_email_smtp(batch, regime, recipient: str = "onoshin333@gmail.com
     # Constants
     ACCOUNT_SIZE = 250_000
 
-# ============================================================
-# Price Target Calculation Helpers
-# ============================================================
-
-def estimate_entry_credit(vix_level: float, strike_offset: float, dte_weeks: int) -> float:
-    """Estimate entry credit for diagonal spread based on VIX level."""
-    # Vol multiplier based on VIX environment
-    if vix_level < 15:
-        vol_mult = 0.6
-    elif vix_level < 25:
-        vol_mult = 0.8
-    elif vix_level < 40:
-        vol_mult = 1.0
-    else:
-        vol_mult = 1.3
-    
-    # Short weekly premium estimate
-    otm_pct = strike_offset / max(vix_level, 10)
-    short_premium = vix_level * 0.04 * vol_mult * max(0.2, 1 - otm_pct * 2)
-    
-    # Long LEAP cost (amortized)
-    dte_factor = min(dte_weeks / 26, 1.5)
-    long_cost = vix_level * 0.15 * vol_mult * dte_factor
-    expected_rolls = max(1, dte_weeks // 4)
-    amortized_long = (long_cost / expected_rolls) * 0.3
-    
-    net_credit = short_premium - amortized_long
-    return round(max(0.10, net_credit), 2)
-
-def compute_price_targets(entry_credit: float, target_pct: float, stop_pct: float) -> dict:
-    """Compute target/stop prices from entry credit."""
-    # For short premium: profit when price drops
-    target_price = round(entry_credit * (1 - target_pct), 2)
-    stop_price = round(entry_credit * (1 + stop_pct), 2)
-    return {
-        "target": target_price,
-        "stop": stop_price,
-        "profit_per_contract": round(entry_credit * target_pct * 100, 0),
-        "loss_per_contract": round(entry_credit * stop_pct * 100, 0),
-    }
-
-
-    
     # Count active vs paper test
     recommended_count = sum(1 for v in batch.variants if regime.regime in v.active_in_regimes)
     paper_only_count = len(batch.variants) - recommended_count
