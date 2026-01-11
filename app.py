@@ -728,6 +728,161 @@ def compute_price_targets(entry_credit: float, target_pct: float, stop_pct: floa
     }
 
 
+# ============================================================
+# Market Data Fetcher - Real Option Prices
+# ============================================================
+
+import yfinance as yf
+from functools import lru_cache
+from datetime import datetime, timedelta
+
+@lru_cache(maxsize=1)
+def _get_option_chain_cached(symbol: str, cache_key: str):
+    """Fetch option chain with caching (cache_key includes date for daily refresh)."""
+    try:
+        ticker = yf.Ticker(symbol)
+        expirations = ticker.options
+        if not expirations:
+            return None, []
+        return ticker, expirations
+    except Exception as e:
+        print(f"Error fetching options for {symbol}: {e}")
+        return None, []
+
+def get_valid_strikes(symbol: str = "UVXY") -> list:
+    """Get list of valid strikes from the market."""
+    cache_key = datetime.now().strftime("%Y-%m-%d")
+    ticker, expirations = _get_option_chain_cached(symbol, cache_key)
+    if ticker is None or not expirations:
+        return []
+    try:
+        chain = ticker.option_chain(expirations[0])
+        return sorted(chain.calls['strike'].unique().tolist())
+    except:
+        return []
+
+def round_to_valid_strike(price: float, symbol: str = "UVXY") -> float:
+    """Round a price to the nearest valid option strike."""
+    valid_strikes = get_valid_strikes(symbol)
+    if valid_strikes:
+        # Find nearest valid strike
+        return min(valid_strikes, key=lambda x: abs(x - price))
+    else:
+        # Fallback: round to nearest 0.5 for UVXY, 1.0 for VIX
+        if symbol.upper() == "UVXY":
+            return round(price * 2) / 2  # Round to 0.5
+        else:
+            return round(price)
+
+def get_option_price(symbol: str, strike: float, expiration_date: str, option_type: str = "call") -> dict:
+    """
+    Fetch real option price from Yahoo Finance.
+    
+    Returns dict with: bid, ask, mid, last, volume, open_interest, iv
+    """
+    cache_key = datetime.now().strftime("%Y-%m-%d")
+    ticker, expirations = _get_option_chain_cached(symbol, cache_key)
+    
+    if ticker is None:
+        return {"bid": 0, "ask": 0, "mid": 0, "last": 0, "error": "No data"}
+    
+    # Find closest expiration
+    target_date = datetime.strptime(expiration_date, "%Y-%m-%d").date() if isinstance(expiration_date, str) else expiration_date
+    
+    best_exp = None
+    min_diff = float('inf')
+    for exp in expirations:
+        exp_date = datetime.strptime(exp, "%Y-%m-%d").date()
+        diff = abs((exp_date - target_date).days)
+        if diff < min_diff:
+            min_diff = diff
+            best_exp = exp
+    
+    if not best_exp:
+        return {"bid": 0, "ask": 0, "mid": 0, "last": 0, "error": "No expiration"}
+    
+    try:
+        chain = ticker.option_chain(best_exp)
+        options = chain.calls if option_type.lower() == "call" else chain.puts
+        
+        # Find the strike
+        row = options[options['strike'] == strike]
+        if row.empty:
+            # Find nearest strike
+            nearest = options.iloc[(options['strike'] - strike).abs().argsort()[:1]]
+            if nearest.empty:
+                return {"bid": 0, "ask": 0, "mid": 0, "last": 0, "error": "No strike"}
+            row = nearest
+        
+        row = row.iloc[0]
+        bid = float(row.get('bid', 0) or 0)
+        ask = float(row.get('ask', 0) or 0)
+        mid = (bid + ask) / 2 if bid and ask else float(row.get('lastPrice', 0) or 0)
+        
+        return {
+            "bid": bid,
+            "ask": ask,
+            "mid": round(mid, 2),
+            "last": float(row.get('lastPrice', 0) or 0),
+            "volume": int(row.get('volume', 0) or 0),
+            "open_interest": int(row.get('openInterest', 0) or 0),
+            "iv": float(row.get('impliedVolatility', 0) or 0),
+            "expiration": best_exp,
+            "strike": float(row.get('strike', strike)),
+        }
+    except Exception as e:
+        return {"bid": 0, "ask": 0, "mid": 0, "last": 0, "error": str(e)}
+
+def get_diagonal_prices(
+    symbol: str,
+    spot_price: float,
+    long_offset: float,
+    short_offset: float,
+    long_dte_weeks: int,
+    short_dte_weeks: int = 1,
+) -> dict:
+    """
+    Get real market prices for a diagonal spread.
+    
+    Returns dict with long/short leg prices and net credit/debit.
+    """
+    from datetime import date, timedelta
+    
+    # Round to valid strikes
+    long_strike = round_to_valid_strike(spot_price + long_offset, symbol)
+    short_strike = round_to_valid_strike(spot_price + short_offset, symbol)
+    
+    # Calculate expiration dates
+    today = date.today()
+    long_exp = (today + timedelta(weeks=long_dte_weeks)).strftime("%Y-%m-%d")
+    short_exp = (today + timedelta(weeks=short_dte_weeks)).strftime("%Y-%m-%d")
+    
+    # Fetch prices
+    long_price = get_option_price(symbol, long_strike, long_exp, "call")
+    short_price = get_option_price(symbol, short_strike, short_exp, "call")
+    
+    # Calculate net
+    long_mid = long_price.get("mid", 0)
+    short_mid = short_price.get("mid", 0)
+    net_debit = long_mid - short_mid  # Positive = debit, Negative = credit
+    
+    return {
+        "long_strike": long_strike,
+        "long_expiration": long_price.get("expiration", long_exp),
+        "long_bid": long_price.get("bid", 0),
+        "long_ask": long_price.get("ask", 0),
+        "long_mid": long_mid,
+        "short_strike": short_strike,
+        "short_expiration": short_price.get("expiration", short_exp),
+        "short_bid": short_price.get("bid", 0),
+        "short_ask": short_price.get("ask", 0),
+        "short_mid": short_mid,
+        "net_debit": round(net_debit, 2),
+        "net_credit": round(-net_debit, 2) if net_debit < 0 else 0,
+    }
+
+
+
 def send_signal_email_smtp(batch, regime, recipient: str = "onoshin333@gmail.com"):
     """Send email notification showing ALL 5 variants with contract sizes."""
     import os
@@ -836,10 +991,25 @@ def send_signal_email_smtp(batch, regime, recipient: str = "onoshin333@gmail.com
         # Get roll DTE if exists
         roll_dte = getattr(variant, 'roll_dte_days', 3)
         
-        # Compute actual strike prices and entry credit
-        long_strike = regime.vix_level + variant.long_strike_offset
-        short_strike = regime.vix_level + variant.short_strike_offset
-        est_credit = estimate_entry_credit(regime.vix_level, variant.long_strike_offset, variant.long_dte_weeks)
+        # Fetch real market prices
+        try:
+            market = get_diagonal_prices(
+                symbol="UVXY",
+                spot_price=regime.vix_level,
+                long_offset=variant.long_strike_offset,
+                short_offset=variant.short_strike_offset,
+                long_dte_weeks=variant.long_dte_weeks,
+            )
+            long_strike = market["long_strike"]
+            short_strike = market["short_strike"]
+            est_credit = market["short_mid"] if market["short_mid"] > 0 else estimate_entry_credit(regime.vix_level, variant.long_strike_offset, variant.long_dte_weeks)
+            long_cost = market["long_mid"]
+        except:
+            long_strike = round(regime.vix_level + variant.long_strike_offset)
+            short_strike = round(regime.vix_level + variant.short_strike_offset)
+            est_credit = estimate_entry_credit(regime.vix_level, variant.long_strike_offset, variant.long_dte_weeks)
+            long_cost = 0
+        
         price_targets = compute_price_targets(est_credit, variant.tp_pct, variant.sl_pct)
         
         html += f"""
@@ -850,8 +1020,8 @@ def send_signal_email_smtp(batch, regime, recipient: str = "onoshin333@gmail.com
                 <div style="padding:12px;background:#f8fff8;">
                     <table style="width:100%;font-size:13px;border-collapse:collapse;">
                         <tr>
-                            <td style="padding:5px;width:50%;"><b>Long Strike:</b> ${long_strike:.2f}</td>
-                            <td style="padding:5px;"><b>Short Strike:</b> ${short_strike:.2f}</td>
+                            <td style="padding:5px;width:50%;"><b>Long Strike:</b> ${long_strike:.0f}</td>
+                            <td style="padding:5px;"><b>Short Strike:</b> ${short_strike:.0f}</td>
                         </tr>
                         <tr>
                             <td style="padding:5px;"><b>Long DTE:</b> {variant.long_dte_weeks}w</td>
@@ -920,24 +1090,20 @@ def send_signal_email_smtp(batch, regime, recipient: str = "onoshin333@gmail.com
                     </div>
                     <table style="width:100%;font-size:13px;border-collapse:collapse;">
                         <tr>
-                            <td style="padding:5px;width:50%;"><b>Entry:</b> ≤{variant.entry_percentile:.0%} percentile</td>
-                            <td style="padding:5px;"><b>Long Strike:</b> UVXY +{variant.long_strike_offset}pts</td>
+                            <td style="padding:5px;width:50%;"><b>Long Strike:</b> ${long_strike:.0f}</td>
+                            <td style="padding:5px;"><b>Short Strike:</b> ${short_strike:.0f}</td>
                         </tr>
                         <tr>
                             <td style="padding:5px;"><b>Long DTE:</b> {variant.long_dte_weeks}w</td>
-                            <td style="padding:5px;"><b>Short Strike:</b> UVXY +{variant.short_strike_offset}pts</td>
-                        </tr>
-                        <tr>
-                            <td style="padding:5px;"><b>Short DTE:</b> {variant.short_dte_weeks}w</td>
-                            <td style="padding:5px;"><b>Roll:</b> {roll_dte}d before exp</td>
+                            <td style="padding:5px;"><b>Short DTE:</b> {variant.short_dte_weeks}w (roll {roll_dte}d)</td>
                         </tr>
                         <tr style="background:#e9ecef;">
-                            <td style="padding:8px;font-size:14px;"><b>💰 Allocation:</b> {variant.alloc_pct:.1%} (${alloc_dollars:,.0f})</td>
+                            <td style="padding:8px;font-size:14px;"><b>💵 Est. Credit:</b> ${est_credit:.2f}/contract</td>
                             <td style="padding:8px;font-size:14px;"><b>📦 Contracts:</b> {contracts}</td>
                         </tr>
                         <tr style="background:#e9ecef;">
-                            <td style="padding:8px;"><b>🎯 Target:</b> +{variant.tp_pct:.0%}</td>
-                            <td style="padding:8px;"><b>🛑 Stop:</b> -{variant.sl_pct:.0%}</td>
+                            <td style="padding:8px;"><b>🎯 Target:</b> ${price_targets['target']:.2f} (+${price_targets['profit_per_contract']:.0f})</td>
+                            <td style="padding:8px;"><b>🛑 Stop:</b> ${price_targets['stop']:.2f} (-${price_targets['loss_per_contract']:.0f})</td>
                         </tr>
                         <tr>
                             <td colspan="2" style="padding:8px;color:#666;font-size:12px;">
@@ -1094,16 +1260,47 @@ def render_signal_dashboard():
                 f"({variant.variant_id})",
                 expanded=is_active
             ):
+                # Fetch real market prices
+                try:
+                    short_offset = getattr(variant, 'short_strike_offset', 2)
+                    market = get_diagonal_prices(
+                        symbol="UVXY",
+                        spot_price=regime.vix_level,
+                        long_offset=variant.long_strike_offset,
+                        short_offset=short_offset,
+                        long_dte_weeks=variant.long_dte_weeks,
+                    )
+                    long_strike = market["long_strike"]
+                    short_strike = market["short_strike"]
+                    
+                    # Use market mid if available, else estimate
+                    if market["short_mid"] > 0:
+                        est_credit = market["short_mid"]
+                    else:
+                        est_credit = estimate_entry_credit(regime.vix_level, variant.long_strike_offset, variant.long_dte_weeks)
+                    
+                    long_cost = market["long_mid"] if market["long_mid"] > 0 else 0
+                except Exception:
+                    # Fallback to estimates
+                    long_strike = round(regime.vix_level + variant.long_strike_offset)
+                    short_strike = round(regime.vix_level + getattr(variant, 'short_strike_offset', 2))
+                    est_credit = estimate_entry_credit(regime.vix_level, variant.long_strike_offset, variant.long_dte_weeks)
+                    long_cost = 0
+                
+                targets = compute_price_targets(est_credit, variant.tp_pct, variant.sl_pct)
+                
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    st.write(f"**Entry %ile:** {variant.entry_percentile:.0%}")
-                    st.write(f"**Long DTE:** {variant.long_dte_weeks}w")
+                    st.write(f"**Long Strike:** ${long_strike:.0f}")
+                    st.write(f"**Short Strike:** ${short_strike:.0f}")
                 with col2:
-                    st.write(f"**Long Strike Offset:** {variant.long_strike_offset} pts")
-                    st.write(f"**Sigma Mult:** {variant.sigma_mult}x")
+                    if long_cost > 0:
+                        st.write(f"**Long Cost:** ${long_cost:.2f}")
+                    st.write(f"**Short Credit:** ${est_credit:.2f}")
+                    st.write(f"**Long DTE:** {variant.long_dte_weeks}w")
                 with col3:
-                    st.write(f"**Target:** {variant.tp_pct:.0%}")
-                    st.write(f"**Stop:** {variant.sl_pct:.0%}")
+                    st.write(f"**Target:** ${targets['target']:.2f} (+${targets['profit_per_contract']:.0f})")
+                    st.write(f"**Stop:** ${targets['stop']:.2f} (-${targets['loss_per_contract']:.0f})")
                 
                 # Robustness score
                 robustness = calculate_robustness(variant, regime)
@@ -1504,45 +1701,94 @@ def render_trade_log():
             key="trade_log_variant_filter"
         )
     
-    # Manual Trade Entry Form
+    # Multi-Leg Trade Entry Form
     with st.expander("➕ Add Trade Manually", expanded=False):
-        st.markdown("Record a trade you executed outside the system.")
+        st.markdown("Record a diagonal spread (Long LEAP + Short Weekly) executed outside the system.")
         
-        form_col1, form_col2 = st.columns(2)
-        with form_col1:
-            manual_variant = st.selectbox(
-                "Variant",
-                options=[role.value for role in VariantRole],
-                key="manual_trade_variant"
+        manual_variant = st.selectbox(
+            "Variant",
+            options=[role.value for role in VariantRole],
+            key="manual_trade_variant"
+        )
+        
+        st.markdown("---")
+        
+        # LONG LEG
+        st.markdown("##### 📈 Long Leg (LEAP Call)")
+        long_col1, long_col2, long_col3 = st.columns(3)
+        with long_col1:
+            long_strike = st.number_input(
+                "Long Strike",
+                min_value=1.0, max_value=200.0, value=40.0, step=0.5,
+                key="manual_long_strike"
             )
-            manual_entry_price = st.number_input(
-                "Entry Credit ($)",
-                min_value=0.01, max_value=50.0, value=1.50, step=0.05,
-                key="manual_trade_entry_price"
+        with long_col2:
+            long_expiration = st.date_input(
+                "Long Expiration",
+                key="manual_long_expiration"
             )
+        with long_col3:
+            long_debit = st.number_input(
+                "Long Debit ($)",
+                min_value=0.01, max_value=50.0, value=3.50, step=0.05,
+                key="manual_long_debit",
+                help="Price paid per contract for LEAP"
+            )
+        
+        st.markdown("---")
+        
+        # SHORT LEG
+        st.markdown("##### 📉 Short Leg (Weekly Call)")
+        short_col1, short_col2, short_col3 = st.columns(3)
+        with short_col1:
+            short_strike = st.number_input(
+                "Short Strike",
+                min_value=1.0, max_value=200.0, value=38.0, step=0.5,
+                key="manual_short_strike"
+            )
+        with short_col2:
+            short_expiration = st.date_input(
+                "Short Expiration",
+                key="manual_short_expiration"
+            )
+        with short_col3:
+            short_credit = st.number_input(
+                "Short Credit ($)",
+                min_value=0.01, max_value=20.0, value=0.80, step=0.05,
+                key="manual_short_credit",
+                help="Credit received per contract for weekly"
+            )
+        
+        st.markdown("---")
+        
+        # POSITION INFO
+        pos_col1, pos_col2 = st.columns(2)
+        with pos_col1:
             manual_contracts = st.number_input(
                 "Contracts",
                 min_value=1, max_value=100, value=5, step=1,
                 key="manual_trade_contracts"
             )
-        with form_col2:
-            manual_strike = st.number_input(
-                "Strike Price",
-                min_value=1.0, max_value=200.0, value=40.0, step=0.5,
-                key="manual_trade_strike"
-            )
-            manual_expiration = st.date_input(
-                "Expiration Date",
-                key="manual_trade_expiration"
-            )
+        with pos_col2:
             manual_notes = st.text_input(
                 "Notes (optional)",
                 key="manual_trade_notes"
             )
         
-        if st.button("📥 Record Trade", key="manual_trade_submit"):
+        # Calculate net debit/credit
+        net_position = short_credit - long_debit
+        net_type = "CREDIT" if net_position > 0 else "DEBIT"
+        total_cost = abs(net_position) * manual_contracts * 100
+        
+        st.markdown(f"""
+        **Position Summary:**
+        - Net {net_type}: **${abs(net_position):.2f}** per spread
+        - Total {'Credit' if net_position > 0 else 'Cost'}: **${total_cost:.2f}** for {manual_contracts} contracts
+        - Max Risk: ${long_debit * manual_contracts * 100:.2f} (if LEAP expires worthless)
+        """)
+        
+        if st.button("📥 Record Diagonal Spread", key="manual_trade_submit"):
             try:
-                # Get variant display name
                 variant_names = {
                     "v1_income_harvester": "V1 Income Harvester",
                     "v2_mean_reversion": "V2 Mean Reversion",
@@ -1552,16 +1798,21 @@ def render_trade_log():
                 }
                 variant_name = variant_names.get(manual_variant, manual_variant)
                 
+                # Store as multi-leg trade
                 trade_log.create_trade(
                     variant_id=manual_variant.upper(),
                     variant_name=variant_name,
-                    entry_price=manual_entry_price,
+                    entry_price=abs(net_position),  # Net credit/debit
                     contracts=manual_contracts,
-                    strike=manual_strike,
-                    expiration_date=manual_expiration.isoformat() if manual_expiration else "",
+                    long_strike=long_strike,
+                    long_expiration=long_expiration.isoformat(),
+                    long_debit=long_debit,
+                    short_strike=short_strike,
+                    short_expiration=short_expiration.isoformat(),
+                    short_credit=short_credit,
                     notes=manual_notes,
                 )
-                st.success(f"✅ Recorded {variant_name} trade!")
+                st.success(f"✅ Recorded {variant_name} diagonal spread!")
                 st.rerun()
             except Exception as e:
                 st.error(f"❌ Error: {e}")
