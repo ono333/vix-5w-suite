@@ -1660,6 +1660,377 @@ Regime:      {REGIME_HISTORY_FILE}
 
 
 
+
+
+def _render_diagonal_positions(trade_log):
+    """Render diagonal positions with roll tracking."""
+    st.subheader("🔄 Diagonal Positions with Roll Tracking")
+    
+    # Get diagonal positions
+    diagonals = trade_log.get_all_diagonals()
+    open_diagonals = trade_log.get_open_diagonals()
+    needing_roll = trade_log.get_diagonals_needing_roll(dte_threshold=3)
+    
+    # Summary metrics
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Total Diagonals", len(diagonals))
+    with col2:
+        st.metric("Open", len(open_diagonals))
+    with col3:
+        st.metric("Need Roll", len(needing_roll), delta="⚠️" if needing_roll else None)
+    with col4:
+        roll_stats = trade_log.get_roll_summary()
+        st.metric("Total Roll Credits", f"${roll_stats['total_roll_credits']:,.2f}")
+    
+    # Alert for positions needing roll
+    if needing_roll:
+        st.warning(f"⚠️ {len(needing_roll)} position(s) need rolling (DTE ≤ 3 days)")
+        for pos in needing_roll:
+            short = pos.current_short_leg
+            st.error(f"🔴 {pos.variant_name}: Short ${short.strike} expires in {short.days_to_expiry()} days!")
+    
+    st.markdown("---")
+    
+    # Add new diagonal position
+    with st.expander("➕ Open New Diagonal Position", expanded=False):
+        _render_diagonal_entry_form(trade_log)
+    
+    # Display existing positions
+    if not diagonals:
+        st.info("No diagonal positions. Use the form above to create one.")
+        return
+    
+    for pos in sorted(diagonals, key=lambda p: p.entry_date, reverse=True):
+        status_icon = "🟢" if pos.status == "open" else "🔴"
+        short = pos.current_short_leg
+        pnl_color = "green" if pos.total_pnl >= 0 else "red"
+        
+        header = f"{status_icon} {pos.variant_name} | {pos.entry_date} | "
+        header += f"L${pos.long_strike} / S${short.strike if short else 'N/A'} | "
+        header += f"Rolls: {pos.total_rolls}"
+        
+        with st.expander(header, expanded=pos.status == "open"):
+            # Position details
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.markdown("**📈 Long Leg (LEAP)**")
+                st.write(f"Strike: ${pos.long_strike}")
+                st.write(f"Expiration: {pos.long_expiration}")
+                st.write(f"DTE: {pos.days_to_long_expiry()} days")
+                st.write(f"Entry: ${pos.long_entry_price:.2f}")
+                st.write(f"Current: ${pos.long_current_price:.2f}")
+                long_pnl = pos.long_pnl
+                st.markdown(f"P&L: <span style='color:{'green' if long_pnl >= 0 else 'red'}'>${long_pnl:+,.0f}</span>", unsafe_allow_html=True)
+            
+            with col2:
+                st.markdown("**📉 Short Leg (Weekly)**")
+                if short:
+                    st.write(f"Strike: ${short.strike}")
+                    st.write(f"Expiration: {short.expiration_date}")
+                    st.write(f"DTE: {short.days_to_expiry()} days")
+                    st.write(f"Credit: ${short.entry_credit:.2f}")
+                    st.write(f"Current: ${short.current_price:.2f}")
+                    st.markdown(f"P&L: <span style='color:{'green' if short.pnl >= 0 else 'red'}'>${short.pnl:+,.0f}</span>", unsafe_allow_html=True)
+                else:
+                    st.write("No active short leg")
+            
+            with col3:
+                st.markdown("**📊 Position Summary**")
+                st.write(f"Contracts: {pos.contracts}")
+                st.write(f"Total Rolls: {pos.total_rolls}")
+                st.write(f"Total Credits: ${pos.total_credits_received:.2f}")
+                st.markdown(f"**Total P&L:** <span style='color:{pnl_color}'>${pos.total_pnl:+,.0f}</span>", unsafe_allow_html=True)
+            
+            # Roll history
+            if pos.roll_history:
+                st.markdown("---")
+                st.markdown("**🔄 Roll History**")
+                roll_data = []
+                for roll in pos.roll_history:
+                    roll_data.append({
+                        "Date": roll.roll_date,
+                        "Old Strike": f"${roll.old_strike}",
+                        "New Strike": f"${roll.new_strike}",
+                        "Buy Back": f"${roll.old_exit_price:.2f}",
+                        "New Credit": f"${roll.new_credit:.2f}",
+                        "Net Credit": f"${roll.roll_credit:.2f}",
+                        "Underlying": f"${roll.underlying_price:.2f}",
+                    })
+                st.dataframe(roll_data, use_container_width=True, hide_index=True)
+            
+            # Action buttons for open positions
+            if pos.status == "open":
+                st.markdown("---")
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    if st.button("🔄 Roll Short", key=f"roll_{pos.position_id}"):
+                        st.session_state[f"rolling_{pos.position_id}"] = True
+                
+                with col2:
+                    if st.button("💰 Update Prices", key=f"update_{pos.position_id}"):
+                        st.session_state[f"updating_{pos.position_id}"] = True
+                
+                with col3:
+                    if st.button("🚪 Close Position", key=f"close_{pos.position_id}"):
+                        st.session_state[f"closing_{pos.position_id}"] = True
+                
+                # Roll form
+                if st.session_state.get(f"rolling_{pos.position_id}"):
+                    _render_roll_form(trade_log, pos)
+                
+                # Update prices form
+                if st.session_state.get(f"updating_{pos.position_id}"):
+                    _render_price_update_form(trade_log, pos)
+                
+                # Close form
+                if st.session_state.get(f"closing_{pos.position_id}"):
+                    _render_close_form(trade_log, pos)
+
+
+def _render_diagonal_entry_form(trade_log):
+    """Form to create a new diagonal position."""
+    from trade_log import DiagonalPosition
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        variant = st.selectbox(
+            "Variant",
+            options=[role.value for role in VariantRole],
+            key="diag_entry_variant"
+        )
+        contracts = st.number_input("Contracts", min_value=1, max_value=100, value=5, key="diag_entry_contracts")
+    
+    with col2:
+        entry_regime = st.selectbox("Entry Regime", ["CALM", "ELEVATED", "HIGH", "EXTREME"], key="diag_entry_regime")
+        entry_vix = st.number_input("VIX Level", min_value=10.0, max_value=80.0, value=20.0, key="diag_entry_vix")
+    
+    st.markdown("##### Long Leg")
+    lcol1, lcol2, lcol3 = st.columns(3)
+    with lcol1:
+        long_strike = st.number_input("Long Strike", min_value=1.0, value=40.0, step=0.5, key="diag_long_strike")
+    with lcol2:
+        long_exp = st.date_input("Long Expiration", key="diag_long_exp")
+    with lcol3:
+        long_price = st.number_input("Long Debit ($)", min_value=0.01, value=4.00, step=0.05, key="diag_long_price")
+    
+    st.markdown("##### Short Leg")
+    scol1, scol2, scol3 = st.columns(3)
+    with scol1:
+        short_strike = st.number_input("Short Strike", min_value=1.0, value=38.0, step=0.5, key="diag_short_strike")
+    with scol2:
+        short_exp = st.date_input("Short Expiration", key="diag_short_exp")
+    with scol3:
+        short_credit = st.number_input("Short Credit ($)", min_value=0.01, value=0.80, step=0.05, key="diag_short_credit")
+    
+    net = short_credit - long_price
+    st.info(f"Net {'Credit' if net > 0 else 'Debit'}: ${abs(net):.2f} per spread | Total: ${abs(net) * contracts * 100:.2f}")
+    
+    if st.button("✅ Open Diagonal Position", key="diag_entry_submit"):
+        try:
+            variant_names = {r.value: r.value.replace("_", " ").title() for r in VariantRole}
+            pos = trade_log.open_diagonal(
+                variant_id=variant.upper(),
+                variant_name=variant_names.get(variant, variant),
+                contracts=contracts,
+                long_strike=long_strike,
+                long_expiration=long_exp.isoformat(),
+                long_price=long_price,
+                short_strike=short_strike,
+                short_expiration=short_exp.isoformat(),
+                short_credit=short_credit,
+                entry_regime=entry_regime,
+                entry_vix_level=entry_vix,
+            )
+            st.success(f"✅ Opened diagonal position: {pos.position_id}")
+            st.rerun()
+        except Exception as e:
+            st.error(f"Error: {e}")
+
+
+def _render_roll_form(trade_log, pos):
+    """Form to roll a short leg."""
+    st.markdown("##### 🔄 Roll Short Leg")
+    
+    short = pos.current_short_leg
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.write(f"Current Short: ${short.strike} exp {short.expiration_date}")
+        exit_price = st.number_input(
+            "Buy Back Price ($)",
+            min_value=0.0, max_value=20.0, value=0.10, step=0.05,
+            key=f"roll_exit_{pos.position_id}"
+        )
+    
+    with col2:
+        new_strike = st.number_input(
+            "New Strike",
+            min_value=1.0, value=short.strike + 1.0, step=0.5,
+            key=f"roll_new_strike_{pos.position_id}"
+        )
+        new_exp = st.date_input("New Expiration", key=f"roll_new_exp_{pos.position_id}")
+        new_credit = st.number_input(
+            "New Credit ($)",
+            min_value=0.01, value=0.85, step=0.05,
+            key=f"roll_new_credit_{pos.position_id}"
+        )
+    
+    underlying = st.number_input("Current Underlying Price", min_value=1.0, value=38.0, key=f"roll_underlying_{pos.position_id}")
+    
+    net_roll = new_credit - exit_price
+    st.info(f"Net Roll {'Credit' if net_roll > 0 else 'Debit'}: ${abs(net_roll):.2f} per contract")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("✅ Execute Roll", key=f"roll_submit_{pos.position_id}"):
+            try:
+                new_leg, roll = trade_log.roll_diagonal_short(
+                    position_id=pos.position_id,
+                    exit_price=exit_price,
+                    new_strike=new_strike,
+                    new_expiration=new_exp.isoformat(),
+                    new_credit=new_credit,
+                    underlying_price=underlying,
+                    regime="CALM",
+                )
+                st.success(f"✅ Rolled: Net credit ${roll.roll_credit:.2f}")
+                st.session_state[f"rolling_{pos.position_id}"] = False
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error: {e}")
+    
+    with col2:
+        if st.button("❌ Cancel", key=f"roll_cancel_{pos.position_id}"):
+            st.session_state[f"rolling_{pos.position_id}"] = False
+            st.rerun()
+
+
+def _render_price_update_form(trade_log, pos):
+    """Form to update current prices."""
+    st.markdown("##### 💰 Update Current Prices")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        long_price = st.number_input(
+            "Long Current Price",
+            min_value=0.0, value=pos.long_current_price or pos.long_entry_price, step=0.05,
+            key=f"upd_long_{pos.position_id}"
+        )
+    with col2:
+        short = pos.current_short_leg
+        short_price = st.number_input(
+            "Short Current Price",
+            min_value=0.0, value=short.current_price if short else 0.0, step=0.05,
+            key=f"upd_short_{pos.position_id}"
+        )
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("✅ Update", key=f"upd_submit_{pos.position_id}"):
+            trade_log.update_diagonal_prices(pos.position_id, long_price, short_price)
+            st.success("✅ Prices updated")
+            st.session_state[f"updating_{pos.position_id}"] = False
+            st.rerun()
+    with col2:
+        if st.button("❌ Cancel", key=f"upd_cancel_{pos.position_id}"):
+            st.session_state[f"updating_{pos.position_id}"] = False
+            st.rerun()
+
+
+def _render_close_form(trade_log, pos):
+    """Form to close a diagonal position."""
+    st.markdown("##### 🚪 Close Position")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        long_exit = st.number_input(
+            "Long Exit Price",
+            min_value=0.0, value=pos.long_current_price or 0.0, step=0.05,
+            key=f"close_long_{pos.position_id}"
+        )
+    with col2:
+        short = pos.current_short_leg
+        short_exit = st.number_input(
+            "Short Exit Price",
+            min_value=0.0, value=short.current_price if short else 0.0, step=0.05,
+            key=f"close_short_{pos.position_id}"
+        )
+    
+    reason = st.selectbox(
+        "Exit Reason",
+        ["target_hit", "stop_hit", "manual", "expired"],
+        key=f"close_reason_{pos.position_id}"
+    )
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("✅ Close Position", key=f"close_submit_{pos.position_id}"):
+            trade_log.close_diagonal(pos.position_id, long_exit, short_exit, reason)
+            st.success("✅ Position closed")
+            st.session_state[f"closing_{pos.position_id}"] = False
+            st.rerun()
+    with col2:
+        if st.button("❌ Cancel", key=f"close_cancel_{pos.position_id}"):
+            st.session_state[f"closing_{pos.position_id}"] = False
+            st.rerun()
+
+
+def _render_roll_analytics(trade_log):
+    """Render roll analytics and statistics."""
+    st.subheader("📊 Roll Analytics")
+    
+    roll_stats = trade_log.get_roll_summary()
+    
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Total Rolls", roll_stats["total_rolls"])
+    with col2:
+        st.metric("Positions with Rolls", roll_stats["positions_with_rolls"])
+    with col3:
+        st.metric("Total Roll Credits", f"${roll_stats['total_roll_credits']:,.2f}")
+    with col4:
+        st.metric("Avg Roll Credit", f"${roll_stats['avg_roll_credit']:.2f}")
+    
+    # Roll history across all positions
+    st.markdown("---")
+    st.markdown("**All Rolls**")
+    
+    all_rolls = []
+    for pos in trade_log.get_all_diagonals():
+        for roll in pos.roll_history:
+            all_rolls.append({
+                "Date": roll.roll_date,
+                "Position": pos.variant_name,
+                "Old Strike": f"${roll.old_strike}",
+                "New Strike": f"${roll.new_strike}",
+                "Buy Back": f"${roll.old_exit_price:.2f}",
+                "New Credit": f"${roll.new_credit:.2f}",
+                "Net Credit": f"${roll.roll_credit:.2f}",
+                "Underlying": f"${roll.underlying_price:.2f}",
+            })
+    
+    if all_rolls:
+        import pandas as pd
+        df = pd.DataFrame(all_rolls)
+        st.dataframe(df, use_container_width=True, hide_index=True)
+        
+        # Download button
+        csv = df.to_csv(index=False)
+        st.download_button(
+            "📥 Download Roll History",
+            csv,
+            "roll_history.csv",
+            "text/csv",
+        )
+    else:
+        st.info("No rolls recorded yet.")
+
+
+
+
 def render_trade_log():
     """Trade Log - View and manage all paper trades."""
     st.title("📒 Trade Log")
@@ -1686,22 +2057,32 @@ def render_trade_log():
     
     st.markdown("---")
     
-    # Filters
-    col1, col2 = st.columns(2)
-    with col1:
-        status_filter = st.selectbox(
-            "Filter by Status",
-            ["All", "Open", "Closed"],
-            key="trade_log_status_filter"
-        )
-    with col2:
-        variant_filter = st.selectbox(
-            "Filter by Variant",
-            ["All"] + [role.value for role in VariantRole],
-            key="trade_log_variant_filter"
-        )
+    # Tabs for different views
+    tab1, tab2, tab3 = st.tabs(["📋 Simple Trades", "🔄 Diagonal Positions", "📊 Roll Analytics"])
     
-    # Multi-Leg Trade Entry Form
+    with tab2:
+        _render_diagonal_positions(trade_log)
+    
+    with tab3:
+        _render_roll_analytics(trade_log)
+    
+    with tab1:
+        # Filters for simple trades
+        col1, col2 = st.columns(2)
+        with col1:
+            status_filter = st.selectbox(
+                "Filter by Status",
+                ["All", "Open", "Closed"],
+                key="trade_log_status_filter"
+            )
+        with col2:
+            variant_filter = st.selectbox(
+                "Filter by Variant",
+                ["All"] + [role.value for role in VariantRole],
+                key="trade_log_variant_filter"
+            )
+        
+        # Multi-Leg Trade Entry Form
     with st.expander("➕ Add Trade Manually", expanded=False):
         st.markdown("Record a diagonal spread (Long LEAP + Short Weekly) executed outside the system.")
         
