@@ -883,6 +883,150 @@ def get_diagonal_prices(
 
 
 
+
+
+def update_diagonal_live_prices(trade_log, position_id: str = None, symbol: str = "UVXY") -> dict:
+    """
+    Fetch live prices and update P&L for diagonal position(s).
+    
+    Args:
+        trade_log: TradeLog instance
+        position_id: Specific position to update (None = all open)
+        symbol: Underlying symbol
+    
+    Returns:
+        dict with update results
+    """
+    import yfinance as yf
+    
+    results = {"updated": 0, "errors": [], "positions": []}
+    
+    # Get positions to update
+    if position_id:
+        positions = [trade_log.get_diagonal(position_id)]
+        positions = [p for p in positions if p]
+    else:
+        positions = trade_log.get_open_diagonals()
+    
+    if not positions:
+        return results
+    
+    # Get current underlying price
+    try:
+        ticker = yf.Ticker(symbol)
+        spot = ticker.info.get('regularMarketPrice') or ticker.info.get('previousClose', 0)
+    except:
+        spot = 0
+    
+    for pos in positions:
+        try:
+            # Fetch long leg price
+            long_price_data = get_option_price(
+                symbol=symbol,
+                strike=pos.long_strike,
+                expiration_date=pos.long_expiration,
+                option_type="call"
+            )
+            long_mid = long_price_data.get("mid", 0)
+            
+            # Fetch short leg price (if active)
+            short_mid = 0
+            short = pos.current_short_leg
+            if short and short.status == "open":
+                short_price_data = get_option_price(
+                    symbol=symbol,
+                    strike=short.strike,
+                    expiration_date=short.expiration_date,
+                    option_type="call"
+                )
+                short_mid = short_price_data.get("mid", 0)
+            
+            # Update position
+            trade_log.update_diagonal_prices(pos.position_id, long_mid, short_mid)
+            
+            # Calculate P&L
+            long_pnl = (long_mid - pos.long_entry_price) * 100 * pos.contracts
+            short_pnl = pos.short_pnl if short else 0
+            total_pnl = long_pnl + short_pnl
+            
+            results["positions"].append({
+                "position_id": pos.position_id,
+                "variant": pos.variant_name,
+                "spot": spot,
+                "long_price": long_mid,
+                "short_price": short_mid,
+                "long_pnl": long_pnl,
+                "short_pnl": short_pnl,
+                "total_pnl": total_pnl,
+            })
+            results["updated"] += 1
+            
+        except Exception as e:
+            results["errors"].append(f"{pos.position_id}: {str(e)}")
+    
+    return results
+
+
+def get_position_live_summary(trade_log, symbol: str = "UVXY") -> list:
+    """
+    Get live P&L summary for all open diagonal positions.
+    Returns list of dicts suitable for display.
+    """
+    import yfinance as yf
+    
+    positions = trade_log.get_open_diagonals()
+    if not positions:
+        return []
+    
+    # Get spot price once
+    try:
+        ticker = yf.Ticker(symbol)
+        spot = ticker.info.get('regularMarketPrice') or ticker.info.get('previousClose', 0)
+    except:
+        spot = 0
+    
+    summaries = []
+    for pos in positions:
+        short = pos.current_short_leg
+        
+        # Use stored current prices
+        long_pnl = pos.long_pnl
+        short_pnl = pos.short_pnl
+        total_pnl = pos.total_pnl
+        
+        # Entry cost
+        entry_cost = pos.long_entry_price * pos.contracts * 100
+        if pos.short_legs:
+            entry_cost -= pos.short_legs[0].entry_credit * pos.contracts * 100
+        
+        # Return %
+        pnl_pct = (total_pnl / entry_cost * 100) if entry_cost > 0 else 0
+        
+        summaries.append({
+            "Position": pos.position_id,
+            "Variant": pos.variant_name,
+            "Contracts": pos.contracts,
+            "Long Strike": f"${pos.long_strike}",
+            "Long DTE": pos.days_to_long_expiry(),
+            "Long Price": f"${pos.long_current_price:.2f}",
+            "Short Strike": f"${short.strike}" if short else "N/A",
+            "Short DTE": short.days_to_expiry() if short else 0,
+            "Short Price": f"${short.current_price:.2f}" if short else "N/A",
+            "Long P&L": f"${long_pnl:+,.0f}",
+            "Short P&L": f"${short_pnl:+,.0f}",
+            "Total P&L": f"${total_pnl:+,.0f}",
+            "Return %": f"{pnl_pct:+.1f}%",
+            "Rolls": pos.total_rolls,
+            "Roll Credits": f"${pos.total_roll_credits:.2f}",
+            "Need Roll": "⚠️" if pos.should_roll() else "✓",
+            "_total_pnl": total_pnl,  # For sorting
+            "_spot": spot,
+        })
+    
+    return sorted(summaries, key=lambda x: x["_total_pnl"], reverse=True)
+
+
+
 def send_signal_email_smtp(batch, regime, recipient: str = "onoshin333@gmail.com"):
     """Send email notification showing ALL 5 variants with contract sizes."""
     import os
@@ -1157,6 +1301,154 @@ def send_signal_email_smtp(batch, regime, recipient: str = "onoshin333@gmail.com
         return True, f"Email sent to {recipient}! (5 variants: {recommended_count} recommended, {paper_only_count} paper test)"
     except Exception as e:
         return False, f"Email failed: {e}"
+
+
+def send_roll_notification_email(positions_needing_roll, recipient: str = "onoshin333@gmail.com"):
+    """Send email notification when positions need rolling."""
+    import os
+    import smtplib
+    from email.mime.text import MIMEText
+    from email.mime.multipart import MIMEMultipart
+    from datetime import datetime, timedelta
+    
+    if not positions_needing_roll:
+        return False, "No positions need rolling"
+    
+    smtp_server = os.environ.get("SMTP_SERVER", "smtp.gmail.com")
+    smtp_port = int(os.environ.get("SMTP_PORT", 587))
+    smtp_user = os.environ.get("SMTP_USER")
+    smtp_pass = os.environ.get("SMTP_PASS")
+    
+    if not smtp_user or not smtp_pass:
+        return False, "SMTP credentials missing"
+    
+    # Get current UVXY price for suggestions
+    try:
+        import yfinance as yf
+        ticker = yf.Ticker("UVXY")
+        current_price = ticker.info.get('regularMarketPrice') or ticker.fast_info.get('lastPrice', 38.0)
+    except:
+        current_price = 38.0
+    
+    # Calculate suggested strikes
+    suggested_strikes = {
+        "conservative": round(current_price * 1.02, 0),
+        "moderate": round(current_price * 1.05, 0),
+        "aggressive": round(current_price * 1.10, 0),
+    }
+    
+    # Next Friday
+    today = datetime.now()
+    days_until_friday = (4 - today.weekday()) % 7
+    if days_until_friday == 0:
+        days_until_friday = 7
+    next_friday = today + timedelta(days=days_until_friday)
+    
+    # Build position rows
+    position_rows = ""
+    total_contracts = 0
+    for pos in positions_needing_roll:
+        short = pos.current_short_leg
+        dte = short.days_to_expiry() if short else 0
+        dte_color = "#dc3545" if dte <= 0 else "#ffc107" if dte <= 3 else "#28a745"
+        
+        position_rows += f"""
+        <tr style="border-bottom:1px solid #dee2e6;">
+            <td style="padding:10px;font-weight:bold;">{pos.variant_name}</td>
+            <td style="padding:10px;">{pos.contracts}</td>
+            <td style="padding:10px;">${pos.long_strike:.0f}</td>
+            <td style="padding:10px;">{f'${short.strike:.0f}' if short else 'N/A'}</td>
+            <td style="padding:10px;color:{dte_color};font-weight:bold;">{dte} days</td>
+            <td style="padding:10px;">{f'${short.entry_credit:.2f}' if short else '$0.00'}</td>
+        </tr>
+        """
+        total_contracts += pos.contracts
+    
+    subject = f"🔄 ROLL ALERT: {len(positions_needing_roll)} position(s) expiring soon!"
+    
+    html = f"""
+    <html>
+    <body style="font-family:Arial,sans-serif;font-size:14px;background:#fff;color:#333;padding:20px;max-width:850px;margin:0 auto;">
+    
+    <div style="text-align:center;border-bottom:3px solid #ffc107;padding-bottom:15px;margin-bottom:20px;">
+        <span style="font-size:24px;font-weight:bold;color:#ffc107;">🔄 ROLL ALERT</span><br>
+        <span style="font-size:14px;color:#666;">{datetime.now().strftime('%Y-%m-%d %H:%M')}</span>
+    </div>
+    
+    <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:15px;margin-bottom:20px;">
+        <strong>⚠️ {len(positions_needing_roll)} position(s) need rolling!</strong><br>
+        Short legs are expiring within 3 days. Review and roll to maintain income.
+    </div>
+    
+    <div style="background:#f8f9fa;border:1px solid #dee2e6;border-radius:8px;padding:15px;margin-bottom:20px;">
+        <div style="font-weight:bold;margin-bottom:10px;">📊 Current Market</div>
+        <table style="width:100%;">
+            <tr>
+                <td><strong>UVXY:</strong> ${current_price:.2f}</td>
+                <td><strong>Suggested Exp:</strong> {next_friday.strftime('%Y-%m-%d')} (Friday)</td>
+            </tr>
+        </table>
+    </div>
+    
+    <div style="background:#e7f3ff;border:1px solid #b6d4fe;border-radius:8px;padding:15px;margin-bottom:20px;">
+        <div style="font-weight:bold;margin-bottom:10px;">💡 Suggested New Strikes</div>
+        <table style="width:100%;">
+            <tr>
+                <td>🟢 Conservative (2% OTM): <strong>${suggested_strikes['conservative']:.0f}</strong></td>
+                <td>🟡 Moderate (5% OTM): <strong>${suggested_strikes['moderate']:.0f}</strong></td>
+                <td>🔴 Aggressive (10% OTM): <strong>${suggested_strikes['aggressive']:.0f}</strong></td>
+            </tr>
+        </table>
+    </div>
+    
+    <div style="margin-bottom:20px;">
+        <div style="font-weight:bold;margin-bottom:10px;">📋 Positions Needing Roll</div>
+        <table style="width:100%;border-collapse:collapse;border:1px solid #dee2e6;">
+            <tr style="background:#f8f9fa;">
+                <th style="padding:10px;text-align:left;">Variant</th>
+                <th style="padding:10px;text-align:left;">Contracts</th>
+                <th style="padding:10px;text-align:left;">Long Strike</th>
+                <th style="padding:10px;text-align:left;">Short Strike</th>
+                <th style="padding:10px;text-align:left;">DTE</th>
+                <th style="padding:10px;text-align:left;">Credit Rcvd</th>
+            </tr>
+            {position_rows}
+        </table>
+    </div>
+    
+    <div style="background:#d4edda;border:1px solid #c3e6cb;border-radius:8px;padding:15px;margin-bottom:20px;">
+        <strong>📝 Action Required:</strong>
+        <ol>
+            <li>Review current short positions</li>
+            <li>If short is near $0, use "🎉 Expire Profit" button</li>
+            <li>Then roll into new short at suggested strike</li>
+            <li>Or use "🔄 Roll" to buy back and sell new in one step</li>
+        </ol>
+    </div>
+    
+    <div style="text-align:center;color:#6c757d;font-size:12px;margin-top:20px;">
+        VIX 5% Weekly Suite — Roll Notification
+    </div>
+    
+    </body>
+    </html>
+    """
+    
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = smtp_user
+    msg["To"] = recipient
+    msg.attach(MIMEText(html, "html"))
+    
+    try:
+        with smtplib.SMTP(smtp_server, smtp_port) as server:
+            server.starttls()
+            server.login(smtp_user, smtp_pass)
+            server.sendmail(smtp_user, recipient, msg.as_string())
+        return True, f"Roll notification sent to {recipient}"
+    except Exception as e:
+        return False, str(e)
+
 
 def render_signal_dashboard():
     """Signal Dashboard - Generate and freeze signals (Thursday 4:30 PM focus)."""
@@ -1689,6 +1981,38 @@ def _render_diagonal_positions(trade_log):
         for pos in needing_roll:
             short = pos.current_short_leg
             st.error(f"🔴 {pos.variant_name}: Short ${short.strike} expires in {short.days_to_expiry()} days!")
+        
+        # Send roll alert email button
+        col1, col2 = st.columns([1, 3])
+        with col1:
+            if st.button("📧 Send Roll Alert Email", key="send_roll_email"):
+                success, msg = send_roll_notification_email(needing_roll)
+                if success:
+                    st.success(f"✅ {msg}")
+                else:
+                    st.error(f"❌ {msg}")
+    
+    # Live P&L Summary Table
+    if open_diagonals:
+        st.markdown("### 📊 Live P&L Summary")
+        summaries = get_position_live_summary(trade_log, symbol="UVXY")
+        if summaries:
+            import pandas as pd
+            # Remove internal columns for display
+            display_data = [{k: v for k, v in s.items() if not k.startswith('_')} for s in summaries]
+            df = pd.DataFrame(display_data)
+            
+            # Style the dataframe
+            st.dataframe(
+                df,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Total P&L": st.column_config.TextColumn("Total P&L", help="Combined long + short P&L"),
+                    "Return %": st.column_config.TextColumn("Return %", help="Return on entry cost"),
+                    "Need Roll": st.column_config.TextColumn("Roll?", help="⚠️ = needs roll soon"),
+                }
+            )
     
     st.markdown("---")
     
@@ -1741,7 +2065,8 @@ def _render_diagonal_positions(trade_log):
                 st.write(f"Contracts: {pos.contracts}")
                 st.write(f"Total Rolls: {pos.total_rolls}")
                 st.write(f"Total Credits: ${pos.total_credits_received:.2f}")
-                st.markdown(f"**Total P&L:** <span style='color:{pnl_color}'>${pos.total_pnl:+,.0f}</span>", unsafe_allow_html=True)
+                st.write(f"Commissions: ${pos.total_commissions:.2f}")
+                st.markdown(f"**Total P&L:** <span style='color:{pnl_color}'>${pos.total_pnl:+,.0f}</span> (net of fees)", unsafe_allow_html=True)
             
             # Roll history
             if pos.roll_history:
@@ -1760,34 +2085,78 @@ def _render_diagonal_positions(trade_log):
                     })
                 st.dataframe(roll_data, use_container_width=True, hide_index=True)
             
-            # Action buttons for open positions
+            # Action buttons
+            st.markdown("---")
+            
             if pos.status == "open":
-                st.markdown("---")
-                col1, col2, col3 = st.columns(3)
+                col1, col2, col3, col4, col5, col6 = st.columns(6)
                 
                 with col1:
-                    if st.button("🔄 Roll Short", key=f"roll_{pos.position_id}"):
-                        st.session_state[f"rolling_{pos.position_id}"] = True
+                    roll_clicked = st.button("🔄 Roll", key=f"roll_{pos.position_id}")
                 
                 with col2:
-                    if st.button("💰 Update Prices", key=f"update_{pos.position_id}"):
-                        st.session_state[f"updating_{pos.position_id}"] = True
+                    expire_clicked = st.button("🎉 Expire Profit", key=f"expire_{pos.position_id}", 
+                                               help="Mark short as expired worthless (keep LEAP)")
                 
                 with col3:
-                    if st.button("🚪 Close Position", key=f"close_{pos.position_id}"):
-                        st.session_state[f"closing_{pos.position_id}"] = True
+                    update_clicked = st.button("💰 Prices", key=f"update_{pos.position_id}")
                 
-                # Roll form
+                with col4:
+                    close_clicked = st.button("🚪 Close", key=f"close_{pos.position_id}")
+                
+                with col5:
+                    edit_clicked = st.button("✏️ Edit", key=f"edit_{pos.position_id}")
+                
+                with col6:
+                    delete_clicked = st.button("🗑️ Del", key=f"delete_{pos.position_id}")
+                
+                # Handle button clicks
+                if roll_clicked:
+                    st.session_state[f"rolling_{pos.position_id}"] = True
+                if expire_clicked:
+                    st.session_state[f"expiring_{pos.position_id}"] = True
+                if update_clicked:
+                    st.session_state[f"updating_{pos.position_id}"] = True
+                if close_clicked:
+                    st.session_state[f"closing_{pos.position_id}"] = True
+                if edit_clicked:
+                    st.session_state[f"editing_{pos.position_id}"] = True
+                if delete_clicked:
+                    st.session_state[f"deleting_{pos.position_id}"] = True
+                
+                # Render forms based on state
                 if st.session_state.get(f"rolling_{pos.position_id}"):
                     _render_roll_form(trade_log, pos)
-                
-                # Update prices form
+                if st.session_state.get(f"expiring_{pos.position_id}"):
+                    _render_expire_confirm(trade_log, pos)
                 if st.session_state.get(f"updating_{pos.position_id}"):
                     _render_price_update_form(trade_log, pos)
-                
-                # Close form
                 if st.session_state.get(f"closing_{pos.position_id}"):
                     _render_close_form(trade_log, pos)
+                if st.session_state.get(f"editing_{pos.position_id}"):
+                    _render_edit_form(trade_log, pos)
+                if st.session_state.get(f"deleting_{pos.position_id}"):
+                    _render_delete_confirm(trade_log, pos)
+            
+            else:
+                # Closed positions can still be edited or deleted
+                col1, col2 = st.columns(2)
+                with col1:
+                    edit_clicked = st.button("✏️ Edit", key=f"edit_closed_{pos.position_id}")
+                with col2:
+                    delete_clicked = st.button("🗑️ Delete", key=f"delete_closed_{pos.position_id}")
+                
+                if edit_clicked:
+                    st.session_state[f"editing_{pos.position_id}"] = True
+                if delete_clicked:
+                    st.session_state[f"deleting_{pos.position_id}"] = True
+                
+                if st.session_state.get(f"editing_{pos.position_id}"):
+                    _render_edit_form(trade_log, pos)
+                if st.session_state.get(f"deleting_{pos.position_id}"):
+                    _render_delete_confirm(trade_log, pos)
+                
+
 
 
 def _render_diagonal_entry_form(trade_log):
@@ -1825,8 +2194,17 @@ def _render_diagonal_entry_form(trade_log):
     with scol3:
         short_credit = st.number_input("Short Credit ($)", min_value=0.01, value=0.80, step=0.05, key="diag_short_credit")
     
+    # Commission settings
+    fee_per_contract = st.number_input(
+        "Commission per contract ($)",
+        min_value=0.0, max_value=5.0, value=0.65, step=0.05,
+        key="diag_fee_per_contract",
+        help="Broker fee per contract (e.g., $0.65 for most brokers)"
+    )
+    
     net = short_credit - long_price
-    st.info(f"Net {'Credit' if net > 0 else 'Debit'}: ${abs(net):.2f} per spread | Total: ${abs(net) * contracts * 100:.2f}")
+    total_commission = fee_per_contract * contracts * 2  # Long buy + Short sell
+    st.info(f"Net {'Credit' if net > 0 else 'Debit'}: ${abs(net):.2f} per spread | Total: ${abs(net) * contracts * 100:.2f} | Est. Commission: ${total_commission:.2f}")
     
     if st.button("✅ Open Diagonal Position", key="diag_entry_submit"):
         try:
@@ -1843,6 +2221,7 @@ def _render_diagonal_entry_form(trade_log):
                 short_credit=short_credit,
                 entry_regime=entry_regime,
                 entry_vix_level=entry_vix,
+                fee_per_contract=fee_per_contract,
             )
             st.success(f"✅ Opened diagonal position: {pos.position_id}")
             st.rerun()
@@ -1851,34 +2230,72 @@ def _render_diagonal_entry_form(trade_log):
 
 
 def _render_roll_form(trade_log, pos):
-    """Form to roll a short leg."""
+    """Form to roll a short leg with smart suggestions."""
     st.markdown("##### 🔄 Roll Short Leg")
     
     short = pos.current_short_leg
+    
+    # Get current underlying price for suggestions
+    try:
+        import yfinance as yf
+        ticker = yf.Ticker("UVXY")
+        current_price = ticker.info.get('regularMarketPrice') or ticker.fast_info.get('lastPrice', 38.0)
+    except:
+        current_price = 38.0
+    
+    # Roll suggestions based on position type
+    st.markdown("##### 💡 Roll Suggestions")
+    suggested_strikes = [
+        round(current_price * 1.02, 0),  # 2% OTM
+        round(current_price * 1.05, 0),  # 5% OTM  
+        round(current_price * 1.10, 0),  # 10% OTM
+    ]
+    
+    # Suggest next Friday expiration
+    from datetime import datetime, timedelta
+    today = datetime.now()
+    days_until_friday = (4 - today.weekday()) % 7
+    if days_until_friday == 0:
+        days_until_friday = 7  # Next week if today is Friday
+    suggested_exp = today + timedelta(days=days_until_friday)
+    
+    st.info(f"""
+    **Current UVXY:** ${current_price:.2f}
+    
+    **Suggested Strikes (OTM):**
+    - Conservative (2% OTM): ${suggested_strikes[0]:.0f}
+    - Moderate (5% OTM): ${suggested_strikes[1]:.0f}  
+    - Aggressive (10% OTM): ${suggested_strikes[2]:.0f}
+    
+    **Suggested Expiration:** {suggested_exp.strftime('%Y-%m-%d')} (next Friday)
+    """)
+    
+    st.markdown("---")
     
     col1, col2 = st.columns(2)
     with col1:
         st.write(f"Current Short: ${short.strike} exp {short.expiration_date}")
         exit_price = st.number_input(
             "Buy Back Price ($)",
-            min_value=0.0, max_value=20.0, value=0.10, step=0.05,
-            key=f"roll_exit_{pos.position_id}"
+            min_value=0.0, max_value=20.0, value=0.05, step=0.01,
+            key=f"roll_exit_{pos.position_id}",
+            help="If expired worthless, enter 0"
         )
     
     with col2:
         new_strike = st.number_input(
             "New Strike",
-            min_value=1.0, value=short.strike + 1.0, step=0.5,
+            min_value=1.0, value=float(suggested_strikes[1]), step=0.5,
             key=f"roll_new_strike_{pos.position_id}"
         )
-        new_exp = st.date_input("New Expiration", key=f"roll_new_exp_{pos.position_id}")
+        new_exp = st.date_input("New Expiration", value=suggested_exp.date(), key=f"roll_new_exp_{pos.position_id}")
         new_credit = st.number_input(
             "New Credit ($)",
-            min_value=0.01, value=0.85, step=0.05,
+            min_value=0.01, value=0.20, step=0.05,
             key=f"roll_new_credit_{pos.position_id}"
         )
     
-    underlying = st.number_input("Current Underlying Price", min_value=1.0, value=38.0, key=f"roll_underlying_{pos.position_id}")
+    underlying = st.number_input("Current Underlying Price", min_value=1.0, value=current_price, key=f"roll_underlying_{pos.position_id}")
     
     net_roll = new_credit - exit_price
     st.info(f"Net Roll {'Credit' if net_roll > 0 else 'Debit'}: ${abs(net_roll):.2f} per contract")
@@ -1978,6 +2395,199 @@ def _render_close_form(trade_log, pos):
             st.rerun()
 
 
+
+
+def _render_edit_form(trade_log, pos):
+    """Form to edit a diagonal position."""
+    st.markdown("##### ✏️ Edit Position")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        new_variant = st.text_input(
+            "Variant Name",
+            value=pos.variant_name,
+            key=f"edit_variant_{pos.position_id}"
+        )
+        new_contracts = st.number_input(
+            "Contracts",
+            min_value=1, max_value=1000,
+            value=pos.contracts,
+            key=f"edit_contracts_{pos.position_id}"
+        )
+        new_regime = st.selectbox(
+            "Entry Regime",
+            ["CALM", "ELEVATED", "HIGH", "EXTREME", "DECLINING", "RISING", "STRESSED"],
+            index=0,
+            key=f"edit_regime_{pos.position_id}"
+        )
+    
+    with col2:
+        new_notes = st.text_area(
+            "Notes",
+            value=pos.notes or "",
+            key=f"edit_notes_{pos.position_id}"
+        )
+        new_commissions = st.number_input(
+            "Total Commissions ($)",
+            min_value=0.0, 
+            value=float(pos.total_commissions) if pos.total_commissions else 0.0,
+            step=0.65,
+            key=f"edit_commissions_{pos.position_id}",
+            help="Cumulative commissions paid (entry + rolls)"
+        )
+        new_fee = st.number_input(
+            "Fee per Contract ($)",
+            min_value=0.0, max_value=5.0,
+            value=float(pos.fee_per_contract) if pos.fee_per_contract else 0.65,
+            step=0.05,
+            key=f"edit_fee_{pos.position_id}",
+            help="Broker fee per contract for future rolls"
+        )
+    
+    st.markdown("**Long Leg**")
+    lcol1, lcol2, lcol3 = st.columns(3)
+    with lcol1:
+        new_long_strike = st.number_input(
+            "Long Strike",
+            min_value=1.0, value=float(pos.long_strike), step=0.5,
+            key=f"edit_long_strike_{pos.position_id}"
+        )
+    with lcol2:
+        new_long_exp = st.text_input(
+            "Long Expiration (YYYY-MM-DD)",
+            value=pos.long_expiration,
+            key=f"edit_long_exp_{pos.position_id}"
+        )
+    with lcol3:
+        new_long_price = st.number_input(
+            "Long Entry Price",
+            min_value=0.01, value=float(pos.long_entry_price), step=0.05,
+            key=f"edit_long_price_{pos.position_id}"
+        )
+    
+    st.markdown("**Short Leg**")
+    short = pos.current_short_leg
+    scol1, scol2, scol3 = st.columns(3)
+    with scol1:
+        new_short_strike = st.number_input(
+            "Short Strike",
+            min_value=1.0, value=float(short.strike) if short else 38.0, step=0.5,
+            key=f"edit_short_strike_{pos.position_id}"
+        )
+    with scol2:
+        new_short_exp = st.text_input(
+            "Short Expiration (YYYY-MM-DD)",
+            value=short.expiration_date if short else "",
+            key=f"edit_short_exp_{pos.position_id}"
+        )
+    with scol3:
+        new_short_credit = st.number_input(
+            "Short Credit",
+            min_value=0.01, value=float(short.entry_credit) if short else 0.50, step=0.05,
+            key=f"edit_short_credit_{pos.position_id}"
+        )
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("✅ Save Changes", key=f"edit_save_{pos.position_id}"):
+            try:
+                # Update main position
+                trade_log.update_diagonal(
+                    pos.position_id,
+                    variant_name=new_variant,
+                    contracts=new_contracts,
+                    long_strike=new_long_strike,
+                    long_expiration=new_long_exp,
+                    long_entry_price=new_long_price,
+                    entry_regime=new_regime,
+                    notes=new_notes,
+                    total_commissions=new_commissions,
+                    fee_per_contract=new_fee,
+                )
+                
+                # Update short leg if exists
+                if short:
+                    trade_log.update_diagonal_short_leg(
+                        pos.position_id,
+                        strike=new_short_strike,
+                        expiration_date=new_short_exp,
+                        entry_credit=new_short_credit,
+                    )
+                
+                st.success("✅ Position updated!")
+                st.session_state[f"editing_{pos.position_id}"] = False
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error: {e}")
+    
+    with col2:
+        if st.button("❌ Cancel", key=f"edit_cancel_{pos.position_id}"):
+            st.session_state[f"editing_{pos.position_id}"] = False
+            st.rerun()
+
+
+def _render_expire_confirm(trade_log, pos):
+    """Confirmation dialog for expiring short worthless."""
+    st.markdown("##### 🎉 Short Expired Worthless - Profit!")
+    
+    short = pos.current_short_leg
+    if not short:
+        st.warning("No open short leg to expire")
+        if st.button("❌ Cancel", key=f"expire_cancel_no_short_{pos.position_id}"):
+            st.session_state[f"expiring_{pos.position_id}"] = False
+            st.rerun()
+        return
+    
+    credit_received = short.entry_credit * pos.contracts * 100
+    
+    st.success(f"""
+    **Short leg expired OTM (out-of-the-money)**
+    
+    - Strike: ${short.strike:.2f}
+    - Expiration: {short.expiration_date}
+    - Credit received: ${credit_received:.2f} (now realized profit!)
+    
+    This will mark the short as expired at $0. Your LEAP stays open.
+    You can then roll into a new short or wait.
+    """)
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("✅ Confirm Expiration", key=f"expire_confirm_{pos.position_id}", type="primary"):
+            trade_log.expire_diagonal_short(pos.position_id)
+            st.success(f"✅ Short expired! Credit of ${credit_received:.2f} locked in.")
+            st.session_state[f"expiring_{pos.position_id}"] = False
+            st.rerun()
+    
+    with col2:
+        if st.button("❌ Cancel", key=f"expire_cancel_{pos.position_id}"):
+            st.session_state[f"expiring_{pos.position_id}"] = False
+            st.rerun()
+
+
+def _render_delete_confirm(trade_log, pos):
+    """Confirmation dialog for deleting a position."""
+    st.markdown("##### 🗑️ Delete Position")
+    st.warning(f"⚠️ Are you sure you want to delete **{pos.variant_name}** ({pos.position_id})?")
+    st.error("This action cannot be undone!")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🗑️ Yes, Delete", key=f"delete_confirm_{pos.position_id}", type="primary"):
+            if trade_log.delete_diagonal(pos.position_id):
+                st.success("✅ Position deleted")
+                st.session_state[f"deleting_{pos.position_id}"] = False
+                st.rerun()
+            else:
+                st.error("Failed to delete position")
+    
+    with col2:
+        if st.button("❌ Cancel", key=f"delete_cancel_{pos.position_id}"):
+            st.session_state[f"deleting_{pos.position_id}"] = False
+            st.rerun()
+
+
+
 def _render_roll_analytics(trade_log):
     """Render roll analytics and statistics."""
     st.subheader("📊 Roll Analytics")
@@ -2042,31 +2652,42 @@ def render_trade_log():
     trade_log = get_trade_log()
     summary = trade_log.get_summary()
     
-    # Summary metrics
+    # Summary metrics (includes both simple trades and diagonal positions)
+    diagonals = trade_log.get_all_diagonals()
+    open_diagonals = trade_log.get_open_diagonals()
+    closed_diagonals = [d for d in diagonals if d.status != "open"]
+    diagonal_pnl = sum(d.total_pnl for d in diagonals)
+    
+    total_trades = summary["total_trades"] + len(diagonals)
+    total_open = summary["open_trades"] + len(open_diagonals)
+    total_closed = summary["closed_trades"] + len(closed_diagonals)
+    total_pnl = summary["combined_pnl"] + diagonal_pnl
+    
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
-        st.metric("Total Trades", summary["total_trades"])
+        st.metric("Total Trades", total_trades)
     with col2:
-        st.metric("Open", summary["open_trades"])
+        st.metric("Open", total_open)
     with col3:
-        st.metric("Closed", summary["closed_trades"])
+        st.metric("Closed", total_closed)
     with col4:
-        st.metric("Win Rate", f"{summary['win_rate']:.0%}" if summary['closed_trades'] > 0 else "N/A")
+        st.metric("Win Rate", f"{summary['win_rate']:.0%}" if total_closed > 0 else "N/A")
     with col5:
-        st.metric("Total P&L", f"${summary['combined_pnl']:,.0f}")
+        pnl_delta = "↑" if total_pnl > 0 else "↓" if total_pnl < 0 else ""
+        st.metric("Total P&L", f"${total_pnl:,.0f}")
     
     st.markdown("---")
     
-    # Tabs for different views
-    tab1, tab2, tab3 = st.tabs(["📋 Simple Trades", "🔄 Diagonal Positions", "📊 Roll Analytics"])
+    # Tabs for different views (Diagonal Positions is default/first)
+    tab1, tab2, tab3 = st.tabs(["🔄 Diagonal Positions", "📋 Simple Trades", "📊 Roll Analytics"])
     
-    with tab2:
+    with tab1:
         _render_diagonal_positions(trade_log)
     
     with tab3:
         _render_roll_analytics(trade_log)
     
-    with tab1:
+    with tab2:
         # Filters for simple trades
         col1, col2 = st.columns(2)
         with col1:
@@ -2179,21 +2800,27 @@ def render_trade_log():
                 }
                 variant_name = variant_names.get(manual_variant, manual_variant)
                 
-                # Store as multi-leg trade
-                trade_log.create_trade(
+                # Calculate entry commission
+                fee_per_contract = 0.65
+                entry_commission = fee_per_contract * manual_contracts * 2  # Long buy + Short sell
+                
+                # Store as diagonal position with proper roll tracking
+                pos = trade_log.open_diagonal(
                     variant_id=manual_variant.upper(),
                     variant_name=variant_name,
-                    entry_price=abs(net_position),  # Net credit/debit
                     contracts=manual_contracts,
                     long_strike=long_strike,
                     long_expiration=long_expiration.isoformat(),
-                    long_debit=long_debit,
+                    long_price=long_debit,
                     short_strike=short_strike,
                     short_expiration=short_expiration.isoformat(),
                     short_credit=short_credit,
+                    entry_regime="CALM",  # Default
+                    entry_vix_level=0.0,  # Not specified
+                    fee_per_contract=fee_per_contract,
                     notes=manual_notes,
                 )
-                st.success(f"✅ Recorded {variant_name} diagonal spread!")
+                st.success(f"✅ Recorded {variant_name} diagonal spread! (ID: {pos.position_id})")
                 st.rerun()
             except Exception as e:
                 st.error(f"❌ Error: {e}")

@@ -303,6 +303,10 @@ class DiagonalPosition:
     total_roll_credits: float = 0.0   # Sum of all roll net credits
     total_rolls: int = 0
     
+    # Commission tracking
+    fee_per_contract: float = 0.65  # Default broker fee per contract
+    total_commissions: float = 0.0  # Running total of all commissions paid
+    
     # Overall position status
     status: str = "open"  # open, closed
     exit_date: Optional[str] = None
@@ -343,8 +347,8 @@ class DiagonalPosition:
     
     @property
     def total_pnl(self) -> float:
-        """Combined P&L (long + all shorts)."""
-        return self.long_pnl + self.short_pnl
+        """Combined P&L (long + all shorts - commissions)."""
+        return self.long_pnl + self.short_pnl - self.total_commissions
     
     @property
     def total_credits_received(self) -> float:
@@ -385,6 +389,8 @@ class DiagonalPosition:
         )
         self.short_legs.append(leg)
         self.total_short_credits += credit * self.contracts
+        # Add commission for selling short
+        self.total_commissions += self.fee_per_contract * self.contracts
         self.updated_at = datetime.now().isoformat()
         return leg
     
@@ -434,7 +440,10 @@ class DiagonalPosition:
         self.total_rolls += 1
         self.total_roll_credits += roll_credit * self.contracts
         
-        # Add new short leg
+        # Commission for buying back old short
+        self.total_commissions += self.fee_per_contract * self.contracts
+        
+        # Add new short leg (this also adds commission for selling)
         new_leg = self.add_short_leg(new_strike, new_expiration, new_credit)
         
         self.updated_at = datetime.now().isoformat()
@@ -449,6 +458,25 @@ class DiagonalPosition:
             short.exit_price = exit_price
             short.exit_reason = "expired_itm" if expired_itm else "expired_worthless"
             self.updated_at = datetime.now().isoformat()
+    
+    def expire_short_worthless(self):
+        """
+        Mark current short leg as expired worthless.
+        The full credit received becomes realized profit.
+        Does NOT roll into a new short - use roll_short() for that.
+        """
+        short = self.current_short_leg
+        if not short:
+            return None
+        
+        short.status = "expired"
+        short.exit_date = datetime.now().strftime("%Y-%m-%d")
+        short.exit_price = 0.0  # Expired worthless
+        short.exit_reason = "expired_worthless"
+        
+        # No commission for expiration (no action taken)
+        self.updated_at = datetime.now().isoformat()
+        return short
     
     def close_position(self, long_exit_price: float, short_exit_price: float, reason: str) -> None:
         """Close the entire position."""
@@ -610,9 +638,10 @@ class TradeLog:
         entry_percentile: float = 0.5,
         target_pct: float = 0.40,
         stop_pct: float = 0.60,
+        fee_per_contract: float = 0.65,
         notes: str = "",
     ) -> DiagonalPosition:
-        """Open a new diagonal spread position with roll tracking."""
+        """Open a new diagonal spread position with roll tracking and commission tracking."""
         position_id = f"{variant_id[:2]}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
         
         pos = DiagonalPosition(
@@ -629,10 +658,14 @@ class TradeLog:
             long_entry_price=long_price,
             target_pct=target_pct,
             stop_pct=stop_pct,
+            fee_per_contract=fee_per_contract,
             notes=notes,
         )
         
-        # Add initial short leg
+        # Commission for buying long leg
+        pos.total_commissions = fee_per_contract * contracts
+        
+        # Add initial short leg (this also adds commission for selling)
         pos.add_short_leg(short_strike, short_expiration, short_credit)
         
         self.diagonal_positions[position_id] = pos
@@ -684,6 +717,20 @@ class TradeLog:
         self._save()
         return new_leg, roll_record
     
+    def expire_diagonal_short(self, position_id: str) -> Optional[DiagonalPosition]:
+        """
+        Mark the current short leg as expired worthless.
+        Locks in full credit as realized profit without rolling.
+        Use this when short expires OTM and you want to keep position open.
+        """
+        pos = self.diagonal_positions.get(position_id)
+        if not pos:
+            return None
+        
+        pos.expire_short_worthless()
+        self._save()
+        return pos
+    
     def close_diagonal(
         self,
         position_id: str,
@@ -715,6 +762,73 @@ class TradeLog:
         self._save()
         return pos
     
+    
+    def delete_diagonal(self, position_id: str) -> bool:
+        """Delete a diagonal position completely."""
+        if position_id in self.diagonal_positions:
+            del self.diagonal_positions[position_id]
+            self._save()
+            return True
+        return False
+    
+    def update_diagonal(
+        self,
+        position_id: str,
+        **kwargs
+    ) -> Optional[DiagonalPosition]:
+        """
+        Update diagonal position fields.
+        
+        Allowed fields: variant_name, contracts, long_strike, long_expiration,
+        long_entry_price, entry_regime, entry_vix_level, target_pct, stop_pct, notes
+        """
+        pos = self.diagonal_positions.get(position_id)
+        if not pos:
+            return None
+        
+        allowed_fields = {
+            'variant_name', 'contracts', 'long_strike', 'long_expiration',
+            'long_entry_price', 'entry_regime', 'entry_vix_level', 
+            'entry_percentile', 'target_pct', 'stop_pct', 'notes',
+            'total_commissions', 'fee_per_contract'
+        }
+        
+        for key, value in kwargs.items():
+            if key in allowed_fields and hasattr(pos, key):
+                setattr(pos, key, value)
+        
+        pos.updated_at = datetime.now().isoformat()
+        self._save()
+        return pos
+    
+    def update_diagonal_short_leg(
+        self,
+        position_id: str,
+        strike: float = None,
+        expiration_date: str = None,
+        entry_credit: float = None,
+    ) -> Optional[ShortLeg]:
+        """Update the current short leg details."""
+        pos = self.diagonal_positions.get(position_id)
+        if not pos:
+            return None
+        
+        short = pos.current_short_leg
+        if not short:
+            return None
+        
+        if strike is not None:
+            short.strike = strike
+        if expiration_date is not None:
+            short.expiration_date = expiration_date
+        if entry_credit is not None:
+            short.entry_credit = entry_credit
+        
+        pos.updated_at = datetime.now().isoformat()
+        self._save()
+        return short
+
+
     def get_roll_summary(self) -> Dict[str, Any]:
         """Get summary statistics for all rolls."""
         total_rolls = 0
