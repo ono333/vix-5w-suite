@@ -351,6 +351,100 @@ class DiagonalPosition:
         return self.long_pnl + self.short_pnl - self.total_commissions
     
     @property
+    def long_dte(self) -> int:
+        """Days to expiry for long leg."""
+        try:
+            exp = datetime.strptime(self.long_expiration, "%Y-%m-%d")
+            return (exp - datetime.now()).days
+        except:
+            return 999
+    
+    @property
+    def short_dte(self) -> int:
+        """Days to expiry for current short leg."""
+        short = self.current_short_leg
+        if short:
+            return short.days_to_expiry()
+        return -1  # No short leg
+    
+    def get_health_status(self) -> dict:
+        """
+        Assess position health and return recommended actions.
+        
+        Returns dict with:
+            - status: "healthy", "attention", "critical"
+            - long_status: "ok", "roll_soon", "roll_now"
+            - short_status: "ok", "roll_soon", "expired", "none"
+            - actions: list of recommended actions
+            - alerts: list of alert messages
+        """
+        actions = []
+        alerts = []
+        
+        long_dte = self.long_dte
+        short_dte = self.short_dte
+        short = self.current_short_leg
+        
+        # Long leg assessment
+        if long_dte <= 30:
+            long_status = "roll_now"
+            alerts.append(f"⚠️ LONG expiring in {long_dte} days - ROLL IMMEDIATELY")
+            actions.append("roll_long")
+        elif long_dte <= 60:
+            long_status = "roll_soon"
+            alerts.append(f"🟡 Long DTE {long_dte} days - plan to roll within 30 days")
+            actions.append("plan_roll_long")
+        elif long_dte <= 90:
+            long_status = "ok"
+            alerts.append(f"🟢 Long DTE {long_dte} days - monitor")
+        else:
+            long_status = "ok"
+        
+        # Short leg assessment
+        if not short or short.status != "open":
+            short_status = "none"
+            alerts.append("📭 No active short leg - consider selling new short")
+            actions.append("sell_new_short")
+        elif short_dte <= 0:
+            short_status = "expired"
+            alerts.append("🎉 Short expired - lock in profit!")
+            actions.append("expire_short")
+        elif short_dte <= 3:
+            short_status = "roll_soon"
+            alerts.append(f"🔴 Short expiring in {short_dte} days - roll or expire")
+            actions.append("roll_short")
+        elif short_dte <= 7:
+            short_status = "ok"
+            alerts.append(f"🟡 Short DTE {short_dte} days - prepare to roll")
+        else:
+            short_status = "ok"
+        
+        # Overall status
+        if "roll_now" in [long_status] or short_status == "expired":
+            status = "critical"
+        elif "roll_soon" in [long_status, short_status] or short_status == "none":
+            status = "attention"
+        else:
+            status = "healthy"
+        
+        # P&L based actions
+        if self.total_pnl > 0 and self.long_entry_price > 0:
+            pnl_pct = self.total_pnl / (self.long_entry_price * self.contracts * 100)
+            if pnl_pct >= 0.40:  # 40%+ profit
+                alerts.append(f"💰 Position up {pnl_pct:.0%} - consider taking profits")
+                actions.append("consider_close")
+        
+        return {
+            "status": status,
+            "long_status": long_status,
+            "short_status": short_status,
+            "long_dte": long_dte,
+            "short_dte": short_dte,
+            "actions": actions,
+            "alerts": alerts,
+        }
+    
+    @property
     def total_credits_received(self) -> float:
         """All credits received from shorts + rolls."""
         return self.total_short_credits + self.total_roll_credits
@@ -687,6 +781,66 @@ class TradeLog:
     def get_diagonals_needing_roll(self, dte_threshold: int = 3) -> List[DiagonalPosition]:
         """Get positions that need rolling (short DTE below threshold)."""
         return [p for p in self.get_open_diagonals() if p.should_roll(dte_threshold)]
+    
+    def get_diagonals_by_health(self, status: str = None) -> List[DiagonalPosition]:
+        """
+        Get diagonal positions filtered by health status.
+        
+        status: "healthy", "attention", "critical", or None for all
+        """
+        result = []
+        for pos in self.get_open_diagonals():
+            health = pos.get_health_status()
+            if status is None or health["status"] == status:
+                result.append(pos)
+        return result
+    
+    def get_diagonals_needing_long_roll(self, dte_threshold: int = 60) -> List[DiagonalPosition]:
+        """Get positions where LONG leg needs rolling soon."""
+        return [p for p in self.get_open_diagonals() if p.long_dte <= dte_threshold]
+    
+    def get_diagonals_without_short(self) -> List[DiagonalPosition]:
+        """Get positions that have no active short leg (need new short)."""
+        result = []
+        for pos in self.get_open_diagonals():
+            short = pos.current_short_leg
+            if not short or short.status != "open":
+                result.append(pos)
+        return result
+    
+    def get_position_health_summary(self) -> dict:
+        """Get summary of all positions by health status."""
+        open_positions = self.get_open_diagonals()
+        
+        summary = {
+            "total": len(open_positions),
+            "healthy": 0,
+            "attention": 0,
+            "critical": 0,
+            "need_short_roll": 0,
+            "need_long_roll": 0,
+            "need_new_short": 0,
+            "positions": []
+        }
+        
+        for pos in open_positions:
+            health = pos.get_health_status()
+            summary[health["status"]] += 1
+            
+            if "roll_short" in health["actions"] or "expire_short" in health["actions"]:
+                summary["need_short_roll"] += 1
+            if "roll_long" in health["actions"] or "plan_roll_long" in health["actions"]:
+                summary["need_long_roll"] += 1
+            if "sell_new_short" in health["actions"]:
+                summary["need_new_short"] += 1
+            
+            summary["positions"].append({
+                "position_id": pos.position_id,
+                "variant_name": pos.variant_name,
+                "health": health
+            })
+        
+        return summary
     
     def roll_diagonal_short(
         self,

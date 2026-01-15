@@ -1958,35 +1958,103 @@ def _render_diagonal_positions(trade_log):
     """Render diagonal positions with roll tracking."""
     st.subheader("🔄 Diagonal Positions with Roll Tracking")
     
-    # Get diagonal positions
+    # Get diagonal positions and health summary
     diagonals = trade_log.get_all_diagonals()
     open_diagonals = trade_log.get_open_diagonals()
-    needing_roll = trade_log.get_diagonals_needing_roll(dte_threshold=3)
+    health_summary = trade_log.get_position_health_summary()
     
-    # Summary metrics
-    col1, col2, col3, col4 = st.columns(4)
+    # Health status metrics
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
     with col1:
-        st.metric("Total Diagonals", len(diagonals))
+        st.metric("Total Open", health_summary["total"])
     with col2:
-        st.metric("Open", len(open_diagonals))
+        st.metric("🟢 Healthy", health_summary["healthy"])
     with col3:
-        st.metric("Need Roll", len(needing_roll), delta="⚠️" if needing_roll else None)
+        st.metric("🟡 Attention", health_summary["attention"], 
+                  delta="⚠️" if health_summary["attention"] > 0 else None)
     with col4:
+        st.metric("🔴 Critical", health_summary["critical"],
+                  delta="🚨" if health_summary["critical"] > 0 else None)
+    with col5:
         roll_stats = trade_log.get_roll_summary()
-        st.metric("Total Roll Credits", f"${roll_stats['total_roll_credits']:,.2f}")
+        st.metric("Roll Credits", f"${roll_stats['total_roll_credits']:,.2f}")
+    with col6:
+        total_pnl = sum(p.total_pnl for p in open_diagonals)
+        pnl_color = "normal" if total_pnl >= 0 else "inverse"
+        st.metric("Total P&L", f"${total_pnl:,.0f}", delta_color=pnl_color)
     
-    # Alert for positions needing roll
-    if needing_roll:
-        st.warning(f"⚠️ {len(needing_roll)} position(s) need rolling (DTE ≤ 3 days)")
-        for pos in needing_roll:
-            short = pos.current_short_leg
-            st.error(f"🔴 {pos.variant_name}: Short ${short.strike} expires in {short.days_to_expiry()} days!")
+    # Action needed summary
+    st.markdown("### 🎯 Actions Needed")
+    action_col1, action_col2, action_col3 = st.columns(3)
+    
+    with action_col1:
+        need_short = health_summary["need_short_roll"]
+        if need_short > 0:
+            st.error(f"🔄 **{need_short}** position(s) need SHORT roll/expire")
+        else:
+            st.success("✅ All shorts OK")
+    
+    with action_col2:
+        need_long = health_summary["need_long_roll"]
+        if need_long > 0:
+            st.warning(f"📈 **{need_long}** position(s) need LONG roll (DTE < 60)")
+        else:
+            st.success("✅ All longs OK")
+    
+    with action_col3:
+        need_new = health_summary["need_new_short"]
+        if need_new > 0:
+            st.info(f"📭 **{need_new}** position(s) have no short leg")
+        else:
+            st.success("✅ All have shorts")
+    
+    # Filter selector
+    st.markdown("---")
+    filter_col1, filter_col2 = st.columns([1, 3])
+    with filter_col1:
+        health_filter = st.selectbox(
+            "Filter by Health",
+            ["All", "🔴 Critical", "🟡 Attention", "🟢 Healthy", "📭 Need New Short"],
+            key="health_filter"
+        )
+    
+    # Get filtered positions
+    if health_filter == "🔴 Critical":
+        filtered_positions = trade_log.get_diagonals_by_health("critical")
+    elif health_filter == "🟡 Attention":
+        filtered_positions = trade_log.get_diagonals_by_health("attention")
+    elif health_filter == "🟢 Healthy":
+        filtered_positions = trade_log.get_diagonals_by_health("healthy")
+    elif health_filter == "📭 Need New Short":
+        filtered_positions = trade_log.get_diagonals_without_short()
+    else:
+        filtered_positions = open_diagonals
+    
+    # Critical alerts with email button
+    needing_roll = trade_log.get_diagonals_needing_roll(dte_threshold=3)
+    needing_long_roll = trade_log.get_diagonals_needing_long_roll(dte_threshold=60)
+    
+    if needing_roll or needing_long_roll:
+        st.markdown("### ⚠️ Alerts")
+        
+        # Short roll alerts
+        if needing_roll:
+            for pos in needing_roll:
+                short = pos.current_short_leg
+                if short:
+                    st.error(f"🔴 {pos.variant_name}: Short ${short.strike} expires in {short.days_to_expiry()} days!")
+        
+        # Long roll alerts
+        if needing_long_roll:
+            for pos in needing_long_roll:
+                st.warning(f"🟡 {pos.variant_name}: LONG expires in {pos.long_dte} days - plan to roll!")
         
         # Send roll alert email button
         col1, col2 = st.columns([1, 3])
         with col1:
             if st.button("📧 Send Roll Alert Email", key="send_roll_email"):
-                success, msg = send_roll_notification_email(needing_roll)
+                all_needing_attention = list(set(needing_roll + needing_long_roll))
+                success, msg = send_roll_notification_email(all_needing_attention)
                 if success:
                     st.success(f"✅ {msg}")
                 else:
@@ -2025,16 +2093,56 @@ def _render_diagonal_positions(trade_log):
         st.info("No diagonal positions. Use the form above to create one.")
         return
     
-    for pos in sorted(diagonals, key=lambda p: p.entry_date, reverse=True):
-        status_icon = "🟢" if pos.status == "open" else "🔴"
+    # Use filtered positions if filter is set, otherwise show all
+    display_positions = filtered_positions if 'filtered_positions' in dir() else diagonals
+    
+    for pos in sorted(display_positions, key=lambda p: p.entry_date, reverse=True):
+        # Get health status
+        health = pos.get_health_status() if pos.status == "open" else None
+        
+        # Status icon based on health
+        if pos.status != "open":
+            status_icon = "⬛"  # Closed
+        elif health and health["status"] == "critical":
+            status_icon = "🔴"
+        elif health and health["status"] == "attention":
+            status_icon = "🟡"
+        else:
+            status_icon = "🟢"
+        
         short = pos.current_short_leg
         pnl_color = "green" if pos.total_pnl >= 0 else "red"
         
+        # Build header with health info
         header = f"{status_icon} {pos.variant_name} | {pos.entry_date} | "
-        header += f"L${pos.long_strike} / S${short.strike if short else 'N/A'} | "
-        header += f"Rolls: {pos.total_rolls}"
+        header += f"L${pos.long_strike}"
+        if pos.status == "open":
+            header += f" ({pos.long_dte}d)"
+        header += f" / S${short.strike if short else 'N/A'}"
+        if short and pos.status == "open":
+            header += f" ({pos.short_dte}d)"
+        header += f" | Rolls: {pos.total_rolls}"
         
         with st.expander(header, expanded=pos.status == "open"):
+            # Health alerts for open positions
+            if health and health["alerts"]:
+                for alert in health["alerts"]:
+                    if "⚠️" in alert or "ROLL IMMEDIATELY" in alert:
+                        st.error(alert)
+                    elif "🔴" in alert:
+                        st.error(alert)
+                    elif "🟡" in alert:
+                        st.warning(alert)
+                    elif "💰" in alert:
+                        st.success(alert)
+                    elif "📭" in alert:
+                        st.info(alert)
+                    elif "🎉" in alert:
+                        st.success(alert)
+                    else:
+                        st.info(alert)
+                st.markdown("---")
+            
             # Position details
             col1, col2, col3 = st.columns(3)
             
@@ -2089,14 +2197,26 @@ def _render_diagonal_positions(trade_log):
             st.markdown("---")
             
             if pos.status == "open":
+                # Check if position has active short
+                has_active_short = short and short.status == "open"
+                
                 col1, col2, col3, col4, col5, col6 = st.columns(6)
                 
                 with col1:
-                    roll_clicked = st.button("🔄 Roll", key=f"roll_{pos.position_id}")
+                    if has_active_short:
+                        roll_clicked = st.button("🔄 Roll", key=f"roll_{pos.position_id}")
+                    else:
+                        sell_short_clicked = st.button("📈 Sell Short", key=f"sell_short_{pos.position_id}",
+                                                       help="Sell a new short leg")
+                        roll_clicked = False
                 
                 with col2:
-                    expire_clicked = st.button("🎉 Expire Profit", key=f"expire_{pos.position_id}", 
-                                               help="Mark short as expired worthless (keep LEAP)")
+                    if has_active_short:
+                        expire_clicked = st.button("🎉 Expire Profit", key=f"expire_{pos.position_id}", 
+                                                   help="Mark short as expired worthless (keep LEAP)")
+                    else:
+                        expire_clicked = False
+                        st.write("")  # Empty space
                 
                 with col3:
                     update_clicked = st.button("💰 Prices", key=f"update_{pos.position_id}")
@@ -2113,6 +2233,8 @@ def _render_diagonal_positions(trade_log):
                 # Handle button clicks
                 if roll_clicked:
                     st.session_state[f"rolling_{pos.position_id}"] = True
+                if not has_active_short and 'sell_short_clicked' in dir() and sell_short_clicked:
+                    st.session_state[f"selling_short_{pos.position_id}"] = True
                 if expire_clicked:
                     st.session_state[f"expiring_{pos.position_id}"] = True
                 if update_clicked:
@@ -2127,6 +2249,8 @@ def _render_diagonal_positions(trade_log):
                 # Render forms based on state
                 if st.session_state.get(f"rolling_{pos.position_id}"):
                     _render_roll_form(trade_log, pos)
+                if st.session_state.get(f"selling_short_{pos.position_id}"):
+                    _render_sell_short_form(trade_log, pos)
                 if st.session_state.get(f"expiring_{pos.position_id}"):
                     _render_expire_confirm(trade_log, pos)
                 if st.session_state.get(f"updating_{pos.position_id}"):
@@ -2523,6 +2647,88 @@ def _render_edit_form(trade_log, pos):
     with col2:
         if st.button("❌ Cancel", key=f"edit_cancel_{pos.position_id}"):
             st.session_state[f"editing_{pos.position_id}"] = False
+            st.rerun()
+
+
+def _render_sell_short_form(trade_log, pos):
+    """Form to sell a new short leg when position has none."""
+    st.markdown("##### 📈 Sell New Short Leg")
+    
+    # Get current underlying price for suggestions
+    try:
+        import yfinance as yf
+        ticker = yf.Ticker("UVXY")
+        current_price = ticker.info.get('regularMarketPrice') or ticker.fast_info.get('lastPrice', 38.0)
+    except:
+        current_price = 38.0
+    
+    # Roll suggestions based on current price
+    st.markdown("##### 💡 Suggestions")
+    suggested_strikes = [
+        round(current_price * 1.02, 0),  # 2% OTM
+        round(current_price * 1.05, 0),  # 5% OTM  
+        round(current_price * 1.10, 0),  # 10% OTM
+    ]
+    
+    # Suggest next Friday expiration
+    from datetime import datetime, timedelta
+    today = datetime.now()
+    days_until_friday = (4 - today.weekday()) % 7
+    if days_until_friday == 0:
+        days_until_friday = 7  # Next week if today is Friday
+    suggested_exp = today + timedelta(days=days_until_friday)
+    
+    st.info(f"""
+    **Current UVXY:** ${current_price:.2f}
+    
+    **Suggested Strikes (OTM):**
+    - Conservative (2% OTM): ${suggested_strikes[0]:.0f}
+    - Moderate (5% OTM): ${suggested_strikes[1]:.0f}  
+    - Aggressive (10% OTM): ${suggested_strikes[2]:.0f}
+    
+    **Suggested Expiration:** {suggested_exp.strftime('%Y-%m-%d')} (next Friday)
+    """)
+    
+    st.markdown("---")
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        new_strike = st.number_input(
+            "Strike",
+            min_value=1.0, value=float(suggested_strikes[1]), step=0.5,
+            key=f"sell_short_strike_{pos.position_id}"
+        )
+    with col2:
+        new_exp = st.date_input(
+            "Expiration", 
+            value=suggested_exp.date(),
+            key=f"sell_short_exp_{pos.position_id}"
+        )
+    with col3:
+        new_credit = st.number_input(
+            "Credit ($)",
+            min_value=0.01, value=0.20, step=0.05,
+            key=f"sell_short_credit_{pos.position_id}"
+        )
+    
+    total_credit = new_credit * pos.contracts * 100
+    st.success(f"💰 Total Credit: ${total_credit:.2f} for {pos.contracts} contracts")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("✅ Sell Short", key=f"sell_short_submit_{pos.position_id}"):
+            try:
+                pos.add_short_leg(new_strike, new_exp.isoformat(), new_credit)
+                trade_log._save()
+                st.success(f"✅ Sold short ${new_strike} @ ${new_credit:.2f}")
+                st.session_state[f"selling_short_{pos.position_id}"] = False
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error: {e}")
+    
+    with col2:
+        if st.button("❌ Cancel", key=f"sell_short_cancel_{pos.position_id}"):
+            st.session_state[f"selling_short_{pos.position_id}"] = False
             st.rerun()
 
 
