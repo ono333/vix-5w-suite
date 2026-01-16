@@ -1542,16 +1542,64 @@ def render_signal_dashboard():
         st.write(f"Generated: {batch.generated_at.strftime('%Y-%m-%d %H:%M UTC')}")
         st.write(f"Valid until: {batch.valid_until.strftime('%Y-%m-%d %H:%M UTC')}")
         
+        # Get existing positions to show position status
+        from trade_log import get_trade_log
+        trade_log = get_trade_log()
+        open_diagonals = trade_log.get_open_diagonals()
+        
+        # Map variant IDs to existing positions
+        existing_positions = {}
+        for pos in open_diagonals:
+            vid = pos.variant_id.upper()
+            if vid not in existing_positions:
+                existing_positions[vid] = []
+            existing_positions[vid].append(pos)
+        
+        # Summary of existing positions
+        if existing_positions:
+            st.info(f"📊 You have **{len(open_diagonals)}** open position(s) across **{len(existing_positions)}** variant(s)")
+        
         # Variant cards
         for variant in batch.variants:
             # Check if variant is active in current regime
             is_active = regime.regime in variant.active_in_regimes
             
+            # Check if we already have position for this variant
+            variant_positions = existing_positions.get(variant.variant_id.upper(), [])
+            has_position = len(variant_positions) > 0
+            
+            # Build expander title with position status
+            if has_position:
+                pos_info = variant_positions[0]
+                status_icon = "🔵"  # Already have position
+                pos_note = f" | HOLDING: L${pos_info.long_strike}/S${pos_info.current_short_leg.strike if pos_info.current_short_leg else 'None'}"
+            elif is_active:
+                status_icon = "✅"  # Recommended to open
+                pos_note = " | SIGNAL: Open new position"
+            else:
+                status_icon = "⛔"  # Not active in this regime
+                pos_note = ""
+            
             with st.expander(
-                f"{'✅' if is_active else '⛔'} {get_variant_display_name(variant.role)} "
-                f"({variant.variant_id})",
-                expanded=is_active
+                f"{status_icon} {get_variant_display_name(variant.role)} "
+                f"({variant.variant_id}){pos_note}",
+                expanded=is_active and not has_position
             ):
+                # Show existing position warning
+                if has_position:
+                    pos = variant_positions[0]
+                    health = pos.get_health_status()
+                    
+                    if health["short_status"] == "none":
+                        st.warning(f"📭 **Position exists but NO SHORT LEG** - Consider selling new short")
+                    elif health["short_status"] in ["expired", "roll_soon"]:
+                        st.warning(f"🔄 **Position exists - SHORT needs attention** (DTE: {health['short_dte']} days)")
+                    else:
+                        st.success(f"✅ **Already holding this variant** - No new entry needed")
+                        st.write(f"Long: ${pos.long_strike} (DTE: {pos.long_dte}d) | Short: ${pos.current_short_leg.strike if pos.current_short_leg else 'N/A'}")
+                        st.write(f"P&L: ${pos.total_pnl:+,.0f}")
+                    
+                    st.markdown("---")
                 # Fetch real market prices
                 try:
                     short_offset = getattr(variant, 'short_strike_offset', 2)
