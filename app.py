@@ -1542,110 +1542,344 @@ def render_signal_dashboard():
         st.write(f"Generated: {batch.generated_at.strftime('%Y-%m-%d %H:%M UTC')}")
         st.write(f"Valid until: {batch.valid_until.strftime('%Y-%m-%d %H:%M UTC')}")
         
-        # Get existing positions to show position status
-        from trade_log import get_trade_log
+        # ═══════════════════════════════════════════════════════════════
+        # POSITION-AWARE: Get existing positions from trade log
+        # ═══════════════════════════════════════════════════════════════
         trade_log = get_trade_log()
         open_diagonals = trade_log.get_open_diagonals()
         
-        # Map variant IDs to existing positions
+        # Map variant prefixes (V1, V2, etc.) to existing positions
         existing_positions = {}
         for pos in open_diagonals:
-            vid = pos.variant_id.upper()
-            if vid not in existing_positions:
-                existing_positions[vid] = []
-            existing_positions[vid].append(pos)
+            # Extract variant prefix from variant_id (e.g., "V1_INCOME_HARVESTER" → "V1")
+            vid_upper = pos.variant_id.upper()
+            for prefix in ["V1", "V2", "V3", "V4", "V5"]:
+                if vid_upper.startswith(prefix) or prefix in vid_upper:
+                    if prefix not in existing_positions:
+                        existing_positions[prefix] = []
+                    existing_positions[prefix].append(pos)
+                    break
         
-        # Summary of existing positions
+        # Show position summary at top if we have positions
         if existing_positions:
-            st.info(f"📊 You have **{len(open_diagonals)}** open position(s) across **{len(existing_positions)}** variant(s)")
+            total_positions = sum(len(v) for v in existing_positions.values())
+            total_pnl = sum(p.total_pnl for positions in existing_positions.values() for p in positions)
+            pnl_color = "green" if total_pnl >= 0 else "red"
+            
+            st.markdown("---")
+            st.markdown("### 📊 Open Positions Summary")
+            
+            pos_col1, pos_col2, pos_col3, pos_col4 = st.columns(4)
+            with pos_col1:
+                st.metric("Open Positions", total_positions)
+            with pos_col2:
+                st.metric("Variants Held", len(existing_positions))
+            with pos_col3:
+                st.metric("Total P&L", f"${total_pnl:+,.0f}", 
+                         delta_color="normal" if total_pnl >= 0 else "inverse")
+            with pos_col4:
+                # Count positions needing action
+                needs_action = sum(1 for positions in existing_positions.values() 
+                                   for p in positions 
+                                   if p.get_health_status()["status"] in ["attention", "critical"])
+                if needs_action > 0:
+                    st.metric("⚠️ Need Action", needs_action)
+                else:
+                    st.metric("Status", "✅ All OK")
+            
+            st.markdown("---")
         
-        # Variant cards
+        # Separate variants into categories
+        held_variants = []
+        entry_candidates = []
+        inactive_variants = []
+        
         for variant in batch.variants:
-            # Check if variant is active in current regime
             is_active = regime.regime in variant.active_in_regimes
+            variant_prefix = variant.variant_id.split("-")[0].upper()  # Extract V1, V2, etc.
+            has_position = variant_prefix in existing_positions
             
-            # Check if we already have position for this variant
-            variant_positions = existing_positions.get(variant.variant_id.upper(), [])
-            has_position = len(variant_positions) > 0
-            
-            # Build expander title with position status
             if has_position:
-                pos_info = variant_positions[0]
-                status_icon = "🔵"  # Already have position
-                pos_note = f" | HOLDING: L${pos_info.long_strike}/S${pos_info.current_short_leg.strike if pos_info.current_short_leg else 'None'}"
+                held_variants.append((variant, variant_prefix))
             elif is_active:
-                status_icon = "✅"  # Recommended to open
-                pos_note = " | SIGNAL: Open new position"
+                entry_candidates.append((variant, variant_prefix))
             else:
-                status_icon = "⛔"  # Not active in this regime
-                pos_note = ""
+                inactive_variants.append((variant, variant_prefix))
+        
+        # ═══════════════════════════════════════════════════════════════
+        # SECTION 1: OPEN POSITIONS (Management Mode)
+        # ═══════════════════════════════════════════════════════════════
+        if held_variants:
+            st.markdown("### 🔵 OPEN POSITIONS — Management Mode")
+            st.caption("You already hold these variants. Showing management actions instead of entry signals.")
             
-            with st.expander(
-                f"{status_icon} {get_variant_display_name(variant.role)} "
-                f"({variant.variant_id}){pos_note}",
-                expanded=is_active and not has_position
-            ):
-                # Show existing position warning
-                if has_position:
-                    pos = variant_positions[0]
+            for variant, prefix in held_variants:
+                positions_for_variant = existing_positions.get(prefix, [])
+                pos = positions_for_variant[0] if positions_for_variant else None
+                
+                if pos:
                     health = pos.get_health_status()
                     
-                    if health["short_status"] == "none":
-                        st.warning(f"📭 **Position exists but NO SHORT LEG** - Consider selling new short")
-                    elif health["short_status"] in ["expired", "roll_soon"]:
-                        st.warning(f"🔄 **Position exists - SHORT needs attention** (DTE: {health['short_dte']} days)")
+                    # Status emoji based on health
+                    if health["status"] == "critical":
+                        status_emoji = "🔴"
+                        status_label = "CRITICAL"
+                    elif health["status"] == "attention":
+                        status_emoji = "🟡"
+                        status_label = "ATTENTION"
                     else:
-                        st.success(f"✅ **Already holding this variant** - No new entry needed")
-                        st.write(f"Long: ${pos.long_strike} (DTE: {pos.long_dte}d) | Short: ${pos.current_short_leg.strike if pos.current_short_leg else 'N/A'}")
-                        st.write(f"P&L: ${pos.total_pnl:+,.0f}")
+                        status_emoji = "🟢"
+                        status_label = "HEALTHY"
                     
-                    st.markdown("---")
-                # Fetch real market prices
-                try:
-                    short_offset = getattr(variant, 'short_strike_offset', 2)
-                    market = get_diagonal_prices(
-                        symbol="UVXY",
-                        spot_price=regime.vix_level,
-                        long_offset=variant.long_strike_offset,
-                        short_offset=short_offset,
-                        long_dte_weeks=variant.long_dte_weeks,
-                    )
-                    long_strike = market["long_strike"]
-                    short_strike = market["short_strike"]
+                    pnl_str = f"${pos.total_pnl:+,.0f}"
+                    short_dte = pos.days_to_short_expiry()
+                    long_dte = pos.days_to_long_expiry()
                     
-                    # Use market mid if available, else estimate
-                    if market["short_mid"] > 0:
-                        est_credit = market["short_mid"]
-                    else:
+                    with st.expander(
+                        f"{status_emoji} {get_variant_display_name(variant.role)} | "
+                        f"P&L: {pnl_str} | Long: {long_dte}d | Short: {short_dte}d",
+                        expanded=(health["status"] != "healthy")
+                    ):
+                        # Health banner
+                        if health["status"] == "critical":
+                            st.error(f"🚨 **{status_label}** — Immediate action required!")
+                        elif health["status"] == "attention":
+                            st.warning(f"⚠️ **{status_label}** — Action recommended")
+                        else:
+                            st.success(f"✅ **{status_label}** — No immediate action needed")
+                        
+                        # Position details
+                        detail_col1, detail_col2, detail_col3, detail_col4 = st.columns(4)
+                        with detail_col1:
+                            st.markdown("**📈 Long Leg**")
+                            st.write(f"Strike: ${pos.long_strike:.0f}")
+                            st.write(f"DTE: {long_dte} days")
+                            st.write(f"Entry: ${pos.long_entry_price:.2f}")
+                        with detail_col2:
+                            st.markdown("**📉 Short Leg**")
+                            short_leg = pos.current_short_leg
+                            if short_leg and short_leg.status == "open":
+                                st.write(f"Strike: ${short_leg.strike:.0f}")
+                                st.write(f"DTE: {short_leg.days_to_expiry()} days")
+                                st.write(f"Credit: ${short_leg.entry_credit:.2f}")
+                            else:
+                                st.warning("📭 No active short")
+                        with detail_col3:
+                            st.markdown("**💰 P&L**")
+                            pnl_color = "green" if pos.total_pnl >= 0 else "red"
+                            st.markdown(f"**<span style='color:{pnl_color}'>{pnl_str}</span>**", unsafe_allow_html=True)
+                            st.write(f"Credits: ${pos.total_credits_received:.2f}")
+                            st.write(f"Rolls: {pos.total_rolls}")
+                        with detail_col4:
+                            st.markdown("**📋 Info**")
+                            st.write(f"Contracts: {pos.contracts}")
+                            st.write(f"Entry: {pos.entry_date}")
+                            st.write(f"Regime: {pos.entry_regime}")
+                        
+                        # Recommendations
+                        st.markdown("**🎯 Recommendations:**")
+                        for alert in health.get("alerts", []):
+                            st.write(f"  • {alert}")
+                        
+                        # Action buttons
+                        st.markdown("---")
+                        btn_col1, btn_col2, btn_col3, btn_col4 = st.columns(4)
+                        
+                        # Context-appropriate buttons
+                        short_leg = pos.current_short_leg
+                        
+                        if health["short_status"] in ["expired", "none"]:
+                            with btn_col1:
+                                if st.button(f"🎉 Lock Profit", key=f"expire_{pos.position_id}", help="Short expired worthless - lock in the credit"):
+                                    trade_log.expire_diagonal_short(pos.position_id)
+                                    st.success("✅ Short expired - profit locked!")
+                                    st.rerun()
+                        
+                        if health["short_status"] in ["expired", "roll_soon", "none"]:
+                            with btn_col2:
+                                if st.button(f"🔄 Roll Short", key=f"roll_{pos.position_id}"):
+                                    st.session_state[f"rolling_{pos.position_id}"] = True
+                        
+                        with btn_col3:
+                            if st.button(f"💲 Update Prices", key=f"prices_{pos.position_id}"):
+                                st.session_state[f"prices_{pos.position_id}"] = True
+                        
+                        with btn_col4:
+                            if st.button(f"❌ Close Position", key=f"close_{pos.position_id}"):
+                                st.session_state[f"closing_{pos.position_id}"] = True
+                        
+                        # Roll form
+                        if st.session_state.get(f"rolling_{pos.position_id}"):
+                            with st.form(key=f"roll_form_{pos.position_id}"):
+                                st.markdown("#### 🔄 Roll to New Short")
+                                roll_col1, roll_col2, roll_col3 = st.columns(3)
+                                with roll_col1:
+                                    new_strike = st.number_input("New Strike", value=float(regime.vix_level + 2), step=1.0, key=f"rs_{pos.position_id}")
+                                with roll_col2:
+                                    new_exp = st.date_input("New Expiration", value=dt.date.today() + timedelta(days=7), key=f"re_{pos.position_id}")
+                                with roll_col3:
+                                    new_credit = st.number_input("New Credit ($)", value=0.50, step=0.05, key=f"rc_{pos.position_id}")
+                                
+                                exit_price = st.number_input("Buyback Price (old short)", value=0.05, step=0.01, key=f"ep_{pos.position_id}")
+                                
+                                sub_col1, sub_col2 = st.columns(2)
+                                with sub_col1:
+                                    if st.form_submit_button("✅ Execute Roll"):
+                                        trade_log.roll_diagonal_short(
+                                            position_id=pos.position_id,
+                                            exit_price=exit_price,
+                                            new_strike=new_strike,
+                                            new_expiration=new_exp.isoformat(),
+                                            new_credit=new_credit,
+                                            underlying_price=regime.vix_level,
+                                            regime=regime.regime.value,
+                                        )
+                                        st.success("✅ Short rolled successfully!")
+                                        st.session_state[f"rolling_{pos.position_id}"] = False
+                                        st.rerun()
+                                with sub_col2:
+                                    if st.form_submit_button("Cancel"):
+                                        st.session_state[f"rolling_{pos.position_id}"] = False
+                                        st.rerun()
+                        
+                        # Update prices form
+                        if st.session_state.get(f"prices_{pos.position_id}"):
+                            with st.form(key=f"prices_form_{pos.position_id}"):
+                                st.markdown("#### 💲 Update Current Prices")
+                                price_col1, price_col2 = st.columns(2)
+                                with price_col1:
+                                    new_long_price = st.number_input("Long Price", value=pos.long_current_price or pos.long_entry_price, step=0.10, key=f"lp_{pos.position_id}")
+                                with price_col2:
+                                    current_short = pos.current_short_leg
+                                    short_val = current_short.current_price if current_short else 0.0
+                                    new_short_price = st.number_input("Short Price", value=short_val, step=0.05, key=f"sp_{pos.position_id}")
+                                
+                                if st.form_submit_button("Update"):
+                                    trade_log.update_diagonal_prices(pos.position_id, new_long_price, new_short_price)
+                                    st.success("Prices updated!")
+                                    st.session_state[f"prices_{pos.position_id}"] = False
+                                    st.rerun()
+                        
+                        # Close position form
+                        if st.session_state.get(f"closing_{pos.position_id}"):
+                            with st.form(key=f"close_form_{pos.position_id}"):
+                                st.markdown("#### ❌ Close Entire Position")
+                                st.warning("This will close both the long and short legs.")
+                                close_col1, close_col2 = st.columns(2)
+                                with close_col1:
+                                    close_long_price = st.number_input("Long Exit Price", value=pos.long_current_price or pos.long_entry_price, step=0.10, key=f"clp_{pos.position_id}")
+                                with close_col2:
+                                    current_short = pos.current_short_leg
+                                    close_short_price = st.number_input("Short Exit Price", value=current_short.current_price if current_short else 0.0, step=0.05, key=f"csp_{pos.position_id}")
+                                
+                                close_reason = st.selectbox("Close Reason", ["target_hit", "stop_hit", "manual", "regime_change", "expired"], key=f"cr_{pos.position_id}")
+                                
+                                if st.form_submit_button("🔴 Close Position"):
+                                    trade_log.close_diagonal(pos.position_id, close_long_price, close_short_price, close_reason)
+                                    st.success("Position closed!")
+                                    st.session_state[f"closing_{pos.position_id}"] = False
+                                    st.rerun()
+                        
+                        st.caption(f"*Position ID: {pos.position_id}*")
+        
+        # ═══════════════════════════════════════════════════════════════
+        # SECTION 2: ENTRY CANDIDATES (No position held, regime active)
+        # ═══════════════════════════════════════════════════════════════
+        if entry_candidates:
+            st.markdown("### ✅ ENTRY CANDIDATES — Active in Current Regime")
+            st.caption("These variants are recommended for the current regime and you have no open position.")
+            
+            for variant, prefix in entry_candidates:
+                with st.expander(
+                    f"✅ {get_variant_display_name(variant.role)} ({variant.variant_id})",
+                    expanded=True
+                ):
+                    # Fetch real market prices
+                    try:
+                        short_offset = getattr(variant, 'short_strike_offset', 2)
+                        market = get_diagonal_prices(
+                            symbol="UVXY",
+                            spot_price=regime.vix_level,
+                            long_offset=variant.long_strike_offset,
+                            short_offset=short_offset,
+                            long_dte_weeks=variant.long_dte_weeks,
+                        )
+                        long_strike = market["long_strike"]
+                        short_strike = market["short_strike"]
+                        
+                        if market["short_mid"] > 0:
+                            est_credit = market["short_mid"]
+                        else:
+                            est_credit = estimate_entry_credit(regime.vix_level, variant.long_strike_offset, variant.long_dte_weeks)
+                        
+                        long_cost = market["long_mid"] if market["long_mid"] > 0 else 0
+                    except Exception:
+                        long_strike = round(regime.vix_level + variant.long_strike_offset)
+                        short_strike = round(regime.vix_level + getattr(variant, 'short_strike_offset', 2))
                         est_credit = estimate_entry_credit(regime.vix_level, variant.long_strike_offset, variant.long_dte_weeks)
+                        long_cost = 0
                     
-                    long_cost = market["long_mid"] if market["long_mid"] > 0 else 0
-                except Exception:
-                    # Fallback to estimates
-                    long_strike = round(regime.vix_level + variant.long_strike_offset)
-                    short_strike = round(regime.vix_level + getattr(variant, 'short_strike_offset', 2))
-                    est_credit = estimate_entry_credit(regime.vix_level, variant.long_strike_offset, variant.long_dte_weeks)
-                    long_cost = 0
-                
-                targets = compute_price_targets(est_credit, variant.tp_pct, variant.sl_pct)
-                
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.write(f"**Long Strike:** ${long_strike:.0f}")
-                    st.write(f"**Short Strike:** ${short_strike:.0f}")
-                with col2:
-                    if long_cost > 0:
-                        st.write(f"**Long Cost:** ${long_cost:.2f}")
-                    st.write(f"**Short Credit:** ${est_credit:.2f}")
-                    st.write(f"**Long DTE:** {variant.long_dte_weeks}w")
-                with col3:
-                    st.write(f"**Target:** ${targets['target']:.2f} (+${targets['profit_per_contract']:.0f})")
-                    st.write(f"**Stop:** ${targets['stop']:.2f} (-${targets['loss_per_contract']:.0f})")
-                
-                # Robustness score
-                robustness = calculate_robustness(variant, regime)
-                st.progress(robustness.total_score / 100)
-                st.caption(f"Robustness: {robustness.total_score:.0f}/100 - {get_robustness_label(robustness.total_score)}")
+                    targets = compute_price_targets(est_credit, variant.tp_pct, variant.sl_pct)
+                    
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.write(f"**Long Strike:** ${long_strike:.0f}")
+                        st.write(f"**Short Strike:** ${short_strike:.0f}")
+                    with col2:
+                        if long_cost > 0:
+                            st.write(f"**Long Cost:** ${long_cost:.2f}")
+                        st.write(f"**Short Credit:** ${est_credit:.2f}")
+                        st.write(f"**Long DTE:** {variant.long_dte_weeks}w")
+                    with col3:
+                        st.write(f"**Target:** ${targets['target']:.2f} (+${targets['profit_per_contract']:.0f})")
+                        st.write(f"**Stop:** ${targets['stop']:.2f} (-${targets['loss_per_contract']:.0f})")
+                    
+                    # Robustness score
+                    robustness = calculate_robustness(variant, regime)
+                    st.progress(robustness.total_score / 100)
+                    st.caption(f"Robustness: {robustness.total_score:.0f}/100 - {get_robustness_label(robustness.total_score)}")
+                    
+                    # Entry condition check
+                    st.markdown("---")
+                    entry_check = regime.vix_percentile <= variant.entry_percentile
+                    if entry_check:
+                        st.success(f"✅ **ENTRY CONDITION MET** — Percentile {regime.vix_percentile:.0%} ≤ {variant.entry_percentile:.0%}")
+                    else:
+                        st.warning(f"⚠️ **Wait for better entry** — Percentile {regime.vix_percentile:.0%} > {variant.entry_percentile:.0%}")
+        
+        # ═══════════════════════════════════════════════════════════════
+        # SECTION 3: INACTIVE VARIANTS (Not active in current regime)
+        # ═══════════════════════════════════════════════════════════════
+        if inactive_variants:
+            st.markdown("### ⛔ INACTIVE VARIANTS — Not Active in Current Regime")
+            st.caption("These variants are not recommended for the current regime.")
+            
+            for variant, prefix in inactive_variants:
+                with st.expander(
+                    f"⛔ {get_variant_display_name(variant.role)} ({variant.variant_id})",
+                    expanded=False
+                ):
+                    st.info(f"This variant is active in: {', '.join([r.value.upper() for r in variant.active_in_regimes])}")
+                    st.write(f"Current regime: **{regime.regime.value.upper()}**")
+                    
+                    # Still show parameters for reference
+                    try:
+                        short_offset = getattr(variant, 'short_strike_offset', 2)
+                        long_strike = round(regime.vix_level + variant.long_strike_offset)
+                        short_strike = round(regime.vix_level + short_offset)
+                        est_credit = estimate_entry_credit(regime.vix_level, variant.long_strike_offset, variant.long_dte_weeks)
+                    except:
+                        long_strike = 0
+                        short_strike = 0
+                        est_credit = 0
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.write(f"Long Strike: ${long_strike:.0f}")
+                        st.write(f"Long DTE: {variant.long_dte_weeks}w")
+                    with col2:
+                        st.write(f"Short Strike: ${short_strike:.0f}")
+                        st.write(f"Est Credit: ${est_credit:.2f}")
         
         # Freeze button
         if not batch.frozen:
