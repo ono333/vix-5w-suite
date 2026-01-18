@@ -2185,8 +2185,13 @@ def render_variant_analytics():
 
 
 def render_system_health():
-    """System Health page."""
+    """System Health page with Backup Management."""
     st.title("🏥 System Health")
+    
+    # ═══════════════════════════════════════════════════════════════
+    # SYSTEM CHECKS
+    # ═══════════════════════════════════════════════════════════════
+    st.subheader("System Status")
     
     checks = []
     
@@ -2210,6 +2215,20 @@ def render_system_health():
     batch = load_signal_batch()
     checks.append(("Signal Batch", f"✅ {batch.batch_id[:20]}..." if batch else "⚪ None"))
     
+    # Check backup system
+    try:
+        from backup_manager import get_backup_manager
+        backup_mgr = get_backup_manager()
+        backup_status = backup_mgr.get_status()
+        checks.append(("Backup System", f"✅ {backup_status['total_backups']} backups"))
+        BACKUP_AVAILABLE = True
+    except ImportError:
+        checks.append(("Backup System", "❌ backup_manager.py not found"))
+        BACKUP_AVAILABLE = False
+    except Exception as e:
+        checks.append(("Backup System", f"❌ {e}"))
+        BACKUP_AVAILABLE = False
+    
     # Display checks
     for name, status in checks:
         col1, col2 = st.columns([2, 3])
@@ -2225,7 +2244,114 @@ Storage:     {STORAGE_DIR}
 Trade Log:   {STORAGE_DIR / 'trade_log.json'}
 Signals:     {SIGNAL_BATCH_FILE}
 Regime:      {REGIME_HISTORY_FILE}
+Backups:     {STORAGE_DIR / 'backups'}
     """)
+    
+    # ═══════════════════════════════════════════════════════════════
+    # BACKUP MANAGEMENT
+    # ═══════════════════════════════════════════════════════════════
+    st.markdown("---")
+    st.subheader("💾 Backup Management")
+    
+    if not BACKUP_AVAILABLE:
+        st.warning("Backup system not available. Add backup_manager.py to enable.")
+        return
+    
+    # Backup status
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Total Backups", backup_status['total_backups'])
+    with col2:
+        latest = backup_status.get('latest_backup')
+        if latest:
+            latest_time = latest.get('timestamp', 'Unknown')
+            st.metric("Latest Backup", latest_time)
+        else:
+            st.metric("Latest Backup", "None")
+    with col3:
+        cloud_enabled = "✅ Yes" if backup_status['cloud_sync_enabled'] else "❌ No"
+        st.metric("Cloud Sync", cloud_enabled)
+    with col4:
+        st.metric("Max Kept", backup_status['max_local_backups'])
+    
+    # Cloud sync paths
+    if backup_status['cloud_sync_paths']:
+        st.success(f"☁️ Cloud sync enabled: {', '.join(backup_status['cloud_sync_paths'])}")
+    else:
+        st.info("💡 To enable cloud sync, create a folder named 'VIX_Suite_Backup' in Dropbox, Google Drive, or OneDrive")
+    
+    # Backup actions
+    st.markdown("#### Actions")
+    action_col1, action_col2, action_col3 = st.columns(3)
+    
+    with action_col1:
+        if st.button("📸 Create Backup Now", type="primary"):
+            try:
+                result = backup_mgr.backup_now(reason="manual_ui")
+                if result.get('files'):
+                    st.success(f"✅ Backup created: {len(result['files'])} files saved")
+                    if result.get('cloud_synced'):
+                        st.info(f"☁️ Synced to: {', '.join(result['cloud_synced'])}")
+                else:
+                    st.warning("No files to backup")
+            except Exception as e:
+                st.error(f"Backup failed: {e}")
+    
+    with action_col2:
+        if st.button("📤 Export to CSV"):
+            try:
+                csv_path = backup_mgr.export_trades_csv()
+                st.success(f"✅ Exported to: {csv_path}")
+            except Exception as e:
+                st.error(f"Export failed: {e}")
+    
+    with action_col3:
+        if st.button("🔄 Refresh Status"):
+            st.rerun()
+    
+    # List recent backups
+    st.markdown("#### Recent Backups")
+    backups = backup_mgr.list_backups()[:10]  # Show last 10
+    
+    if not backups:
+        st.info("No backups found. Click 'Create Backup Now' to create one.")
+    else:
+        for i, backup in enumerate(backups):
+            timestamp = backup.get('timestamp', 'Unknown')
+            reason = backup.get('reason', 'unknown')
+            files = backup.get('files', [])
+            
+            col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+            with col1:
+                st.write(f"📁 `{timestamp}`")
+            with col2:
+                st.write(f"_{reason}_")
+            with col3:
+                st.write(f"{len(files)} files")
+            with col4:
+                if st.button("Restore", key=f"restore_{i}"):
+                    st.session_state[f"confirm_restore_{i}"] = True
+            
+            # Confirmation dialog
+            if st.session_state.get(f"confirm_restore_{i}"):
+                st.warning(f"⚠️ This will replace current data with backup from {timestamp}")
+                confirm_col1, confirm_col2 = st.columns(2)
+                with confirm_col1:
+                    if st.button("✅ Yes, Restore", key=f"confirm_yes_{i}"):
+                        try:
+                            result = backup_mgr.restore_backup(backup['path'], confirm=True)
+                            if result['success']:
+                                st.success(f"✅ Restored: {', '.join(result['restored'])}")
+                                st.session_state[f"confirm_restore_{i}"] = False
+                                st.rerun()
+                            else:
+                                st.error(f"Restore failed: {result.get('errors')}")
+                        except Exception as e:
+                            st.error(f"Restore failed: {e}")
+                with confirm_col2:
+                    if st.button("❌ Cancel", key=f"confirm_no_{i}"):
+                        st.session_state[f"confirm_restore_{i}"] = False
+                        st.rerun()
 
 
 # ============================================================
