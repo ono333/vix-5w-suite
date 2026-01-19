@@ -547,6 +547,79 @@ class DiagonalPosition:
         self.updated_at = datetime.now().isoformat()
         return new_leg, roll
     
+    def roll_long(
+        self,
+        exit_price: float,
+        new_strike: float,
+        new_expiration: str,
+        new_entry_price: float,
+        underlying_price: float,
+        regime: str,
+        notes: str = "",
+    ) -> dict:
+        """
+        Roll the long leg to a new strike/expiration.
+        
+        This is typically done when:
+        - Long leg is approaching expiration (< 60 DTE)
+        - Want to adjust strike based on underlying movement
+        - Rolling out to capture more time value
+        
+        Returns dict with roll details and P&L impact.
+        """
+        # Calculate P&L on old long leg
+        old_long_pnl = (exit_price - self.long_entry_price) * 100 * self.contracts
+        
+        # Net debit/credit for the roll
+        roll_debit = new_entry_price - exit_price  # Positive = paid more
+        
+        roll_info = {
+            "roll_date": datetime.now().isoformat(),
+            "roll_type": "long",
+            "old_strike": self.long_strike,
+            "old_expiration": self.long_expiration,
+            "old_exit_price": exit_price,
+            "new_strike": new_strike,
+            "new_expiration": new_expiration,
+            "new_entry_price": new_entry_price,
+            "roll_debit": roll_debit,
+            "old_long_pnl": old_long_pnl,
+            "underlying_price": underlying_price,
+            "regime": regime,
+            "notes": notes,
+        }
+        
+        # Add to roll history
+        roll_record = RollRecord(
+            roll_id=f"{self.position_id}-RL{len(self.roll_history) + 1}",
+            position_id=self.position_id,
+            roll_date=datetime.now().strftime("%Y-%m-%d"),
+            roll_type="long",
+            old_strike=self.long_strike,
+            old_expiration=self.long_expiration,
+            old_exit_price=exit_price,
+            new_strike=new_strike,
+            new_expiration=new_expiration,
+            new_credit=-roll_debit,  # Negative if we paid more
+            roll_credit=-roll_debit,
+            underlying_price=underlying_price,
+            regime=regime,
+            notes=notes,
+        )
+        self.roll_history.append(roll_record)
+        
+        # Commission for selling old long and buying new long
+        self.total_commissions += self.fee_per_contract * self.contracts * 2
+        
+        # Update position with new long leg
+        self.long_strike = new_strike
+        self.long_expiration = new_expiration
+        self.long_entry_price = new_entry_price
+        self.long_current_price = new_entry_price
+        
+        self.updated_at = datetime.now().isoformat()
+        return roll_info
+    
     def close_short_expired(self, expired_itm: bool = False, exit_price: float = 0.0) -> None:
         """Mark short as expired (worthless or ITM assignment)."""
         short = self.current_short_leg
@@ -890,6 +963,35 @@ class TradeLog:
         
         self._save()
         return new_leg, roll_record
+    
+    def roll_diagonal_long(
+        self,
+        position_id: str,
+        exit_price: float,
+        new_strike: float,
+        new_expiration: str,
+        new_entry_price: float,
+        underlying_price: float,
+        regime: str,
+        notes: str = "",
+    ) -> Optional[dict]:
+        """Roll the long leg of a diagonal position."""
+        pos = self.diagonal_positions.get(position_id)
+        if not pos:
+            return None
+        
+        roll_info = pos.roll_long(
+            exit_price=exit_price,
+            new_strike=new_strike,
+            new_expiration=new_expiration,
+            new_entry_price=new_entry_price,
+            underlying_price=underlying_price,
+            regime=regime,
+            notes=notes,
+        )
+        
+        self._save()
+        return roll_info
     
     def expire_diagonal_short(self, position_id: str) -> Optional[DiagonalPosition]:
         """

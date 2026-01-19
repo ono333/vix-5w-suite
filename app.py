@@ -2638,6 +2638,18 @@ def _render_diagonal_positions(trade_log):
                 with col6:
                     delete_clicked = st.button("🗑️ Del", key=f"delete_{pos.position_id}")
                 
+                # Second row of buttons for long leg management
+                col7, col8, col9 = st.columns([1, 1, 2])
+                with col7:
+                    roll_long_clicked = st.button("🔄 Roll Long", key=f"roll_long_{pos.position_id}",
+                                                   help="Roll the LEAP to new strike/expiration")
+                with col8:
+                    long_dte = pos.days_to_long_expiry()
+                    if long_dte <= 60:
+                        st.warning(f"⚠️ Long DTE: {long_dte}d")
+                    else:
+                        st.caption(f"Long DTE: {long_dte}d")
+                
                 # Handle button clicks
                 if roll_clicked:
                     st.session_state[f"rolling_{pos.position_id}"] = True
@@ -2653,6 +2665,8 @@ def _render_diagonal_positions(trade_log):
                     st.session_state[f"editing_{pos.position_id}"] = True
                 if delete_clicked:
                     st.session_state[f"deleting_{pos.position_id}"] = True
+                if roll_long_clicked:
+                    st.session_state[f"rolling_long_{pos.position_id}"] = True
                 
                 # Render forms based on state
                 if st.session_state.get(f"rolling_{pos.position_id}"):
@@ -2669,6 +2683,8 @@ def _render_diagonal_positions(trade_log):
                     _render_edit_form(trade_log, pos)
                 if st.session_state.get(f"deleting_{pos.position_id}"):
                     _render_delete_confirm(trade_log, pos)
+                if st.session_state.get(f"rolling_long_{pos.position_id}"):
+                    _render_roll_long_form(trade_log, pos)
             
             else:
                 # Closed positions can still be edited or deleted
@@ -2687,6 +2703,8 @@ def _render_diagonal_positions(trade_log):
                     _render_edit_form(trade_log, pos)
                 if st.session_state.get(f"deleting_{pos.position_id}"):
                     _render_delete_confirm(trade_log, pos)
+                if st.session_state.get(f"rolling_long_{pos.position_id}"):
+                    _render_roll_long_form(trade_log, pos)
                 
 
 
@@ -3057,6 +3075,132 @@ def _render_edit_form(trade_log, pos):
             st.session_state[f"editing_{pos.position_id}"] = False
             st.rerun()
 
+
+
+
+def _render_roll_long_form(trade_log, pos):
+    """Form to roll the long leg (LEAP) to a new strike/expiration."""
+    st.markdown("##### 🔄 Roll Long Leg (LEAP)")
+    
+    # Get current underlying price
+    try:
+        import yfinance as yf
+        ticker = yf.Ticker("UVXY")
+        current_price = ticker.info.get('regularMarketPrice') or ticker.fast_info.get('lastPrice', 38.0)
+    except:
+        current_price = 38.0
+    
+    # Current long leg info
+    long_dte = pos.days_to_long_expiry()
+    
+    st.info(f"""
+    **Current Long Leg:**
+    - Strike: ${pos.long_strike:.0f}
+    - Expiration: {pos.long_expiration} ({long_dte} DTE)
+    - Entry Price: ${pos.long_entry_price:.2f}
+    - Current Price: ${pos.long_current_price:.2f}
+    
+    **Current UVXY:** ${current_price:.2f}
+    """)
+    
+    # Suggestions for new long leg
+    st.markdown("##### 💡 Roll Suggestions")
+    
+    # Suggest strikes based on current price
+    suggested_strikes = [
+        round(current_price * 0.85, 0),  # 15% ITM
+        round(current_price * 0.90, 0),  # 10% ITM
+        round(current_price * 0.95, 0),  # 5% ITM
+        round(current_price, 0),          # ATM
+    ]
+    
+    # Suggest 6-month out expiration
+    from datetime import datetime, timedelta
+    today = datetime.now()
+    suggested_exp = today + timedelta(days=180)
+    # Adjust to nearest Friday
+    days_until_friday = (4 - suggested_exp.weekday()) % 7
+    suggested_exp = suggested_exp + timedelta(days=days_until_friday)
+    
+    st.info(f"""
+    **Suggested Strikes:**
+    - Deep ITM (15%): ${suggested_strikes[0]:.0f}
+    - ITM (10%): ${suggested_strikes[1]:.0f}
+    - Slight ITM (5%): ${suggested_strikes[2]:.0f}
+    - ATM: ${suggested_strikes[3]:.0f}
+    
+    **Suggested Expiration:** {suggested_exp.strftime('%Y-%m-%d')} (~6 months out)
+    """)
+    
+    st.markdown("---")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("**Close Current Long:**")
+        exit_price = st.number_input(
+            "Sell Current Long at ($)",
+            min_value=0.0, max_value=50.0, value=float(pos.long_current_price), step=0.05,
+            key=f"roll_long_exit_{pos.position_id}",
+            help="Price received for selling current LEAP"
+        )
+        
+        # Calculate P&L on old long
+        old_pnl = (exit_price - pos.long_entry_price) * 100 * pos.contracts
+        pnl_color = "green" if old_pnl >= 0 else "red"
+        st.markdown(f"P&L on current long: <span style='color:{pnl_color}'>${old_pnl:+,.0f}</span>", unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown("**Open New Long:**")
+        new_strike = st.number_input(
+            "New Strike",
+            min_value=1.0, value=float(suggested_strikes[1]), step=1.0,
+            key=f"roll_long_new_strike_{pos.position_id}"
+        )
+        new_exp = st.date_input(
+            "New Expiration", 
+            value=suggested_exp.date(), 
+            key=f"roll_long_new_exp_{pos.position_id}"
+        )
+        new_entry_price = st.number_input(
+            "New Long Price ($)",
+            min_value=0.01, value=5.0, step=0.05,
+            key=f"roll_long_new_price_{pos.position_id}",
+            help="Debit paid for new LEAP"
+        )
+    
+    # Calculate net roll cost
+    roll_debit = new_entry_price - exit_price
+    st.markdown("---")
+    
+    if roll_debit > 0:
+        st.warning(f"**Net Roll Debit:** ${roll_debit:.2f} per contract (${roll_debit * pos.contracts * 100:,.0f} total)")
+    else:
+        st.success(f"**Net Roll Credit:** ${abs(roll_debit):.2f} per contract (${abs(roll_debit) * pos.contracts * 100:,.0f} total)")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("✅ Execute Long Roll", key=f"roll_long_submit_{pos.position_id}"):
+            try:
+                roll_info = trade_log.roll_diagonal_long(
+                    position_id=pos.position_id,
+                    exit_price=exit_price,
+                    new_strike=new_strike,
+                    new_expiration=new_exp.isoformat(),
+                    new_entry_price=new_entry_price,
+                    underlying_price=current_price,
+                    regime="CALM",  # TODO: Get current regime
+                    notes=f"Rolled from ${pos.long_strike} to ${new_strike}",
+                )
+                st.success(f"✅ Long leg rolled! Net {'debit' if roll_debit > 0 else 'credit'}: ${abs(roll_debit):.2f}")
+                st.session_state[f"rolling_long_{pos.position_id}"] = False
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error rolling long: {e}")
+    
+    with col2:
+        if st.button("❌ Cancel", key=f"roll_long_cancel_{pos.position_id}"):
+            st.session_state[f"rolling_long_{pos.position_id}"] = False
+            st.rerun()
 
 def _render_sell_short_form(trade_log, pos):
     """Form to sell a new short leg when position has none."""
