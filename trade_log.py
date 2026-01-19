@@ -312,6 +312,10 @@ class DiagonalPosition:
     target_pct: float = 0.40
     stop_pct: float = 0.60
     
+    # Commission tracking
+    fee_per_contract: float = 0.65
+    total_commissions: float = 0.0
+    
     notes: str = ""
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now().isoformat())
