@@ -1052,10 +1052,13 @@ class TradeLog:
         credit_per_contract = diag.total_short_credits / diag.contracts if diag.contracts else 0
         net_debit = diag.long_entry_price - credit_per_contract
         
-        # Get current short leg info for expiration
+        # Get current short leg info
         current_short = diag.current_short_leg
-        short_exp = current_short.expiration_date if current_short else diag.long_expiration
         current_short_price = current_short.current_price if current_short else 0
+        
+        # Use LONG expiration for DTE (that's the main position timeframe)
+        # Short leg DTE is for roll decisions, handled separately
+        expiration = diag.long_expiration
         
         # Current spread value
         current_spread_value = diag.long_current_price - current_short_price
@@ -1063,7 +1066,11 @@ class TradeLog:
         # Generate a position_id from diagonal
         position_id = f"diag_{diag.position_id}"
         
-        return Position(
+        # Get P&L directly from diagonal's calculations
+        total_pnl = diag.total_pnl
+        pnl_pct = (total_pnl / (net_debit * 100 * diag.contracts)) if (net_debit and diag.contracts) else 0
+        
+        pos = Position(
             position_id=position_id,
             variant_id=diag.variant_id,
             variant_name=diag.variant_name,
@@ -1073,7 +1080,7 @@ class TradeLog:
             entry_vix_level=diag.entry_vix_level,
             entry_percentile=diag.entry_percentile,
             strike=diag.long_strike,
-            expiration_date=short_exp,
+            expiration_date=expiration,
             contracts=diag.contracts,
             target_price=net_debit * (1 - diag.target_pct),
             stop_price=net_debit * (1 + diag.stop_pct),
@@ -1081,7 +1088,15 @@ class TradeLog:
             stop_pct=diag.stop_pct,
             status=diag.status,
             current_price=current_spread_value,
+            current_pnl=total_pnl,
+            current_pnl_pct=pnl_pct,
         )
+        
+        # Store reference to short leg DTE for roll warnings
+        pos._short_dte = diag.short_dte
+        pos._diag_ref = diag  # Keep reference for detailed info
+        
+        return pos
     
     def get_all_open_positions(self) -> List[Position]:
         """Get all currently open positions."""
