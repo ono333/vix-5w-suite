@@ -34,6 +34,7 @@ from enums import VolatilityRegime, VariantRole
 from regime_detector import classify_regime, RegimeState
 from variant_generator import generate_all_variants, get_variant_display_name, SignalBatch, VariantParams
 from trade_log import get_trade_log, TradeLog, Position
+from market_calendar import format_calendar_warning, is_market_open, get_next_trading_day
 
 # ============================================================
 # Helper Functions
@@ -320,6 +321,20 @@ def build_position_aware_email(
     </div>
 """
     
+    # Add calendar warning if any
+    calendar_warning = format_calendar_warning()
+    if calendar_warning:
+        html += """
+    <div class="section" style="background: #442; border-left: 4px solid #FF9800;">
+        <div class="section-header">📅 Calendar Alerts</div>
+        <div style="font-size: 14px; line-height: 1.8;">
+"""
+        for line in calendar_warning.split("\n"):
+            html += f"            {line}<br>\n"
+        html += """        </div>
+    </div>
+"""
+    
     # ================================================================
     # SECTION 1: OPEN POSITIONS (Management Mode)
     # ================================================================
@@ -580,6 +595,19 @@ def main():
     print(f"\n🎯 Regime Detection:")
     print(f"   Regime: {regime_state.regime.value.upper()}")
     print(f"   Confidence: {regime_state.confidence:.0%}")
+    
+    # Check market calendar
+    from datetime import date
+    today = date.today()
+    if not is_market_open(today):
+        next_open = get_next_trading_day(today)
+        print(f"\n⛔ MARKET CLOSED TODAY - Next trading day: {next_open.strftime('%A, %b %d')}")
+    
+    calendar_warning = format_calendar_warning()
+    if calendar_warning:
+        print(f"\n📅 Calendar Alerts:")
+        for line in calendar_warning.split("\n"):
+            print(f"   {line}")
     
     # 3. Generate all 5 variants
     batch = generate_all_variants(regime_state)
