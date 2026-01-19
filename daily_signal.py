@@ -35,6 +35,36 @@ from regime_detector import classify_regime, RegimeState
 from variant_generator import generate_all_variants, get_variant_display_name, SignalBatch, VariantParams
 from trade_log import get_trade_log, TradeLog, Position
 
+# ============================================================
+# Helper Functions
+# ============================================================
+
+def estimate_entry_credit(vix_level: float, strike_offset: float, dte_weeks: int) -> float:
+    """
+    Estimate option credit based on VIX level and position parameters.
+    This is a rough approximation for display purposes.
+    """
+    # Base credit scales with VIX level
+    base_credit = vix_level * 0.02
+    
+    # Adjust for strike distance (closer = more credit)
+    strike_factor = max(0.5, 1.0 - (strike_offset / 20.0))
+    
+    # Adjust for time (more DTE = more credit)
+    time_factor = min(2.0, 0.5 + (dte_weeks / 26.0))
+    
+    credit = base_credit * strike_factor * time_factor
+    return round(max(0.25, min(5.00, credit)), 2)
+
+
+def compute_price_targets(entry_credit: float, tp_pct: float, sl_pct: float) -> dict:
+    """Compute target and stop prices from entry credit."""
+    return {
+        "target": round(entry_credit * (1 - tp_pct), 2),
+        "stop": round(entry_credit * (1 + sl_pct), 2),
+    }
+
+
 
 # ============================================================
 # Market Data
@@ -143,9 +173,9 @@ def classify_variants(
             state.dte_remaining = position.days_to_expiry()
             
             # Suggest action based on current state
-            if position.current_pnl_pct >= variant.target_pct:
+            if position.current_pnl_pct >= variant.tp_pct:
                 state.action_suggestion = "🎯 TAKE PROFIT - Target reached"
-            elif position.current_pnl_pct <= -variant.stop_pct:
+            elif position.current_pnl_pct <= -variant.sl_pct:
                 state.action_suggestion = "🛑 STOP LOSS - Stop level hit"
             elif state.dte_remaining <= 5:
                 state.action_suggestion = "📅 ROLL or CLOSE - Low DTE"
@@ -165,10 +195,10 @@ def classify_variants(
             # Compute targets from estimated entry
             if state.suggested_entry_credit > 0:
                 state.suggested_target_price = round(
-                    state.suggested_entry_credit * (1 - variant.target_pct), 2
+                    state.suggested_entry_credit * (1 - variant.tp_pct), 2
                 )
                 state.suggested_stop_price = round(
-                    state.suggested_entry_credit * (1 + variant.stop_pct), 2
+                    state.suggested_entry_credit * (1 + variant.sl_pct), 2
                 )
         
         states.append(state)
@@ -359,7 +389,7 @@ def build_position_aware_email(
             variant = state.variant
             name = get_variant_display_name(variant.role)
             
-            alloc_dollars = account_size * (variant.allocation_pct / 100)
+            alloc_dollars = account_size * (variant.alloc_pct / 100)
             contracts = max(1, min(50, int(alloc_dollars / 500)))  # Rough estimate
             
             html += f"""
@@ -368,7 +398,7 @@ def build_position_aware_email(
             <div class="metrics">
                 <div class="metric">
                     <div class="metric-label">Entry Trigger</div>
-                    <div class="metric-value">${estimate_entry_credit(regime.vix_level, variant.long_strike_offset, variant.long_dte_weeks):.2f} est. credit</div>
+                    <div class="metric-value">${estimate_entry_credit(vix_level, variant.long_strike_offset, variant.long_dte_weeks):.2f} est. credit</div>
                 </div>
                 <div class="metric">
                     <div class="metric-label">Strike Offset</div>
@@ -385,16 +415,16 @@ def build_position_aware_email(
                     <div class="target-value">≥${state.suggested_entry_credit:.2f}</div>
                 </div>
                 <div class="target profit">
-                    <div class="target-label">Target Exit ({variant.target_pct:.0%} gain)</div>
+                    <div class="target-label">Target Exit ({variant.tp_pct:.0%} gain)</div>
                     <div class="target-value">${state.suggested_target_price:.2f}</div>
                 </div>
                 <div class="target stop">
-                    <div class="target-label">Stop Loss ({variant.stop_pct:.0%} loss)</div>
+                    <div class="target-label">Stop Loss ({variant.sl_pct:.0%} loss)</div>
                     <div class="target-value">${state.suggested_stop_price:.2f}</div>
                 </div>
             </div>
             <div class="allocation">
-                💰 Allocation: {variant.allocation_pct:.1f}% (${alloc_dollars:,.0f}) → ~{contracts} contracts
+                💰 Allocation: {variant.alloc_pct:.1f}% (${alloc_dollars:,.0f}) → ~{contracts} contracts
             </div>
         </div>
 """
@@ -537,8 +567,10 @@ def main():
     print(f"   5-day slope: {slope:+.3f}")
     
     # 2. Detect regime
+    regime_state = classify_regime(current_price, vix_percentile=percentile)
+    # Update with additional data
     regime_state = RegimeState(
-        regime=classify_regime(current_price, vix_percentile=percentile),
+        regime=regime_state.regime,
         vix_level=current_price,
         vix_percentile=percentile,
         confidence=0.5 + abs(percentile - 0.5),
@@ -593,7 +625,7 @@ def main():
             name = get_variant_display_name(s.variant.role)
             v = s.variant
             print(f"      ✅ {name}")
-            est_cr = estimate_entry_credit(regime.vix_level, v.long_strike_offset, v.long_dte_weeks)
+            est_cr = estimate_entry_credit(regime_state.vix_level, v.long_strike_offset, v.long_dte_weeks)
             targets = compute_price_targets(est_cr, v.tp_pct, v.sl_pct)
             print(f"         Credit: ${est_cr:.2f} | Target: ${targets['target']:.2f} | Stop: ${targets['stop']:.2f}")
             print(f"         Target: ${s.suggested_target_price} | Stop: ${s.suggested_stop_price}")

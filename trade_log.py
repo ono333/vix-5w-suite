@@ -1032,11 +1032,56 @@ class TradeLog:
         return pos is not None and pos.is_open()
     
     def get_open_position(self, variant_id: str) -> Optional[Position]:
-        """Get open position for variant, or None."""
+        """Get open position for variant, or None. Checks both positions and diagonal_positions."""
+        # First check regular positions
         pos = self.positions.get(variant_id)
         if pos and pos.is_open():
             return pos
+        
+        # Then check diagonal positions (case-insensitive match)
+        variant_id_upper = variant_id.upper()
+        for pid, diag in self.diagonal_positions.items():
+            if diag.variant_id.upper() == variant_id_upper and diag.status == "open":
+                return self._diagonal_to_position(diag)
+        
         return None
+    
+    def _diagonal_to_position(self, diag) -> Position:
+        """Convert DiagonalPosition to Position for signal generator compatibility."""
+        # Calculate net debit per spread
+        credit_per_contract = diag.total_short_credits / diag.contracts if diag.contracts else 0
+        net_debit = diag.long_entry_price - credit_per_contract
+        
+        # Get current short leg info for expiration
+        current_short = diag.current_short_leg
+        short_exp = current_short.expiration_date if current_short else diag.long_expiration
+        current_short_price = current_short.current_price if current_short else 0
+        
+        # Current spread value
+        current_spread_value = diag.long_current_price - current_short_price
+        
+        # Generate a position_id from diagonal
+        position_id = f"diag_{diag.position_id}"
+        
+        return Position(
+            position_id=position_id,
+            variant_id=diag.variant_id,
+            variant_name=diag.variant_name,
+            entry_date=diag.entry_date,
+            entry_price=net_debit,
+            entry_regime=diag.entry_regime,
+            entry_vix_level=diag.entry_vix_level,
+            entry_percentile=diag.entry_percentile,
+            strike=diag.long_strike,
+            expiration_date=short_exp,
+            contracts=diag.contracts,
+            target_price=net_debit * (1 - diag.target_pct),
+            stop_price=net_debit * (1 + diag.stop_pct),
+            target_pct=diag.target_pct,
+            stop_pct=diag.stop_pct,
+            status=diag.status,
+            current_price=current_spread_value,
+        )
     
     def get_all_open_positions(self) -> List[Position]:
         """Get all currently open positions."""
