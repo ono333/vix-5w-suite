@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+venv/
+*.log
+.DS_Store
+venv/
+vix_env/
+__pycache__/
+*.pyc
+*.log
+.DS_Store
+*.backup_*
+nohup.out
