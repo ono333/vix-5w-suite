@@ -1,0 +1,27 @@
+{
+  "trades": [
+    {
+      "trade_id": "V1_20260106_094707",
+      "variant_id": 1,
+      "variant_name": "Static Baseline",
+      "status": "open",
+      "entry_date": "2026-01-02",
+      "entry_underlying": 14.95,
+      "contracts": 5,
+      "long_strike": 45.0,
+      "long_premium": 8.707,
+      "long_dte": 167,
+      "short_strike": 40.0,
+      "short_premium": 0.194,
+      "net_debit": 4256.5,
+      "entry_percentile": 0.25,
+      "notes": "",
+      "exit_date": null,
+      "exit_underlying": null,
+      "exit_value": null,
+      "pnl": null,
+      "exit_reason": null
+    }
+  ],
+  "updated": "2026-01-06T09:47:07.147525"
+}
