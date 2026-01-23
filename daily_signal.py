@@ -147,8 +147,10 @@ def classify_variants(
 ) -> List[VariantState]:
     """
     Classify each variant into management or entry mode based on position state.
+    Always calculates fresh entry signals for all variants (for paper testing comparison).
     """
     states = []
+    vix_level = batch.regime_state.vix_level if batch.regime_state else 20.0
     
     for variant in batch.variants:
         variant_id = variant.role.value if hasattr(variant.role, 'value') else str(variant.role)
@@ -167,40 +169,38 @@ def classify_variants(
             is_recommended=is_recommended,
         )
         
+        # ALWAYS calculate fresh entry signals (for paper testing comparison)
+        # Estimate entry credit based on VIX level and variant parameters
+        base_credit = 1.0 + (vix_level - 15) * 0.1
+        # Adjust based on strike offset (further OTM = less credit)
+        offset_factor = max(0.5, 1.0 - abs(variant.long_strike_offset) * 0.02)
+        state.suggested_entry_credit = round(base_credit * offset_factor, 2)
+        
+        if state.suggested_entry_credit > 0:
+            state.suggested_target_price = round(
+                state.suggested_entry_credit * (1 - variant.tp_pct), 2
+            )
+            state.suggested_stop_price = round(
+                state.suggested_entry_credit * (1 + variant.sl_pct), 2
+            )
+        
+        # Add management info if has position
         if has_position and position:
-            # MANAGEMENT MODE
             state.current_pnl = position.current_pnl
             state.current_pnl_pct = position.current_pnl_pct
             state.dte_remaining = position.days_to_expiry()
             
             # Suggest action based on current state
-            if position.current_pnl_pct >= variant.tp_pct:
-                state.action_suggestion = "🎯 TAKE PROFIT - Target reached"
-            elif position.current_pnl_pct <= -variant.sl_pct:
-                state.action_suggestion = "🛑 STOP LOSS - Stop level hit"
-            elif state.dte_remaining <= 5:
-                state.action_suggestion = "📅 ROLL or CLOSE - Low DTE"
+            if position.current_pnl_pct and position.current_pnl_pct >= variant.tp_pct:
+                state.action_suggestion = "TAKE_PROFIT"
+            elif position.current_pnl_pct and position.current_pnl_pct <= -variant.sl_pct:
+                state.action_suggestion = "STOP_LOSS"
+            elif state.dte_remaining and state.dte_remaining <= 5:
+                state.action_suggestion = "ROLL"
             elif not is_recommended:
-                state.action_suggestion = "⚠️ REGIME DRIFT - Consider closing"
+                state.action_suggestion = "REGIME_DRIFT"
             else:
-                state.action_suggestion = "✋ HOLD - On track"
-        else:
-            # ENTRY MODE
-            # Estimate entry credit (this would come from real option chains in production)
-            # For now, use allocation as basis for suggested entry
-            vix_level = batch.regime_state.vix_level if batch.regime_state else 20.0
-            
-            # Rough estimate: entry credit scales with VIX level
-            state.suggested_entry_credit = round(1.0 + (vix_level - 15) * 0.1, 2)
-            
-            # Compute targets from estimated entry
-            if state.suggested_entry_credit > 0:
-                state.suggested_target_price = round(
-                    state.suggested_entry_credit * (1 - variant.tp_pct), 2
-                )
-                state.suggested_stop_price = round(
-                    state.suggested_entry_credit * (1 + variant.sl_pct), 2
-                )
+                state.action_suggestion = "HOLD"
         
         states.append(state)
     
@@ -216,121 +216,87 @@ def build_position_aware_email(
     variant_states: List[VariantState],
     account_size: float = 250_000.0,
 ) -> str:
-    """
-    Build HTML email that reflects trading state, not just signals.
-    
-    Two main sections:
-    - OPEN POSITIONS (management mode)
-    - ENTRY CANDIDATES (entry mode)
-    """
+    """Build HTML email showing both open positions AND fresh signals for all variants."""
     regime_state = batch.regime_state
     regime_name = regime_state.regime.value.upper() if regime_state else "UNKNOWN"
     vix_level = regime_state.vix_level if regime_state else 0
     vix_pct = regime_state.vix_percentile if regime_state else 0
     
-    # Separate into management vs entry
     management_variants = [s for s in variant_states if s.has_position]
-    entry_variants = [s for s in variant_states if not s.has_position]
     
-    # Further split entry variants
-    recommended_entries = [s for s in entry_variants if s.is_recommended]
-    paper_test_entries = [s for s in entry_variants if not s.is_recommended]
+    # All variants for fresh signals section
+    all_variants = variant_states
+    recommended_variants = [s for s in variant_states if s.is_recommended]
+    paper_test_variants = [s for s in variant_states if not s.is_recommended]
+    
+    # Regime colors
+    regime_colors = {
+        "CALM": "#4CAF50", "DECLINING": "#FFC107", "RISING": "#FF9800",
+        "STRESSED": "#f44336", "EXTREME": "#9C27B0"
+    }
+    regime_color = regime_colors.get(regime_name, "#607D8B")
     
     html = f"""
 <!DOCTYPE html>
 <html>
-<head>
-    <meta charset="utf-8">
-    <style>
-        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #eee; padding: 20px; }}
-        .container {{ max-width: 700px; margin: 0 auto; }}
-        .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 25px; border-radius: 12px; margin-bottom: 20px; }}
-        .header h1 {{ margin: 0; font-size: 24px; }}
-        .header .subtitle {{ opacity: 0.9; margin-top: 8px; }}
-        .stats {{ display: flex; gap: 15px; margin: 20px 0; }}
-        .stat-box {{ background: #252542; padding: 15px 20px; border-radius: 8px; text-align: center; flex: 1; }}
-        .stat-box .value {{ font-size: 28px; font-weight: bold; }}
-        .stat-box .label {{ font-size: 11px; opacity: 0.7; margin-top: 4px; }}
-        .stat-green {{ border-left: 4px solid #4CAF50; }}
-        .stat-blue {{ border-left: 4px solid #2196F3; }}
-        .stat-orange {{ border-left: 4px solid #FF9800; }}
-        .section {{ background: #252542; border-radius: 10px; padding: 20px; margin: 20px 0; }}
-        .section-header {{ font-size: 16px; font-weight: 600; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid #444; }}
-        .position-card {{ background: #1a1a2e; border-radius: 8px; padding: 15px; margin: 10px 0; }}
-        .position-card.profit {{ border-left: 4px solid #4CAF50; }}
-        .position-card.loss {{ border-left: 4px solid #f44336; }}
-        .position-card.neutral {{ border-left: 4px solid #2196F3; }}
-        .variant-name {{ font-weight: 600; font-size: 15px; margin-bottom: 8px; }}
-        .metrics {{ display: flex; flex-wrap: wrap; gap: 15px; font-size: 13px; }}
-        .metric {{ }}
-        .metric-label {{ opacity: 0.6; font-size: 11px; }}
-        .metric-value {{ font-weight: 500; }}
-        .action {{ margin-top: 12px; padding: 8px 12px; background: #333; border-radius: 6px; font-size: 13px; }}
-        .entry-card {{ background: #1a1a2e; border-radius: 8px; padding: 15px; margin: 10px 0; }}
-        .entry-card.recommended {{ border-left: 4px solid #4CAF50; }}
-        .entry-card.paper-test {{ border-left: 4px solid #9E9E9E; opacity: 0.8; }}
-        .targets {{ display: flex; gap: 20px; margin-top: 10px; }}
-        .target {{ padding: 8px 12px; background: #333; border-radius: 6px; }}
-        .target-label {{ font-size: 11px; opacity: 0.6; }}
-        .target-value {{ font-weight: 600; }}
-        .target.profit {{ color: #4CAF50; }}
-        .target.stop {{ color: #f44336; }}
-        .allocation {{ margin-top: 10px; font-size: 12px; opacity: 0.8; }}
-        .regime-warning {{ background: #442; border-left: 4px solid #FF9800; padding: 12px; margin: 10px 0; border-radius: 6px; font-size: 13px; }}
-        .footer {{ text-align: center; opacity: 0.5; font-size: 12px; margin-top: 30px; }}
-    </style>
-</head>
-<body>
-<div class="container">
+<head><meta charset="utf-8"></head>
+<body style="font-family: Arial, sans-serif; background: #f5f5f5; color: #333; padding: 20px; margin: 0;">
+<div style="max-width: 650px; margin: 0 auto; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
     
-    <div class="header">
-        <h1>📈 VIX 5% Weekly — Position Report</h1>
-        <div class="subtitle">
-            {datetime.now().strftime('%A, %B %d, %Y %I:%M %p')} ET
-        </div>
+    <!-- Header -->
+    <div style="background: linear-gradient(135deg, #1a73e8, #4285f4); color: #fff; padding: 25px; text-align: center;">
+        <div style="font-size: 22px; font-weight: bold;">📈 VIX 5% Weekly Suite</div>
+        <div style="font-size: 14px; opacity: 0.9; margin-top: 8px;">Position Report — {datetime.now().strftime('%A, %B %d, %Y %I:%M %p')} ET</div>
     </div>
     
-    <div class="stats">
-        <div class="stat-box stat-orange">
-            <div class="value">{regime_name}</div>
-            <div class="label">Current Regime</div>
-        </div>
-        <div class="stat-box">
-            <div class="value">${vix_level:.2f}</div>
-            <div class="label">UVXY Level</div>
-        </div>
-        <div class="stat-box">
-            <div class="value">{vix_pct:.0%}</div>
-            <div class="label">52w Percentile</div>
-        </div>
-    </div>
+    <!-- Market State -->
+    <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+        <tr>
+            <td style="padding: 15px; text-align: center; background: {regime_color}; color: #fff; width: 33%;">
+                <div style="font-size: 24px; font-weight: bold;">{regime_name}</div>
+                <div style="font-size: 11px; opacity: 0.9;">Regime</div>
+            </td>
+            <td style="padding: 15px; text-align: center; background: #f8f9fa; width: 33%;">
+                <div style="font-size: 24px; font-weight: bold; color: #333;">${vix_level:.2f}</div>
+                <div style="font-size: 11px; color: #666;">UVXY Price</div>
+            </td>
+            <td style="padding: 15px; text-align: center; background: #f8f9fa; width: 33%;">
+                <div style="font-size: 24px; font-weight: bold; color: #333;">{vix_pct:.0%}</div>
+                <div style="font-size: 11px; color: #666;">52w Percentile</div>
+            </td>
+        </tr>
+    </table>
     
-    <div class="stats">
-        <div class="stat-box stat-green">
-            <div class="value">{len(management_variants)}</div>
-            <div class="label">🔄 Open Positions</div>
-        </div>
-        <div class="stat-box stat-blue">
-            <div class="value">{len(recommended_entries)}</div>
-            <div class="label">🎯 Entry Candidates</div>
-        </div>
-        <div class="stat-box">
-            <div class="value">{len(paper_test_entries)}</div>
-            <div class="label">🔬 Paper Test Only</div>
-        </div>
-    </div>
+    <!-- Stats -->
+    <table style="width: 100%; border-collapse: collapse; margin: 0 0 20px 0;">
+        <tr>
+            <td style="padding: 12px; text-align: center; background: #e8f5e9; border-left: 4px solid #4CAF50; width: 33%;">
+                <div style="font-size: 28px; font-weight: bold; color: #2e7d32;">{len(management_variants)}</div>
+                <div style="font-size: 11px; color: #666;">🔄 Open Positions</div>
+            </td>
+            <td style="padding: 12px; text-align: center; background: #e3f2fd; border-left: 4px solid #2196F3; width: 33%;">
+                <div style="font-size: 28px; font-weight: bold; color: #1565c0;">{len(recommended_variants)}</div>
+                <div style="font-size: 11px; color: #666;">🎯 Recommended</div>
+            </td>
+            <td style="padding: 12px; text-align: center; background: #fafafa; border-left: 4px solid #9e9e9e; width: 33%;">
+                <div style="font-size: 28px; font-weight: bold; color: #616161;">{len(paper_test_variants)}</div>
+                <div style="font-size: 11px; color: #666;">🔬 Paper Test</div>
+            </td>
+        </tr>
+    </table>
 """
     
-    # Add calendar warning if any
+    # Calendar warning
     calendar_warning = format_calendar_warning()
     if calendar_warning:
-        html += """
-    <div class="section" style="background: #442; border-left: 4px solid #FF9800;">
-        <div class="section-header">📅 Calendar Alerts</div>
-        <div style="font-size: 14px; line-height: 1.8;">
+        html += f"""
+    <div style="background: #fff3e0; border-left: 4px solid #ff9800; padding: 15px; margin: 0 15px 20px 15px; border-radius: 4px;">
+        <div style="font-weight: bold; color: #e65100; margin-bottom: 8px;">📅 Calendar Alerts</div>
+        <div style="font-size: 13px; color: #333; line-height: 1.6;">
 """
         for line in calendar_warning.split("\n"):
-            html += f"            {line}<br>\n"
+            if line.strip():
+                html += f"            ⚠️ {line}<br>\n"
         html += """        </div>
     </div>
 """
@@ -340,179 +306,156 @@ def build_position_aware_email(
     # ================================================================
     if management_variants:
         html += """
-    <div class="section">
-        <div class="section-header">🔄 OPEN POSITIONS — Management Mode</div>
+    <div style="margin: 0 15px 20px 15px;">
+        <div style="font-size: 16px; font-weight: bold; color: #1a73e8; padding-bottom: 10px; border-bottom: 2px solid #1a73e8; margin-bottom: 15px;">
+            🔄 OPEN POSITIONS — Management Mode
+        </div>
 """
         for state in management_variants:
             pos = state.position
             variant = state.variant
             name = get_variant_display_name(variant.role)
             
-            # Determine card class based on P&L
-            if state.current_pnl_pct and state.current_pnl_pct > 0.05:
-                card_class = "profit"
-            elif state.current_pnl_pct and state.current_pnl_pct < -0.05:
-                card_class = "loss"
-            else:
-                card_class = "neutral"
-            
-            pnl_dollars = state.current_pnl or 0
-            pnl_pct = (state.current_pnl_pct or 0) * 100
+            pnl = state.current_pnl or 0
+            pnl_pct = state.current_pnl_pct or 0
             dte = state.dte_remaining or 0
+            action = state.action_suggestion or "HOLD"
+            
+            pnl_color = "#2e7d32" if pnl >= 0 else "#c62828"
+            border_color = "#4CAF50" if pnl >= 0 else "#f44336"
+            
+            target_price = pos.target_price if pos else 0
+            stop_price = pos.stop_price if pos else 0
+            
+            action_colors = {
+                "TAKE_PROFIT": ("#4CAF50", "🎯 TAKE PROFIT - Target reached"),
+                "STOP_LOSS": ("#f44336", "🛑 STOP LOSS - Stop level hit"),
+                "ROLL": ("#ff9800", "🔄 ROLL - Consider rolling short leg"),
+                "CLOSE": ("#9c27b0", "⚠️ CLOSE - Exit recommended"),
+                "HOLD": ("#2196F3", "✋ HOLD - On track"),
+                "REGIME_DRIFT": ("#ff9800", "⚠️ REGIME DRIFT - Consider closing")
+            }
+            action_color, action_text = action_colors.get(action.upper(), ("#607D8B", f"ℹ️ {action}"))
             
             html += f"""
-        <div class="position-card {card_class}">
-            <div class="variant-name">{name}</div>
-            <div class="metrics">
-                <div class="metric">
-                    <div class="metric-label">Current P&L</div>
-                    <div class="metric-value">${pnl_dollars:+,.0f} ({pnl_pct:+.1f}%)</div>
-                </div>
-                <div class="metric">
-                    <div class="metric-label">DTE Remaining</div>
-                    <div class="metric-value">{dte} days</div>
-                </div>
-                <div class="metric">
-                    <div class="metric-label">Entry Price</div>
-                    <div class="metric-value">${pos.entry_price:.2f}</div>
-                </div>
+        <div style="background: #fafafa; border-left: 4px solid {border_color}; border-radius: 4px; padding: 15px; margin-bottom: 12px;">
+            <div style="font-weight: bold; font-size: 15px; color: #333; margin-bottom: 10px;">{name}</div>
+            <table style="width: 100%; font-size: 13px;">
+                <tr>
+                    <td style="padding: 4px 0; color: #666;">P&L:</td>
+                    <td style="padding: 4px 0; font-weight: bold; color: {pnl_color};">${pnl:+,.0f} ({pnl_pct:+.1%})</td>
+                    <td style="padding: 4px 0; color: #666;">DTE:</td>
+                    <td style="padding: 4px 0; font-weight: 500;">{dte} days</td>
+                </tr>
+            </table>
+            <div style="margin-top: 10px;">
+                <span style="background: #e8f5e9; color: #2e7d32; padding: 6px 12px; border-radius: 4px; font-size: 12px; display: inline-block; margin-right: 10px;">
+                    Target: <b>${target_price:.2f}</b>
+                </span>
+                <span style="background: #ffebee; color: #c62828; padding: 6px 12px; border-radius: 4px; font-size: 12px; display: inline-block;">
+                    Stop: <b>${stop_price:.2f}</b>
+                </span>
             </div>
-            <div class="targets">
-                <div class="target profit">
-                    <div class="target-label">Target Exit</div>
-                    <div class="target-value">${pos.target_price:.2f}</div>
-                </div>
-                <div class="target stop">
-                    <div class="target-label">Stop Loss</div>
-                    <div class="target-value">${pos.stop_price:.2f}</div>
-                </div>
-            </div>
-            <div class="action">{state.action_suggestion}</div>
-        </div>
-"""
-        html += "    </div>\n"
-    
-    # ================================================================
-    # SECTION 2: ENTRY CANDIDATES (Recommended)
-    # ================================================================
-    if recommended_entries:
-        html += """
-    <div class="section">
-        <div class="section-header">🎯 ENTRY CANDIDATES — Would Execute in Live Mode</div>
-"""
-        for state in recommended_entries:
-            variant = state.variant
-            name = get_variant_display_name(variant.role)
-            
-            alloc_dollars = account_size * (variant.alloc_pct / 100)
-            contracts = max(1, min(50, int(alloc_dollars / 500)))  # Rough estimate
-            
-            html += f"""
-        <div class="entry-card recommended">
-            <div class="variant-name">✅ {name}</div>
-            <div class="metrics">
-                <div class="metric">
-                    <div class="metric-label">Entry Trigger</div>
-                    <div class="metric-value">${estimate_entry_credit(vix_level, variant.long_strike_offset, variant.long_dte_weeks):.2f} est. credit</div>
-                </div>
-                <div class="metric">
-                    <div class="metric-label">Strike Offset</div>
-                    <div class="metric-value">+{variant.long_strike_offset:.0f} pts OTM</div>
-                </div>
-                <div class="metric">
-                    <div class="metric-label">DTE</div>
-                    <div class="metric-value">{variant.long_dte_weeks}w</div>
-                </div>
-            </div>
-            <div class="targets">
-                <div class="target">
-                    <div class="target-label">Suggested Entry Credit</div>
-                    <div class="target-value">≥${state.suggested_entry_credit:.2f}</div>
-                </div>
-                <div class="target profit">
-                    <div class="target-label">Target Exit ({variant.tp_pct:.0%} gain)</div>
-                    <div class="target-value">${state.suggested_target_price:.2f}</div>
-                </div>
-                <div class="target stop">
-                    <div class="target-label">Stop Loss ({variant.sl_pct:.0%} loss)</div>
-                    <div class="target-value">${state.suggested_stop_price:.2f}</div>
-                </div>
-            </div>
-            <div class="allocation">
-                💰 Allocation: {variant.alloc_pct:.1f}% (${alloc_dollars:,.0f}) → ~{contracts} contracts
+            <div style="margin-top: 12px; background: {action_color}; color: #fff; padding: 10px 15px; border-radius: 4px; font-size: 13px; font-weight: 500;">
+                {action_text}
             </div>
         </div>
 """
-        html += "    </div>\n"
+        html += """    </div>
+"""
     
     # ================================================================
-    # SECTION 3: PAPER TEST VARIANTS (Not Recommended, but track)
+    # SECTION 2: FRESH SIGNALS — All Variants (for paper testing comparison)
     # ================================================================
-    if paper_test_entries:
-        html += """
-    <div class="section" style="opacity: 0.75;">
-        <div class="section-header">🔬 PAPER TEST ONLY — Not Recommended for {regime_name}</div>
-""".format(regime_name=regime_name)
+    html += """
+    <div style="margin: 0 15px 20px 15px;">
+        <div style="font-size: 16px; font-weight: bold; color: #2e7d32; padding-bottom: 10px; border-bottom: 2px solid #4CAF50; margin-bottom: 15px;">
+            📊 TODAY'S FRESH SIGNALS — All Variants
+        </div>
+        <div style="font-size: 12px; color: #666; margin-bottom: 15px;">
+            Compare current market signals with your open positions. Fixed 5 contracts per variant for paper testing.
+        </div>
+"""
+    
+    # Fixed contract size for paper testing
+    PAPER_CONTRACTS = 5
+    
+    for state in all_variants:
+        variant = state.variant
+        name = get_variant_display_name(variant.role)
+        is_recommended = state.is_recommended
+        has_position = state.has_position
         
-        for state in paper_test_entries:
-            variant = state.variant
-            name = get_variant_display_name(variant.role)
-            active_in = ", ".join([r.value.upper() for r in variant.active_in_regimes])
-            
-            html += f"""
-        <div class="entry-card paper-test">
-            <div class="variant-name">🔬 {name}</div>
-            <div class="metrics">
-                <div class="metric">
-                    <div class="metric-label">Entry</div>
-                    <div class="metric-value">≤{variant.entry_percentile:.0%} | +{variant.long_strike_offset:.0f}pts | {variant.long_dte_weeks}w</div>
-                </div>
-                <div class="metric">
-                    <div class="metric-label">Activates In</div>
-                    <div class="metric-value">{active_in}</div>
-                </div>
+        entry_credit = state.suggested_entry_credit or 0
+        target = state.suggested_target_price or 0
+        stop = state.suggested_stop_price or 0
+        
+        # Border and background based on recommendation status
+        if is_recommended:
+            border_color = "#4CAF50"
+            bg_color = "#f1f8e9"
+            status_badge = '<span style="background: #4CAF50; color: #fff; padding: 3px 8px; border-radius: 3px; font-size: 10px; font-weight: bold;">RECOMMENDED</span>'
+        else:
+            border_color = "#9e9e9e"
+            bg_color = "#fafafa"
+            active_regimes = ", ".join([r.value.upper() for r in variant.active_in_regimes])
+            status_badge = f'<span style="background: #9e9e9e; color: #fff; padding: 3px 8px; border-radius: 3px; font-size: 10px;">PAPER TEST (activates in {active_regimes})</span>'
+        
+        # Position indicator
+        position_indicator = ""
+        if has_position:
+            position_indicator = '<span style="background: #2196F3; color: #fff; padding: 3px 8px; border-radius: 3px; font-size: 10px; margin-left: 5px;">HAS POSITION</span>'
+        
+        html += f"""
+        <div style="background: {bg_color}; border-left: 4px solid {border_color}; border-radius: 4px; padding: 15px; margin-bottom: 12px;">
+            <div style="margin-bottom: 10px;">
+                <span style="font-weight: bold; font-size: 15px; color: #333;">{name}</span>
+                {position_indicator}
             </div>
-            <div class="regime-warning">
-                ⚠️ Not recommended for {regime_name} regime. Track in paper trading for validation.
-            </div>
+            <div style="margin-bottom: 8px;">{status_badge}</div>
+            <table style="width: 100%; font-size: 13px;">
+                <tr>
+                    <td style="padding: 4px 0; color: #666;">Long Strike:</td>
+                    <td style="padding: 4px 0; font-weight: 500;">${variant.long_strike:.0f}</td>
+                    <td style="padding: 4px 0; color: #666;">Short Strike:</td>
+                    <td style="padding: 4px 0; font-weight: 500;">${variant.short_strike:.0f}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 4px 0; color: #666;">Long DTE:</td>
+                    <td style="padding: 4px 0; font-weight: 500;">{variant.long_dte_weeks}w</td>
+                    <td style="padding: 4px 0; color: #666;">Short DTE:</td>
+                    <td style="padding: 4px 0; font-weight: 500;">{variant.short_dte_weeks}w (roll {variant.roll_dte_days}d)</td>
+                </tr>
+                <tr style="background: #e8f5e9;">
+                    <td style="padding: 6px 0; color: #666;">Est. Credit:</td>
+                    <td style="padding: 6px 0; font-weight: bold; color: #2e7d32;">${entry_credit:.2f}/contract</td>
+                    <td style="padding: 6px 0; color: #666;">Contracts:</td>
+                    <td style="padding: 6px 0; font-weight: 500;">{PAPER_CONTRACTS}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 4px 0; color: #666;">Target:</td>
+                    <td style="padding: 4px 0; color: #2e7d32;">${target:.2f}</td>
+                    <td style="padding: 4px 0; color: #666;">Stop:</td>
+                    <td style="padding: 4px 0; color: #c62828;">${stop:.2f}</td>
+                </tr>
+            </table>
         </div>
 """
-        html += "    </div>\n"
     
-    # ================================================================
-    # REGIME WARNING (if any positions have regime drift)
-    # ================================================================
-    regime_drift = [s for s in management_variants if not s.is_recommended]
-    if regime_drift:
-        html += """
-    <div class="section" style="background: #442;">
-        <div class="section-header">⚠️ REGIME DRIFT WARNING</div>
-        <p style="font-size: 14px; margin: 0;">
-            The following positions were opened in a different regime and may need attention:
-        </p>
-        <ul style="margin: 10px 0;">
-"""
-        for state in regime_drift:
-            name = get_variant_display_name(state.variant.role)
-            entry_regime = state.position.entry_regime if state.position else "unknown"
-            html += f"            <li>{name} — Opened in {entry_regime}, now in {regime_name}</li>\n"
-        html += """        </ul>
-    </div>
+    html += """    </div>
 """
     
     # Footer
-    html += f"""
-    <div class="footer">
-        VIX 5% Weekly Suite — Paper Trading Mode<br>
-        Generated {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ET<br>
-        Email is a VIEW of trading state, not a signal generator.
+    html += """
+    <div style="text-align: center; padding: 20px; background: #f5f5f5; color: #999; font-size: 11px;">
+        VIX 5% Weekly Suite — Paper Testing Mode<br>
+        Generated automatically. Do not reply.
     </div>
     
 </div>
 </body>
 </html>
 """
-    
     return html
 
 

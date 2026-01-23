@@ -81,6 +81,7 @@ try:
         get_exit_store, get_exit_urgency_color, get_exit_type_icon
     )
     from notification_engine import get_notifier
+    from daily_signal import classify_variants, build_position_aware_email
     PAPER_TRADING_AVAILABLE = True
 except ImportError as e:
     PAPER_TRADING_AVAILABLE = False
@@ -1028,7 +1029,7 @@ def get_position_live_summary(trade_log, symbol: str = "UVXY") -> list:
 
 
 def send_signal_email_smtp(batch, regime, recipient: str = "onoshin333@gmail.com"):
-    """Send email notification showing ALL 5 variants with contract sizes."""
+    """Send position-aware email notification."""
     import os
     import smtplib
     from email.mime.text import MIMEText
@@ -1042,12 +1043,18 @@ def send_signal_email_smtp(batch, regime, recipient: str = "onoshin333@gmail.com
     if not smtp_user or not smtp_pass:
         return False, "SMTP credentials missing. Set SMTP_USER and SMTP_PASS environment variables."
     
-    # Constants
-    ACCOUNT_SIZE = 250_000
-
-    # Count active vs paper test
-    recommended_count = sum(1 for v in batch.variants if regime.regime in v.active_in_regimes)
-    paper_only_count = len(batch.variants) - recommended_count
+    # Get fresh trade log (clear singleton cache first)
+    import trade_log as tl_module
+    tl_module._trade_log_instance = None  # Clear cache
+    trade_log = get_trade_log()
+    
+    # Classify variants with position awareness
+    variant_states = classify_variants(batch, trade_log, regime.regime)
+    
+    # Count categories
+    management = [s for s in variant_states if s.has_position]
+    recommended = [s for s in variant_states if not s.has_position and s.is_recommended]
+    paper_test = [s for s in variant_states if not s.has_position and not s.is_recommended]
     
     # Regime emoji
     regime_emoji = {
@@ -1056,251 +1063,27 @@ def send_signal_email_smtp(batch, regime, recipient: str = "onoshin333@gmail.com
     }.get(regime.regime.value.lower(), "⚪")
     
     # Email subject
-    subject = f"{regime_emoji} [PAPER TEST] VIX Signal: {regime.regime.value.upper()} ({regime.vix_percentile:.0%}) — {recommended_count} Rec / {paper_only_count} Test"
+    subject = f"{regime_emoji} [PAPER TEST] VIX Signal: {regime.regime.value.upper()} ({regime.vix_percentile:.0%}) — {len(management)} Open, {len(recommended)} Entry, {len(paper_test)} Observe"
     
-    # Build HTML
-    html = f"""
-    <html>
-    <body style="font-family:Arial,sans-serif;font-size:14px;background:#fff;color:#333;padding:20px;max-width:850px;margin:0 auto;">
-    
-    <!-- Header -->
-    <div style="text-align:center;border-bottom:3px solid #1f77b4;padding-bottom:15px;margin-bottom:20px;">
-        <span style="font-size:24px;font-weight:bold;color:#1f77b4;">VIX 5% WEEKLY SUITE</span><br>
-        <span style="font-size:16px;color:#666;background:#fff3cd;padding:4px 12px;border-radius:4px;display:inline-block;margin-top:8px;">
-            📋 PAPER TESTING MODE
-        </span>
-    </div>
-    
-    <!-- Market State -->
-    <div style="background:#f8f9fa;border:1px solid #dee2e6;border-radius:8px;padding:15px;margin-bottom:20px;">
-        <div style="font-weight:bold;color:#495057;margin-bottom:10px;">📈 Market State</div>
-        <table style="width:100%;border-collapse:collapse;">
-            <tr>
-                <td style="padding:8px;text-align:center;border-right:1px solid #dee2e6;">
-                    <div style="font-size:12px;color:#6c757d;">Regime</div>
-                    <div style="font-size:20px;font-weight:bold;">{regime_emoji} {regime.regime.value.upper()}</div>
-                </td>
-                <td style="padding:8px;text-align:center;border-right:1px solid #dee2e6;">
-                    <div style="font-size:12px;color:#6c757d;">UVXY Price</div>
-                    <div style="font-size:20px;font-weight:bold;">${regime.vix_level:.2f}</div>
-                </td>
-                <td style="padding:8px;text-align:center;border-right:1px solid #dee2e6;">
-                    <div style="font-size:12px;color:#6c757d;">52w Percentile</div>
-                    <div style="font-size:20px;font-weight:bold;">{regime.vix_percentile:.0%}</div>
-                </td>
-                <td style="padding:8px;text-align:center;">
-                    <div style="font-size:12px;color:#6c757d;">Confidence</div>
-                    <div style="font-size:20px;font-weight:bold;">{regime.confidence:.0%}</div>
-                </td>
-            </tr>
-        </table>
-    </div>
-    
-    <!-- Variant Summary -->
-    <div style="display:flex;gap:15px;margin-bottom:20px;">
-        <div style="flex:1;background:#d4edda;border:1px solid #c3e6cb;border-radius:8px;padding:12px;text-align:center;">
-            <div style="font-size:28px;font-weight:bold;color:#155724;">{recommended_count}</div>
-            <div style="font-size:12px;color:#155724;">🟢 RECOMMENDED<br>(Live-Ready)</div>
-        </div>
-        <div style="flex:1;background:#cce5ff;border:1px solid #b8daff;border-radius:8px;padding:12px;text-align:center;">
-            <div style="font-size:28px;font-weight:bold;color:#004085;">{paper_only_count}</div>
-            <div style="font-size:12px;color:#004085;">🔵 PAPER TEST<br>(Observe Only)</div>
-        </div>
-        <div style="flex:1;background:#e2e3e5;border:1px solid #d6d8db;border-radius:8px;padding:12px;text-align:center;">
-            <div style="font-size:28px;font-weight:bold;color:#383d41;">5</div>
-            <div style="font-size:12px;color:#383d41;">📊 TOTAL<br>(All Generated)</div>
-        </div>
-    </div>
-    
-    <!-- Section: RECOMMENDED Variants -->
-    <div style="margin-bottom:25px;">
-        <div style="font-size:16px;font-weight:bold;color:#155724;background:#d4edda;padding:10px 15px;border-radius:6px 6px 0 0;border:1px solid #c3e6cb;border-bottom:none;">
-            🟢 RECOMMENDED VARIANTS (Would Execute in Live Mode)
-        </div>
-        <div style="border:1px solid #c3e6cb;border-radius:0 0 6px 6px;padding:10px;">
-    """
-    
-    # RECOMMENDED variants first
-    for variant in batch.variants:
-        is_recommended = regime.regime in variant.active_in_regimes
-        if not is_recommended:
-            continue
-        
-        # Calculate contract size
-        alloc_dollars = ACCOUNT_SIZE * variant.alloc_pct
-        est_risk = variant.long_strike_offset * 100  # $100 per point
-        contracts = max(1, min(50, int(alloc_dollars / est_risk))) if est_risk > 0 else 1
-        total_risk = contracts * est_risk
-        
-        # Get roll DTE if exists
-        roll_dte = getattr(variant, 'roll_dte_days', 3)
-        
-        # Fetch real market prices
-        try:
-            market = get_diagonal_prices(
-                symbol="UVXY",
-                spot_price=regime.vix_level,
-                long_offset=variant.long_strike_offset,
-                short_offset=variant.short_strike_offset,
-                long_dte_weeks=variant.long_dte_weeks,
-            )
-            long_strike = market["long_strike"]
-            short_strike = market["short_strike"]
-            est_credit = market["short_mid"] if market["short_mid"] > 0 else estimate_entry_credit(regime.vix_level, variant.long_strike_offset, variant.long_dte_weeks)
-            long_cost = market["long_mid"]
-        except:
-            long_strike = round(regime.vix_level + variant.long_strike_offset)
-            short_strike = round(regime.vix_level + variant.short_strike_offset)
-            est_credit = estimate_entry_credit(regime.vix_level, variant.long_strike_offset, variant.long_dte_weeks)
-            long_cost = 0
-        
-        price_targets = compute_price_targets(est_credit, variant.tp_pct, variant.sl_pct)
-        
-        html += f"""
-            <div style="border:2px solid #28a745;margin-bottom:10px;border-radius:6px;overflow:hidden;">
-                <div style="background:#28a745;color:#fff;padding:10px 15px;font-weight:bold;font-size:15px;">
-                    ✅ {get_variant_display_name(variant.role)}
-                </div>
-                <div style="padding:12px;background:#f8fff8;">
-                    <table style="width:100%;font-size:13px;border-collapse:collapse;">
-                        <tr>
-                            <td style="padding:5px;width:50%;"><b>Long Strike:</b> ${long_strike:.0f}</td>
-                            <td style="padding:5px;"><b>Short Strike:</b> ${short_strike:.0f}</td>
-                        </tr>
-                        <tr>
-                            <td style="padding:5px;"><b>Long DTE:</b> {variant.long_dte_weeks}w</td>
-                            <td style="padding:5px;"><b>Short DTE:</b> {variant.short_dte_weeks}w (roll {roll_dte}d)</td>
-                        </tr>
-                        <tr style="background:#d4edda;">
-                            <td style="padding:8px;font-size:14px;"><b>💵 Est. Credit:</b> ${est_credit:.2f}/contract</td>
-                            <td style="padding:8px;font-size:14px;"><b>📦 Contracts:</b> {contracts}</td>
-                        </tr>
-                        <tr style="background:#d4edda;">
-                            <td style="padding:8px;"><b>🎯 Target:</b> ${price_targets['target']:.2f} (+${price_targets['profit_per_contract']:.0f})</td>
-                            <td style="padding:8px;"><b>🛑 Stop:</b> ${price_targets['stop']:.2f} (-${price_targets['loss_per_contract']:.0f})</td>
-                        </tr>
-                        <tr>
-                            <td colspan="2" style="padding:8px;color:#666;font-size:12px;">
-                                <b>Max Risk:</b> ${total_risk:,.0f} ({total_risk/ACCOUNT_SIZE:.1%} of ${ACCOUNT_SIZE:,})
-                            </td>
-                        </tr>
-                    </table>
-                </div>
-            </div>
-        """
-    
-    html += """
-        </div>
-    </div>
-    
-    <!-- Section: PAPER TEST Variants -->
-    <div style="margin-bottom:25px;">
-        <div style="font-size:16px;font-weight:bold;color:#004085;background:#cce5ff;padding:10px 15px;border-radius:6px 6px 0 0;border:1px solid #b8daff;border-bottom:none;">
-            🔵 PAPER TEST VARIANTS (Observe & Compare — Not Live-Ready)
-        </div>
-        <div style="border:1px solid #b8daff;border-radius:0 0 6px 6px;padding:10px;">
-    """
-    
-    # PAPER TEST variants
-    for variant in batch.variants:
-        is_recommended = regime.regime in variant.active_in_regimes
-        if is_recommended:
-            continue
-        
-        # Calculate contract size
-        alloc_dollars = ACCOUNT_SIZE * variant.alloc_pct
-        est_risk = variant.long_strike_offset * 100
-        contracts = max(1, min(50, int(alloc_dollars / est_risk))) if est_risk > 0 else 1
-        total_risk = contracts * est_risk
-        
-        # Get roll DTE if exists
-        roll_dte = getattr(variant, 'roll_dte_days', 3)
-        
-        # Active regimes
-        active_regimes = ", ".join([r.value.upper() for r in variant.active_in_regimes])
-        
-        html += f"""
-            <div style="border:2px solid #6c757d;margin-bottom:10px;border-radius:6px;overflow:hidden;">
-                <div style="background:#6c757d;color:#fff;padding:10px 15px;font-weight:bold;font-size:15px;">
-                    🔬 {get_variant_display_name(variant.role)}
-                    <span style="float:right;font-size:12px;font-weight:normal;background:#495057;padding:2px 8px;border-radius:3px;">
-                        Paper Test Only
-                    </span>
-                </div>
-                <div style="padding:12px;background:#f8f9fa;">
-                    <div style="background:#fff3cd;border:1px solid #ffeeba;border-radius:4px;padding:8px;margin-bottom:10px;font-size:12px;color:#856404;">
-                        ⚠️ <b>Why not recommended:</b> This variant activates in <b>{active_regimes}</b> regime(s), not {regime.regime.value.upper()}.
-                        <br>Track it to validate this filtering logic.
-                    </div>
-                    <table style="width:100%;font-size:13px;border-collapse:collapse;">
-                        <tr>
-                            <td style="padding:5px;width:50%;"><b>Long Strike:</b> ${long_strike:.0f}</td>
-                            <td style="padding:5px;"><b>Short Strike:</b> ${short_strike:.0f}</td>
-                        </tr>
-                        <tr>
-                            <td style="padding:5px;"><b>Long DTE:</b> {variant.long_dte_weeks}w</td>
-                            <td style="padding:5px;"><b>Short DTE:</b> {variant.short_dte_weeks}w (roll {roll_dte}d)</td>
-                        </tr>
-                        <tr style="background:#e9ecef;">
-                            <td style="padding:8px;font-size:14px;"><b>💵 Est. Credit:</b> ${est_credit:.2f}/contract</td>
-                            <td style="padding:8px;font-size:14px;"><b>📦 Contracts:</b> {contracts}</td>
-                        </tr>
-                        <tr style="background:#e9ecef;">
-                            <td style="padding:8px;"><b>🎯 Target:</b> ${price_targets['target']:.2f} (+${price_targets['profit_per_contract']:.0f})</td>
-                            <td style="padding:8px;"><b>🛑 Stop:</b> ${price_targets['stop']:.2f} (-${price_targets['loss_per_contract']:.0f})</td>
-                        </tr>
-                        <tr>
-                            <td colspan="2" style="padding:8px;color:#666;font-size:12px;">
-                                <b>Max Risk:</b> ${total_risk:,.0f} ({total_risk/ACCOUNT_SIZE:.1%}) | <b>Activates in:</b> {active_regimes}
-                            </td>
-                        </tr>
-                    </table>
-                </div>
-            </div>
-        """
-    
-    html += f"""
-        </div>
-    </div>
-    
-    <!-- Paper Testing Notes -->
-    <div style="background:#e7f3ff;border:1px solid #b6d4fe;border-radius:8px;padding:15px;margin-bottom:20px;">
-        <div style="font-weight:bold;color:#084298;margin-bottom:8px;">📋 Paper Testing Protocol</div>
-        <ul style="margin:0;padding-left:20px;color:#084298;font-size:13px;">
-            <li><b>Execute ALL 5 variants</b> in paper trading to collect data</li>
-            <li><b>RECOMMENDED variants</b> = what live mode would trade</li>
-            <li><b>PAPER TEST variants</b> = observe to validate regime filtering</li>
-            <li>Track performance to confirm regime logic is correct</li>
-            <li>After 8-12 weeks, compare results to decide graduation</li>
-        </ul>
-    </div>
-    
-    <!-- Footer -->
-    <div style="text-align:center;padding:15px;border-top:1px solid #dee2e6;color:#6c757d;font-size:12px;">
-        VIX 5% Weekly Suite — Paper Testing Signal<br>
-        Generated: {batch.generated_at.strftime('%Y-%m-%d %H:%M UTC')} | Account Basis: ${ACCOUNT_SIZE:,}
-    </div>
-    
-    </body>
-    </html>
-    """
+    # Build position-aware HTML
+    html = build_position_aware_email(batch, variant_states)
     
     # Send email
     try:
-        msg = MIMEMultipart()
-        msg['Subject'] = subject
-        msg['From'] = smtp_user
-        msg['To'] = recipient
-        msg.attach(MIMEText(html, 'html', 'utf-8'))
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"] = smtp_user
+        msg["To"] = recipient
+        msg.attach(MIMEText(html, "html"))
         
         with smtplib.SMTP(smtp_server, smtp_port) as server:
             server.starttls()
             server.login(smtp_user, smtp_pass)
             server.send_message(msg)
         
-        return True, f"Email sent to {recipient}! (5 variants: {recommended_count} recommended, {paper_only_count} paper test)"
+        return True, f"Email sent to {recipient}"
     except Exception as e:
-        return False, f"Email failed: {e}"
+        return False, f"Failed to send email: {str(e)}"
 
 
 def send_roll_notification_email(positions_needing_roll, recipient: str = "onoshin333@gmail.com"):
@@ -1702,7 +1485,7 @@ def render_signal_dashboard():
                         
                         with btn_col3:
                             if st.button(f"💲 Update Prices", key=f"prices_{pos.position_id}"):
-                                st.session_state[f"prices_{pos.position_id}"] = True
+                                st.session_state[f"updating_prices_{pos.position_id}"] = True
                         
                         with btn_col4:
                             if st.button(f"❌ Close Position", key=f"close_{pos.position_id}"):
@@ -1743,7 +1526,7 @@ def render_signal_dashboard():
                                         st.rerun()
                         
                         # Update prices form
-                        if st.session_state.get(f"prices_{pos.position_id}"):
+                        if st.session_state.get(f"updating_prices_{pos.position_id}"):
                             with st.form(key=f"prices_form_{pos.position_id}"):
                                 st.markdown("#### 💲 Update Current Prices")
                                 price_col1, price_col2 = st.columns(2)
@@ -1757,7 +1540,7 @@ def render_signal_dashboard():
                                 if st.form_submit_button("Update"):
                                     trade_log.update_diagonal_prices(pos.position_id, new_long_price, new_short_price)
                                     st.success("Prices updated!")
-                                    st.session_state[f"prices_{pos.position_id}"] = False
+                                    st.session_state[f"updating_prices_{pos.position_id}"] = False
                                     st.rerun()
                         
                         # Close position form
@@ -2269,7 +2052,19 @@ Backups:     {STORAGE_DIR / 'backups'}
         else:
             st.metric("Latest Backup", "None")
     with col3:
-        cloud_enabled = "✅ Yes" if backup_status['cloud_sync_enabled'] else "❌ No"
+        # Check both local folder sync AND Google Drive API
+        gdrive_api_enabled = False
+        gdrive_backup_count = 0
+        try:
+            from gdrive_backup import GDriveBackupManager
+            gdrive_mgr = GDriveBackupManager()
+            gdrive_status = gdrive_mgr.get_backup_status()
+            gdrive_api_enabled = gdrive_status.get('folder_id') is not None
+            gdrive_backup_count = gdrive_status.get('backup_count', 0)
+        except:
+            pass
+        
+        cloud_enabled = "✅ Yes" if (backup_status['cloud_sync_enabled'] or gdrive_api_enabled) else "❌ No"
         st.metric("Cloud Sync", cloud_enabled)
     with col4:
         st.metric("Max Kept", backup_status['max_local_backups'])
@@ -2277,6 +2072,8 @@ Backups:     {STORAGE_DIR / 'backups'}
     # Cloud sync paths
     if backup_status['cloud_sync_paths']:
         st.success(f"☁️ Cloud sync enabled: {', '.join(backup_status['cloud_sync_paths'])}")
+    elif gdrive_api_enabled:
+        st.success(f"☁️ Google Drive API enabled ({gdrive_backup_count} backups in cloud)")
     else:
         st.info("💡 To enable cloud sync, create a folder named 'VIX_Suite_Backup' in Dropbox, Google Drive, or OneDrive")
     
@@ -3134,73 +2931,80 @@ def _render_roll_long_form(trade_log, pos):
     
     st.markdown("---")
     
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown("**Close Current Long:**")
-        exit_price = st.number_input(
-            "Sell Current Long at ($)",
-            min_value=0.0, max_value=50.0, value=float(pos.long_current_price), step=0.05,
-            key=f"roll_long_exit_{pos.position_id}",
-            help="Price received for selling current LEAP"
-        )
+    # Simplified Roll UI - matches IB's single net price format
+    with st.form(key=f"roll_long_form_{pos.position_id}"):
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("**New Long Position:**")
+            new_strike = st.number_input(
+                "New Strike",
+                min_value=1.0, value=float(suggested_strikes[1]), step=1.0,
+                key=f"roll_long_new_strike_{pos.position_id}"
+            )
+            new_exp = st.date_input(
+                "New Expiration", 
+                value=suggested_exp.date(), 
+                key=f"roll_long_new_exp_{pos.position_id}"
+            )
         
-        # Calculate P&L on old long
-        old_pnl = (exit_price - pos.long_entry_price) * 100 * pos.contracts
-        pnl_color = "green" if old_pnl >= 0 else "red"
-        st.markdown(f"P&L on current long: <span style='color:{pnl_color}'>${old_pnl:+,.0f}</span>", unsafe_allow_html=True)
+        with col2:
+            st.markdown("**Roll Transaction:**")
+            roll_type = st.radio(
+                "Roll Type",
+                ["Net Debit", "Net Credit", "Even"],
+                key=f"roll_long_type_{pos.position_id}",
+                horizontal=True
+            )
+            
+            net_roll_input = st.number_input(
+                "Net Roll Price ($)",
+                min_value=0.0, value=0.50, step=0.05,
+                key=f"roll_long_net_{pos.position_id}",
+                help="Net price from IB roll order (single transaction)"
+            )
+        
+        st.markdown("---")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            submitted = st.form_submit_button("✅ Execute Long Roll", type="primary")
+        with col2:
+            cancelled = st.form_submit_button("❌ Cancel")
     
-    with col2:
-        st.markdown("**Open New Long:**")
-        new_strike = st.number_input(
-            "New Strike",
-            min_value=1.0, value=float(suggested_strikes[1]), step=1.0,
-            key=f"roll_long_new_strike_{pos.position_id}"
-        )
-        new_exp = st.date_input(
-            "New Expiration", 
-            value=suggested_exp.date(), 
-            key=f"roll_long_new_exp_{pos.position_id}"
-        )
-        new_entry_price = st.number_input(
-            "New Long Price ($)",
-            min_value=0.01, value=5.0, step=0.05,
-            key=f"roll_long_new_price_{pos.position_id}",
-            help="Debit paid for new LEAP"
-        )
-    
-    # Calculate net roll cost
-    roll_debit = new_entry_price - exit_price
-    st.markdown("---")
-    
-    if roll_debit > 0:
-        st.warning(f"**Net Roll Debit:** ${roll_debit:.2f} per contract (${roll_debit * pos.contracts * 100:,.0f} total)")
-    else:
-        st.success(f"**Net Roll Credit:** ${abs(roll_debit):.2f} per contract (${abs(roll_debit) * pos.contracts * 100:,.0f} total)")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("✅ Execute Long Roll", key=f"roll_long_submit_{pos.position_id}"):
-            try:
-                roll_info = trade_log.roll_diagonal_long(
-                    position_id=pos.position_id,
-                    exit_price=exit_price,
-                    new_strike=new_strike,
-                    new_expiration=new_exp.isoformat(),
-                    new_entry_price=new_entry_price,
-                    underlying_price=current_price,
-                    regime="CALM",  # TODO: Get current regime
-                    notes=f"Rolled from ${pos.long_strike} to ${new_strike}",
-                )
-                st.success(f"✅ Long leg rolled! Net {'debit' if roll_debit > 0 else 'credit'}: ${abs(roll_debit):.2f}")
-                st.session_state[f"rolling_long_{pos.position_id}"] = False
-                st.rerun()
-            except Exception as e:
-                st.error(f"Error rolling long: {e}")
-    
-    with col2:
-        if st.button("❌ Cancel", key=f"roll_long_cancel_{pos.position_id}"):
+    # Process after form submission
+    if submitted:
+        # Calculate net price based on roll type
+        if roll_type == "Even":
+            net_roll_price = 0.0
+        elif roll_type == "Net Credit":
+            net_roll_price = -net_roll_input
+        else:
+            net_roll_price = net_roll_input
+        
+        # For backend compatibility
+        estimated_exit = pos.long_current_price
+        estimated_entry = pos.long_current_price + net_roll_price
+        
+        try:
+            roll_info = trade_log.roll_diagonal_long(
+                position_id=pos.position_id,
+                exit_price=estimated_exit,
+                new_strike=new_strike,
+                new_expiration=new_exp.isoformat(),
+                new_entry_price=estimated_entry,
+                underlying_price=current_price,
+                regime="CALM",  # TODO: Get current regime
+                notes=f"Rolled from ${pos.long_strike} to ${new_strike} (net {'debit' if net_roll_price > 0 else 'credit'}: ${abs(net_roll_price):.2f})",
+            )
+            st.success(f"✅ Long leg rolled! Net {'debit' if net_roll_price > 0 else 'credit'}: ${abs(net_roll_price):.2f}")
             st.session_state[f"rolling_long_{pos.position_id}"] = False
             st.rerun()
+        except Exception as e:
+            st.error(f"Error rolling long: {e}")
+    
+    if cancelled:
+        st.session_state[f"rolling_long_{pos.position_id}"] = False
+        st.rerun()
 
 def _render_sell_short_form(trade_log, pos):
     """Form to sell a new short leg when position has none."""
