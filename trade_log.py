@@ -53,8 +53,8 @@ class Position:
     entry_date: str  # ISO format
     entry_price: float  # Credit received (for short premium) or debit paid (for long)
     entry_regime: str  # Regime at entry
-    entry_vix_level: float
-    entry_percentile: float
+    entry_vix_level: float = 0.0
+    entry_percentile: float = 0.0
     
     # Position structure
     underlying: str = "UVXY"
@@ -144,20 +144,20 @@ class Position:
 @dataclass 
 class TradeRecord:
     """Record of a completed trade (for history)."""
-    trade_id: str
-    variant_id: str
-    variant_name: str
-    entry_date: str
-    exit_date: str
-    entry_price: float
-    exit_price: float
-    pnl_dollars: float
-    pnl_pct: float
-    duration_days: int
-    exit_reason: str
-    entry_regime: str
-    exit_regime: str
-    contracts: int
+    trade_id: str = ""
+    variant_id: str = ""
+    variant_name: str = ""
+    entry_date: str = ""
+    exit_date: str = ""
+    entry_price: float = 0.0
+    exit_price: float = 0.0
+    pnl_dollars: float = 0.0
+    pnl_pct: float = 0.0
+    duration_days: int = 0
+    exit_reason: str = ""
+    entry_regime: str = ""
+    exit_regime: str = ""
+    contracts: int = 1
     
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -176,15 +176,15 @@ class TradeRecord:
 @dataclass
 class ShortLeg:
     """Represents a short leg (weekly call) that can be rolled."""
-    leg_id: str
-    position_id: str  # Parent position ID
+    leg_id: str = ""
+    position_id: str = ""  # Parent position ID
     
     # Entry
-    entry_date: str
-    strike: float
-    expiration_date: str
-    entry_credit: float  # Credit received when sold
-    contracts: int
+    entry_date: str = ""
+    strike: float = 0.0
+    expiration_date: str = ""
+    entry_credit: float = 0.0  # Credit received when sold
+    contracts: int = 1
     
     # Current state
     status: str = "open"  # open, closed, expired, rolled
@@ -252,7 +252,8 @@ class RollRecord:
     
     # Market context
     underlying_price: float
-    regime: str
+    roll_type: str = "short"  # "short" or "long"
+    regime: str = ""
     
     notes: str = ""
     
@@ -279,16 +280,16 @@ class DiagonalPosition:
     variant_name: str
     
     # Entry context
-    entry_date: str
-    entry_regime: str
-    entry_vix_level: float
-    entry_percentile: float
-    contracts: int
+    entry_date: str = ""
+    entry_regime: str = ""
+    entry_vix_level: float = 0.0
+    entry_percentile: float = 0.0
+    contracts: int = 1
     
     # Long leg (LEAP)
-    long_strike: float
-    long_expiration: str
-    long_entry_price: float  # Debit paid
+    long_strike: float = 0.0
+    long_expiration: str = ""
+    long_entry_price: float = 0.0  # Debit paid
     long_current_price: float = 0.0
     long_status: str = "open"
     
@@ -340,6 +341,19 @@ class DiagonalPosition:
         return self.long_entry_price
     
     @property
+    def target_price(self) -> float:
+        """Target UVXY price - at or below short strike, short expires worthless."""
+        short = self.current_short_leg
+        return short.strike if short else self.long_strike
+    
+    @property
+    def stop_price(self) -> float:
+        """Stop UVXY price - above this level, position is in danger."""
+        short = self.current_short_leg
+        base = short.strike if short else self.long_strike
+        return base * (1 + self.stop_pct)
+    
+    @property
     def long_pnl(self) -> float:
         """P&L on long leg."""
         return (self.long_current_price - self.long_entry_price) * 100 * self.contracts
@@ -348,6 +362,32 @@ class DiagonalPosition:
     def short_pnl(self) -> float:
         """Total P&L from all short legs."""
         return sum(leg.pnl for leg in self.short_legs)
+    
+    @property
+    def short_coverage_pct(self) -> float:
+        """Percentage of position duration with active short earning income."""
+        if not self.entry_date:
+            return 0.0
+        
+        try:
+            entry = datetime.strptime(self.entry_date, "%Y-%m-%d")
+            today = datetime.now()
+            total_days = max(1, (today - entry).days)
+            
+            # Calculate days covered by short legs
+            covered_days = 0
+            for leg in self.short_legs:
+                if leg.entry_date and leg.expiration_date:
+                    leg_start = datetime.strptime(leg.entry_date, "%Y-%m-%d")
+                    leg_end = datetime.strptime(leg.expiration_date, "%Y-%m-%d")
+                    # Don't count beyond today for open legs
+                    if leg.status == "open":
+                        leg_end = min(leg_end, today)
+                    covered_days += max(0, (leg_end - leg_start).days)
+            
+            return min(100.0, (covered_days / total_days) * 100)
+        except:
+            return 0.0
     
     @property
     def total_pnl(self) -> float:
@@ -1151,8 +1191,8 @@ class TradeLog:
     def _diagonal_to_position(self, diag) -> Position:
         """Convert DiagonalPosition to Position for signal generator compatibility."""
         # Calculate net debit per spread
-        credit_per_contract = diag.total_short_credits / diag.contracts if diag.contracts else 0
-        net_debit = diag.long_entry_price - credit_per_contract
+        # Use the property that correctly calculates net entry cost
+        net_debit = diag.net_entry_cost
         
         # Get current short leg info
         current_short = diag.current_short_leg
@@ -1184,8 +1224,8 @@ class TradeLog:
             strike=diag.long_strike,
             expiration_date=expiration,
             contracts=diag.contracts,
-            target_price=net_debit * (1 - diag.target_pct),
-            stop_price=net_debit * (1 + diag.stop_pct),
+            target_price=diag.target_price,
+            stop_price=diag.stop_price,
             target_pct=diag.target_pct,
             stop_pct=diag.stop_pct,
             status=diag.status,

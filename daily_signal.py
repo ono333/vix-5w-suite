@@ -190,17 +190,40 @@ def classify_variants(
             state.current_pnl_pct = position.current_pnl_pct
             state.dte_remaining = position.days_to_expiry()
             
-            # Suggest action based on current state
-            if position.current_pnl_pct and position.current_pnl_pct >= variant.tp_pct:
-                state.action_suggestion = "TAKE_PROFIT"
-            elif position.current_pnl_pct and position.current_pnl_pct <= -variant.sl_pct:
-                state.action_suggestion = "STOP_LOSS"
-            elif state.dte_remaining and state.dte_remaining <= 5:
-                state.action_suggestion = "ROLL"
-            elif not is_recommended:
-                state.action_suggestion = "REGIME_DRIFT"
+            # Get actual diagonal position for short leg analysis
+            from trade_log import get_trade_log
+            tl = get_trade_log()
+            diag = None
+            for pid, d in tl.diagonal_positions.items():
+                if d.variant_id.upper() == variant_id.upper() and d.status == "open":
+                    diag = d
+                    break
+            
+            # Suggest action based on SHORT LEG status (not total P&L)
+            short = diag.current_short_leg if diag else None
+            
+            if short:
+                short_dte = short.days_to_expiry()
+                short_current = short.current_price
+                short_credit = short.entry_credit
+                target_price = short_credit * 0.20  # 80% profit target
+                stop_price = short_credit * 2.0     # Double = stop
+                
+                if short_dte <= 0:
+                    state.action_suggestion = "ROLL_NOW"  # Expired, roll immediately
+                elif short_dte <= 3:
+                    state.action_suggestion = "ROLL"  # Roll soon
+                elif short_current <= target_price:
+                    state.action_suggestion = "TAKE_PROFIT"  # Can close early for profit
+                elif short_current >= stop_price:
+                    state.action_suggestion = "STOP_LOSS"  # Short went against us
+                elif not is_recommended:
+                    state.action_suggestion = "REGIME_DRIFT"
+                else:
+                    state.action_suggestion = "HOLD"
             else:
-                state.action_suggestion = "HOLD"
+                # No active short - need to sell one
+                state.action_suggestion = "SELL_SHORT"
         
         states.append(state)
     
@@ -217,9 +240,10 @@ def build_position_aware_email(
     account_size: float = 250_000.0,
 ) -> str:
     """Build HTML email showing both open positions AND fresh signals for all variants."""
+    from datetime import datetime, timedelta
     regime_state = batch.regime_state
     regime_name = regime_state.regime.value.upper() if regime_state else "UNKNOWN"
-    vix_level = regime_state.vix_level if regime_state else 0
+    vix_level = regime_state.vix_level if regime_state else 20.0
     vix_pct = regime_state.vix_percentile if regime_state else 0
     
     management_variants = [s for s in variant_states if s.has_position]
@@ -324,36 +348,100 @@ def build_position_aware_email(
             pnl_color = "#2e7d32" if pnl >= 0 else "#c62828"
             border_color = "#4CAF50" if pnl >= 0 else "#f44336"
             
-            target_price = pos.target_price if pos else 0
-            stop_price = pos.stop_price if pos else 0
+            # Get long/short P&L separately from diagonal position
+            long_pnl = 0
+            short_pnl = 0
+            short_target = 0
+            short_stop = 0
+            short_current = 0
+            short_credit = 0
+            short_dte = 0
+            short_coverage = 0
+            
+            # Access the actual diagonal position for detailed info
+            from trade_log import get_trade_log
+            tl = get_trade_log()
+            diag = None
+            for pid, d in tl.diagonal_positions.items():
+                if d.variant_id.upper() == variant.role.value.upper() and d.status == "open":
+                    diag = d
+                    break
+            
+            if diag:
+                long_pnl = diag.long_pnl
+                short_pnl = diag.short_pnl
+                short_coverage = diag.short_coverage_pct
+                short = diag.current_short_leg
+                if short:
+                    short_credit = short.entry_credit
+                    short_current = short.current_price
+                    short_target = short_credit * 0.20  # Buy back at 20% = 80% profit
+                    short_stop = short_credit * 2.0     # Stop if doubled
+                    short_dte = short.days_to_expiry()
+            
+            # Suggested roll strikes based on current UVXY price
+            suggested_conservative = round(vix_level * 1.02, 0)
+            suggested_moderate = round(vix_level * 1.05, 0)
+            suggested_aggressive = round(vix_level * 1.10, 0)
             
             action_colors = {
-                "TAKE_PROFIT": ("#4CAF50", "🎯 TAKE PROFIT - Target reached"),
-                "STOP_LOSS": ("#f44336", "🛑 STOP LOSS - Stop level hit"),
-                "ROLL": ("#ff9800", "🔄 ROLL - Consider rolling short leg"),
+                "TAKE_PROFIT": ("#4CAF50", "🎯 TAKE PROFIT - Short decayed, can close early"),
+                "STOP_LOSS": ("#f44336", "🛑 STOP LOSS - Short doubled, manage risk"),
+                "ROLL": ("#ff9800", "🔄 ROLL SOON - Short expiring in ≤3 days"),
+                "ROLL_NOW": ("#f44336", "⚠️ ROLL NOW - Short expired!"),
+                "SELL_SHORT": ("#9c27b0", "📝 SELL SHORT - No active short leg"),
                 "CLOSE": ("#9c27b0", "⚠️ CLOSE - Exit recommended"),
-                "HOLD": ("#2196F3", "✋ HOLD - On track"),
+                "HOLD": ("#2196F3", "✋ HOLD - Short on track"),
                 "REGIME_DRIFT": ("#ff9800", "⚠️ REGIME DRIFT - Consider closing")
             }
             action_color, action_text = action_colors.get(action.upper(), ("#607D8B", f"ℹ️ {action}"))
+            
+            long_pnl_color = "#2e7d32" if long_pnl >= 0 else "#c62828"
+            short_pnl_color = "#2e7d32" if short_pnl >= 0 else "#c62828"
             
             html += f"""
         <div style="background: #fafafa; border-left: 4px solid {border_color}; border-radius: 4px; padding: 15px; margin-bottom: 12px;">
             <div style="font-weight: bold; font-size: 15px; color: #333; margin-bottom: 10px;">{name}</div>
             <table style="width: 100%; font-size: 13px;">
                 <tr>
-                    <td style="padding: 4px 0; color: #666;">P&L:</td>
+                    <td style="padding: 4px 0; color: #666;">Long P&L:</td>
+                    <td style="padding: 4px 0; font-weight: bold; color: {long_pnl_color};">${long_pnl:+,.0f}</td>
+                    <td style="padding: 4px 0; color: #666;">Short P&L:</td>
+                    <td style="padding: 4px 0; font-weight: bold; color: {short_pnl_color};">${short_pnl:+,.0f}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 4px 0; color: #666;">Total P&L:</td>
                     <td style="padding: 4px 0; font-weight: bold; color: {pnl_color};">${pnl:+,.0f} ({pnl_pct:+.1%})</td>
-                    <td style="padding: 4px 0; color: #666;">DTE:</td>
+                    <td style="padding: 4px 0; color: #666;">Long DTE:</td>
                     <td style="padding: 4px 0; font-weight: 500;">{dte} days</td>
                 </tr>
+                <tr>
+                    <td style="padding: 4px 0; color: #666;">Short Coverage:</td>
+                    <td style="padding: 4px 0; font-weight: 500;">{short_coverage:.0f}%</td>
+                    <td colspan="2"></td>
+                </tr>
             </table>
-            <div style="margin-top: 10px;">
-                <span style="background: #e8f5e9; color: #2e7d32; padding: 6px 12px; border-radius: 4px; font-size: 12px; display: inline-block; margin-right: 10px;">
-                    Target: <b>${target_price:.2f}</b>
+            <div style="margin-top: 10px; font-size: 11px; color: #666; margin-bottom: 4px;">Short Leg Management (DTE: {short_dte}d):</div>
+            <table style="width: 100%; font-size: 12px; margin-bottom: 8px;">
+                <tr>
+                    <td style="color: #666;">Sold at:</td>
+                    <td style="font-weight: 500;">${short_credit:.2f}</td>
+                    <td style="color: #666;">Current:</td>
+                    <td style="font-weight: 500;">${short_current:.2f}</td>
+                    <td style="color: #2e7d32;">Target:</td>
+                    <td style="font-weight: 500; color: #2e7d32;">${short_target:.2f}</td>
+                    <td style="color: #c62828;">Stop:</td>
+                    <td style="font-weight: 500; color: #c62828;">${short_stop:.2f}</td>
+                </tr>
+            </table>
+            <div style="font-size: 11px; color: #666; margin-bottom: 4px;">Suggested Roll Strikes:</div>
+            <div style="margin-top: 4px;">
+                <span style="background: #e3f2fd; color: #1565c0; padding: 6px 12px; border-radius: 4px; font-size: 12px; display: inline-block; margin-right: 8px;">
+                    🟢 ${suggested_conservative:.0f}
                 </span>
+                <span style="background: #fff3e0; color: #e65100; padding: 6px 12px; border-radius: 4px; font-size: 12px; display: inline-block; margin-right: 8px;">🟡 ${suggested_moderate:.0f}</span>
                 <span style="background: #ffebee; color: #c62828; padding: 6px 12px; border-radius: 4px; font-size: 12px; display: inline-block;">
-                    Stop: <b>${stop_price:.2f}</b>
+                    🔴 ${suggested_aggressive:.0f}
                 </span>
             </div>
             <div style="margin-top: 12px; background: {action_color}; color: #fff; padding: 10px 15px; border-radius: 4px; font-size: 13px; font-weight: 500;">
@@ -387,8 +475,24 @@ def build_position_aware_email(
         has_position = state.has_position
         
         entry_credit = state.suggested_entry_credit or 0
-        target = state.suggested_target_price or 0
-        stop = state.suggested_stop_price or 0
+        
+        # Calculate suggested strike based on UVXY price and variant offset
+        short_offset = getattr(variant, 'short_strike_offset', 2)
+        target = round(vix_level + short_offset, 0)  # Suggested short strike
+        stop = round(target * 1.3, 0)  # Stop level (30% above strike)
+        
+        # Calculate actual expiry dates (datetime/timedelta imported at top)
+        today = datetime.now()
+        long_expiry = today + timedelta(weeks=variant.long_dte_weeks)
+        short_expiry = today + timedelta(weeks=variant.short_dte_weeks)
+        # Find next Friday for short expiry
+        days_to_friday = (4 - short_expiry.weekday()) % 7
+        if days_to_friday == 0 and variant.short_dte_weeks > 0:
+            days_to_friday = 7
+        short_expiry = short_expiry + timedelta(days=days_to_friday)
+        # Format dates
+        long_exp_str = long_expiry.strftime("%b %d")
+        short_exp_str = short_expiry.strftime("%b %d")
         
         # Border and background based on recommendation status
         if is_recommended:
@@ -418,13 +522,13 @@ def build_position_aware_email(
                     <td style="padding: 4px 0; color: #666;">Long Strike:</td>
                     <td style="padding: 4px 0; font-weight: 500;">${variant.long_strike:.0f}</td>
                     <td style="padding: 4px 0; color: #666;">Short Strike:</td>
-                    <td style="padding: 4px 0; font-weight: 500;">${variant.short_strike:.0f}</td>
+                    <td style="padding: 4px 0; font-weight: 500;">{target:.0f}</td>
                 </tr>
                 <tr>
-                    <td style="padding: 4px 0; color: #666;">Long DTE:</td>
-                    <td style="padding: 4px 0; font-weight: 500;">{variant.long_dte_weeks}w</td>
-                    <td style="padding: 4px 0; color: #666;">Short DTE:</td>
-                    <td style="padding: 4px 0; font-weight: 500;">{variant.short_dte_weeks}w (roll {variant.roll_dte_days}d)</td>
+                    <td style="padding: 4px 0; color: #666;">Long Exp:</td>
+                    <td style="padding: 4px 0; font-weight: 500;">{long_exp_str} ({variant.long_dte_weeks}w)</td>
+                    <td style="padding: 4px 0; color: #666;">Short Exp:</td>
+                    <td style="padding: 4px 0; font-weight: 500;">{short_exp_str} (roll {variant.roll_dte_days}d)</td>
                 </tr>
                 <tr style="background: #e8f5e9;">
                     <td style="padding: 6px 0; color: #666;">Est. Credit:</td>

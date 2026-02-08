@@ -1791,7 +1791,7 @@ def render_execution_window():
                         
                         # Add legs
                         trade_log.add_leg(
-                            trade_id=trade.trade_id,
+                            trade_id=trade.position_id,
                             side=LegSide.LONG,
                             instrument=f"UVXY_{long_exp.replace('-','')}_C_{int(long_strike)}",
                             underlying="UVXY",
@@ -1803,7 +1803,7 @@ def render_execution_window():
                         )
                         
                         trade_log.add_leg(
-                            trade_id=trade.trade_id,
+                            trade_id=trade.position_id,
                             side=LegSide.SHORT,
                             instrument=f"UVXY_{short_exp.replace('-','')}_C_{int(short_strike)}",
                             underlying="UVXY",
@@ -1814,7 +1814,7 @@ def render_execution_window():
                             entry_price=short_price,
                         )
                         
-                        st.success(f"Trade logged: {trade.trade_id}")
+                        st.success(f"Trade logged: {trade.position_id}")
                         st.session_state[f"executing_{variant.variant_id}"] = False
                         st.rerun()
             
@@ -1848,7 +1848,7 @@ def render_active_trades():
         # Count contracts from first leg
         leg_contracts = abs(trade.legs[0].quantity) if trade.legs else 0
         
-        with st.expander(f"📊 {trade.variant_role} - {trade.trade_id[:12]}... ({days_open}d)", expanded=True):
+        with st.expander(f"📊 {trade.variant_role} - {trade.position_id[:12]}... ({days_open}d)", expanded=True):
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
@@ -1872,10 +1872,10 @@ def render_active_trades():
             # Actions
             col1, col2 = st.columns(2)
             with col1:
-                if st.button(f"Update Prices", key=f"update_{trade.trade_id}"):
+                if st.button(f"Update Prices", key=f"update_{trade.position_id}"):
                     st.info("Update form would appear here")
             with col2:
-                if st.button(f"Close Trade", key=f"close_{trade.trade_id}"):
+                if st.button(f"Close Trade", key=f"close_{trade.position_id}"):
                     st.warning("Close form would appear here")
 
 
@@ -1888,7 +1888,7 @@ def render_post_mortem():
         return
     
     trade_log = get_trade_log()
-    closed_trades = [t for t in trade_log.trades.values() if t.status == TradeStatus.CLOSED]
+    closed_trades = [t for t in trade_log.diagonal_positions.values() if t.status == "closed"]
     
     if not closed_trades:
         st.info("No closed trades yet. Complete some trades first.")
@@ -1897,23 +1897,32 @@ def render_post_mortem():
     st.metric("Closed Trades for Review", len(closed_trades))
     
     for trade in closed_trades[-10:]:  # Last 10
-        with st.expander(f"{trade.variant_role} - {trade.trade_id[:12]}..."):
+        with st.expander(f"{trade.variant_name} - {trade.position_id[:12]}..."):
             col1, col2 = st.columns(2)
             with col1:
-                st.write(f"**Regime:** {trade.regime}")
-                st.write(f"**P&L:** ${trade.realized_pnl:,.0f}")
+                st.write(f"**Regime:** {trade.entry_regime}")
+                st.write(f"**P&L:** ${trade.total_pnl:,.0f}")
             with col2:
-                st.write(f"**Duration:** {(trade.exit_datetime - trade.entry_datetime).days if trade.exit_datetime else 0}d")
-                st.write(f"**Interventions:** {trade.intervention_count}")
+                duration = 0
+                if trade.exit_date and trade.entry_date:
+                    from datetime import datetime
+                    try:
+                        entry = datetime.strptime(trade.entry_date, "%Y-%m-%d")
+                        exit = datetime.strptime(trade.exit_date, "%Y-%m-%d")
+                        duration = (exit - entry).days
+                    except:
+                        pass
+                st.write(f"**Duration:** {duration}d")
+                st.write(f"**Rolls:** {trade.total_rolls}")
             
             # Post-mortem notes
             notes = st.text_area(
                 "Lessons Learned",
                 value=trade.notes or "",
-                key=f"notes_{trade.trade_id}",
+                key=f"notes_{trade.position_id}",
             )
             
-            if st.button("Save Notes", key=f"save_{trade.trade_id}"):
+            if st.button("Save Notes", key=f"save_{trade.position_id}"):
                 trade.notes = notes
                 trade_log.save()
                 st.success("Notes saved")
@@ -1938,33 +1947,43 @@ def render_variant_analytics():
     st.markdown("---")
     st.subheader("Metrics by Variant Role")
     
+    # Group diagonal positions by variant (case-insensitive)
+    positions_by_variant = {}
+    for pos in trade_log.diagonal_positions.values():
+        variant_id = pos.variant_id.lower()
+        if variant_id not in positions_by_variant:
+            positions_by_variant[variant_id] = []
+        positions_by_variant[variant_id].append(pos)
+    
     for role in VariantRole:
-        trades = trade_log.get_trades_by_variant(role.value)
+        positions = positions_by_variant.get(role.value.lower(), [])
         
-        if not trades:
+        if not positions:
             continue
         
-        with st.expander(f"{get_variant_display_name(role)} ({len(trades)} trades)"):
-            open_count = sum(1 for t in trades if t.status == TradeStatus.OPEN)
-            closed_count = sum(1 for t in trades if t.status == TradeStatus.CLOSED)
+        with st.expander(f"{get_variant_display_name(role)} ({len(positions)} positions)"):
+            open_count = sum(1 for p in positions if p.status == "open")
+            closed_count = sum(1 for p in positions if p.status == "closed")
             
-            total_pnl = sum(t.realized_pnl + t.unrealized_pnl for t in trades)
-            total_interventions = sum(t.intervention_count for t in trades)
+            total_pnl = sum(p.total_pnl for p in positions)
+            total_rolls = sum(p.total_rolls for p in positions)
             
             col1, col2, col3, col4 = st.columns(4)
             col1.metric("Open / Closed", f"{open_count} / {closed_count}")
             col2.metric("Total P&L", f"${total_pnl:,.0f}")
-            col3.metric("Interventions", total_interventions)
-            col4.metric("Avg Attention", f"{np.mean([t.attention_score for t in trades]):.1f}/5")
+            col3.metric("Total Rolls", total_rolls)
+            col4.metric("Avg Rolls/Pos", f"{total_rolls/len(positions):.1f}" if positions else "0")
     
     # Summary
     st.markdown("---")
-    summary = trade_log.get_summary()
+    all_positions = list(trade_log.diagonal_positions.values())
+    open_positions = [p for p in all_positions if p.status == "open"]
+    total_pnl = sum(p.total_pnl for p in all_positions)
     
     col1, col2, col3 = st.columns(3)
-    col1.metric("Total Trades", summary.get("total_trades", 0))
-    col2.metric("Net P&L", f"${summary.get('net_pnl', 0):,.0f}")
-    col3.metric("Open Positions", summary.get("open_trades", 0))
+    col1.metric("Total Trades", len(all_positions))
+    col2.metric("Net P&L", f"${total_pnl:,.0f}")
+    col3.metric("Open Positions", len(open_positions))
 
 
 def render_system_health():
@@ -2460,6 +2479,10 @@ def _render_diagonal_positions(trade_log):
                     st.session_state[f"closing_{pos.position_id}"] = True
                 if edit_clicked:
                     st.session_state[f"editing_{pos.position_id}"] = True
+                    st.rerun()
+                    st.rerun()
+                if False:  # placeholder
+                    st.session_state[f"editing_{pos.position_id}"] = True
                 if delete_clicked:
                     st.session_state[f"deleting_{pos.position_id}"] = True
                 if roll_long_clicked:
@@ -2492,6 +2515,10 @@ def _render_diagonal_positions(trade_log):
                     delete_clicked = st.button("🗑️ Delete", key=f"delete_closed_{pos.position_id}")
                 
                 if edit_clicked:
+                    st.session_state[f"editing_{pos.position_id}"] = True
+                    st.rerun()
+                    st.rerun()
+                if False:  # placeholder
                     st.session_state[f"editing_{pos.position_id}"] = True
                 if delete_clicked:
                     st.session_state[f"deleting_{pos.position_id}"] = True
@@ -3419,7 +3446,7 @@ def render_trade_log():
         ):
             col1, col2, col3 = st.columns(3)
             with col1:
-                st.write(f"**Trade ID:** {trade.trade_id}")
+                st.write(f"**Trade ID:** {trade.position_id}")
                 st.write(f"**Signal ID:** {trade.signal_id}")
                 st.write(f"**Entry:** {trade.entry_date.strftime('%Y-%m-%d %H:%M')}")
             with col2:
