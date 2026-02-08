@@ -513,8 +513,9 @@ class DiagonalPosition:
             return False  # No short to roll
         return short.days_to_expiry() <= roll_dte_threshold
     
-    def add_short_leg(self, strike: float, expiration: str, credit: float) -> ShortLeg:
-        """Add a new short leg."""
+    def add_short_leg(self, strike: float, expiration: str, credit: float, contracts: Optional[int] = None) -> ShortLeg:
+        """Add a new short leg. If contracts not specified, uses position's contracts."""
+        num_contracts = contracts if contracts else self.contracts
         leg_num = len(self.short_legs) + 1
         leg = ShortLeg(
             leg_id=f"{self.position_id}-S{leg_num}",
@@ -523,12 +524,12 @@ class DiagonalPosition:
             strike=strike,
             expiration_date=expiration,
             entry_credit=credit,
-            contracts=self.contracts,
+            contracts=num_contracts,
         )
         self.short_legs.append(leg)
-        self.total_short_credits += credit * self.contracts
+        self.total_short_credits += credit * num_contracts
         # Add commission for selling short
-        self.total_commissions += self.fee_per_contract * self.contracts
+        self.total_commissions += self.fee_per_contract * num_contracts
         self.updated_at = datetime.now().isoformat()
         return leg
     
@@ -541,9 +542,12 @@ class DiagonalPosition:
         underlying_price: float,
         regime: str,
         notes: str = "",
+        contracts: Optional[int] = None,
     ) -> Tuple[ShortLeg, RollRecord]:
         """
         Roll the current short leg to a new one.
+        Supports partial rolls - if contracts < current short contracts,
+        only that many are rolled and the rest stay open.
         
         Returns (new_short_leg, roll_record)
         """
@@ -551,11 +555,22 @@ class DiagonalPosition:
         if not old_short:
             raise ValueError("No open short leg to roll")
         
-        # Close old short
-        old_short.status = "rolled"
-        old_short.exit_date = datetime.now().strftime("%Y-%m-%d")
-        old_short.exit_price = exit_price
-        old_short.exit_reason = "rolled"
+        # Determine contracts to roll
+        contracts_to_roll = contracts if contracts else old_short.contracts
+        contracts_to_roll = min(contracts_to_roll, old_short.contracts)
+        remaining_contracts = old_short.contracts - contracts_to_roll
+        
+        if remaining_contracts > 0:
+            # Partial roll - reduce old short's contracts, keep it open
+            old_short.contracts = remaining_contracts
+            roll_notes = f"Partial roll: {contracts_to_roll} contracts. {notes}"
+        else:
+            # Full roll - close old short
+            old_short.status = "rolled"
+            old_short.exit_date = datetime.now().strftime("%Y-%m-%d")
+            old_short.exit_price = exit_price
+            old_short.exit_reason = "rolled"
+            roll_notes = notes
         
         # Create roll record
         roll_credit = new_credit - exit_price
@@ -572,17 +587,17 @@ class DiagonalPosition:
             roll_credit=roll_credit,
             underlying_price=underlying_price,
             regime=regime,
-            notes=notes,
+            notes=roll_notes if 'roll_notes' in dir() else notes,
         )
         self.roll_history.append(roll)
         self.total_rolls += 1
-        self.total_roll_credits += roll_credit * self.contracts
+        self.total_roll_credits += roll_credit * contracts_to_roll
         
-        # Commission for buying back old short
-        self.total_commissions += self.fee_per_contract * self.contracts
+        # Commission for buying back old short (only for contracts rolled)
+        self.total_commissions += self.fee_per_contract * contracts_to_roll
         
-        # Add new short leg (this also adds commission for selling)
-        new_leg = self.add_short_leg(new_strike, new_expiration, new_credit)
+        # Add new short leg with the rolled contracts
+        new_leg = self.add_short_leg(new_strike, new_expiration, new_credit, contracts=contracts_to_roll)
         
         self.updated_at = datetime.now().isoformat()
         return new_leg, roll
@@ -985,8 +1000,9 @@ class TradeLog:
         underlying_price: float,
         regime: str,
         notes: str = "",
+        contracts: Optional[int] = None,
     ) -> Tuple[Optional[ShortLeg], Optional[RollRecord]]:
-        """Roll the short leg of a diagonal position."""
+        """Roll the short leg of a diagonal position. Supports partial rolls."""
         pos = self.diagonal_positions.get(position_id)
         if not pos:
             return None, None
@@ -999,10 +1015,34 @@ class TradeLog:
             underlying_price=underlying_price,
             regime=regime,
             notes=notes,
+            contracts=contracts,
         )
         
         self._save()
         return new_leg, roll_record
+    
+    def close_short_leg(
+        self,
+        position_id: str,
+        exit_price: float,
+        exit_reason: str = "closed_manual",
+    ) -> bool:
+        """Close the current short leg without opening a new one."""
+        pos = self.diagonal_positions.get(position_id)
+        if not pos:
+            return False
+        
+        short = pos.current_short_leg
+        if not short or short.status != "open":
+            return False
+        
+        short.status = "closed"
+        short.exit_date = datetime.now().strftime("%Y-%m-%d")
+        short.exit_price = exit_price
+        short.exit_reason = exit_reason
+        
+        self._save()
+        return True
     
     def roll_diagonal_long(
         self,

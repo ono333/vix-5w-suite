@@ -1488,14 +1488,38 @@ def render_signal_dashboard():
                                 st.session_state[f"updating_prices_{pos.position_id}"] = True
                         
                         with btn_col4:
-                            if st.button(f"❌ Close Position", key=f"close_{pos.position_id}"):
+                            if st.button(f"❌ Close Diagonal", key=f"close_{pos.position_id}"):
                                 st.session_state[f"closing_{pos.position_id}"] = True
+                        
+                        # Additional buttons row for individual leg management
+                        leg_col1, leg_col2, leg_col3 = st.columns(3)
+                        with leg_col1:
+                            if pos.current_short_leg and pos.current_short_leg.status == "open":
+                                if st.button(f"📕 Close Short", key=f"close_short_{pos.position_id}"):
+                                    st.session_state[f"closing_short_{pos.position_id}"] = True
+                        with leg_col2:
+                            if st.button(f"📘 Close Long", key=f"close_long_{pos.position_id}"):
+                                st.session_state[f"closing_long_{pos.position_id}"] = True
                         
                         # Roll form
                         if st.session_state.get(f"rolling_{pos.position_id}"):
                             with st.form(key=f"roll_form_{pos.position_id}"):
                                 st.markdown("#### 🔄 Roll to New Short")
-                                roll_col1, roll_col2, roll_col3 = st.columns(3)
+                                
+                                # Partial roll support
+                                current_short = pos.current_short_leg
+                                max_contracts = current_short.contracts if current_short else pos.contracts
+                                
+                                roll_col0, roll_col1, roll_col2, roll_col3 = st.columns(4)
+                                with roll_col0:
+                                    contracts_to_roll = st.number_input(
+                                        "Contracts to Roll", 
+                                        min_value=1, 
+                                        max_value=max_contracts, 
+                                        value=max_contracts,
+                                        key=f"ctr_{pos.position_id}",
+                                        help=f"Roll partial: 1-{max_contracts} contracts"
+                                    )
                                 with roll_col1:
                                     new_strike = st.number_input("New Strike", value=float(regime.vix_level + 2), step=1.0, key=f"rs_{pos.position_id}")
                                 with roll_col2:
@@ -1504,6 +1528,9 @@ def render_signal_dashboard():
                                     new_credit = st.number_input("New Credit ($)", value=0.50, step=0.05, key=f"rc_{pos.position_id}")
                                 
                                 exit_price = st.number_input("Buyback Price (old short)", value=0.05, step=0.01, key=f"ep_{pos.position_id}")
+                                
+                                if contracts_to_roll < max_contracts:
+                                    st.info(f"⚠️ Partial roll: {contracts_to_roll} of {max_contracts} contracts. Remaining {max_contracts - contracts_to_roll} will stay in current short.")
                                 
                                 sub_col1, sub_col2 = st.columns(2)
                                 with sub_col1:
@@ -1516,13 +1543,102 @@ def render_signal_dashboard():
                                             new_credit=new_credit,
                                             underlying_price=regime.vix_level,
                                             regime=regime.regime.value,
+                                            contracts=contracts_to_roll,
                                         )
-                                        st.success("✅ Short rolled successfully!")
+                                        if contracts_to_roll < max_contracts:
+                                            st.success(f"✅ Partial roll: {contracts_to_roll} contracts rolled!")
+                                        else:
+                                            st.success("✅ Short rolled successfully!")
                                         st.session_state[f"rolling_{pos.position_id}"] = False
                                         st.rerun()
                                 with sub_col2:
                                     if st.form_submit_button("Cancel"):
                                         st.session_state[f"rolling_{pos.position_id}"] = False
+                                        st.rerun()
+                        
+                        # Close Short form
+                        if st.session_state.get(f"closing_short_{pos.position_id}"):
+                            with st.form(key=f"close_short_form_{pos.position_id}"):
+                                st.markdown("#### 📕 Close Short Leg")
+                                current_short = pos.current_short_leg
+                                if current_short:
+                                    st.write(f"Current short: ${current_short.strike} exp {current_short.expiration_date}")
+                                    st.write(f"Entry credit: ${current_short.entry_credit:.2f}")
+                                    
+                                    cs_col1, cs_col2 = st.columns(2)
+                                    with cs_col1:
+                                        buyback_price = st.number_input(
+                                            "Buyback Price ($)", 
+                                            value=0.05, 
+                                            step=0.01, 
+                                            key=f"cs_bp_{pos.position_id}"
+                                        )
+                                    with cs_col2:
+                                        close_reason = st.selectbox(
+                                            "Reason",
+                                            ["closed_manual", "expired_worthless", "expired_itm", "stop_loss", "take_profit"],
+                                            key=f"cs_reason_{pos.position_id}"
+                                        )
+                                    
+                                    cs_sub1, cs_sub2 = st.columns(2)
+                                    with cs_sub1:
+                                        if st.form_submit_button("✅ Close Short"):
+                                            trade_log.close_short_leg(
+                                                pos.position_id,
+                                                exit_price=buyback_price,
+                                                exit_reason=close_reason
+                                            )
+                                            st.success("✅ Short leg closed!")
+                                            st.session_state[f"closing_short_{pos.position_id}"] = False
+                                            st.rerun()
+                                    with cs_sub2:
+                                        if st.form_submit_button("Cancel"):
+                                            st.session_state[f"closing_short_{pos.position_id}"] = False
+                                            st.rerun()
+                        
+                        # Close Long form
+                        if st.session_state.get(f"closing_long_{pos.position_id}"):
+                            with st.form(key=f"close_long_form_{pos.position_id}"):
+                                st.markdown("#### 📘 Close Long Leg")
+                                st.write(f"Long: ${pos.long_strike} exp {pos.long_expiration}")
+                                st.write(f"Entry price: ${pos.long_entry_price:.2f}")
+                                st.write(f"Current price: ${pos.long_current_price:.2f}")
+                                
+                                cl_col1, cl_col2 = st.columns(2)
+                                with cl_col1:
+                                    sell_price = st.number_input(
+                                        "Sell Price ($)", 
+                                        value=float(pos.long_current_price) if pos.long_current_price else 1.0, 
+                                        step=0.05, 
+                                        key=f"cl_sp_{pos.position_id}"
+                                    )
+                                with cl_col2:
+                                    close_long_reason = st.selectbox(
+                                        "Reason",
+                                        ["closed_manual", "expired_worthless", "expired_itm", "stop_loss", "take_profit", "roll_to_new"],
+                                        key=f"cl_reason_{pos.position_id}"
+                                    )
+                                
+                                st.warning("⚠️ Closing the long leg will close the entire diagonal position!")
+                                
+                                cl_sub1, cl_sub2 = st.columns(2)
+                                with cl_sub1:
+                                    if st.form_submit_button("✅ Close Long (& Position)"):
+                                        # Close any open short first
+                                        if pos.current_short_leg and pos.current_short_leg.status == "open":
+                                            trade_log.close_short_leg(pos.position_id, exit_price=0.0, exit_reason="closed_with_long")
+                                        # Close the position
+                                        trade_log.close_diagonal(
+                                            pos.position_id,
+                                            long_exit_price=sell_price,
+                                            exit_reason=close_long_reason
+                                        )
+                                        st.success("✅ Long leg and position closed!")
+                                        st.session_state[f"closing_long_{pos.position_id}"] = False
+                                        st.rerun()
+                                with cl_sub2:
+                                    if st.form_submit_button("Cancel"):
+                                        st.session_state[f"closing_long_{pos.position_id}"] = False
                                         st.rerun()
                         
                         # Update prices form
@@ -2428,7 +2544,7 @@ def _render_diagonal_positions(trade_log):
                 
                 with col1:
                     if has_active_short:
-                        roll_clicked = st.button("🔄 Roll", key=f"roll_{pos.position_id}")
+                        roll_clicked = st.button("🔄 Roll Short", key=f"roll_{pos.position_id}")
                     else:
                         sell_short_clicked = st.button("📈 Sell Short", key=f"sell_short_{pos.position_id}",
                                                        help="Sell a new short leg")
@@ -2446,7 +2562,8 @@ def _render_diagonal_positions(trade_log):
                     update_clicked = st.button("💰 Prices", key=f"update_{pos.position_id}")
                 
                 with col4:
-                    close_clicked = st.button("🚪 Close", key=f"close_{pos.position_id}")
+                    close_clicked = st.button("🚪 Close All", key=f"close_{pos.position_id}",
+                                              help="Close entire diagonal position")
                 
                 with col5:
                     edit_clicked = st.button("✏️ Edit", key=f"edit_{pos.position_id}")
@@ -2454,12 +2571,21 @@ def _render_diagonal_positions(trade_log):
                 with col6:
                     delete_clicked = st.button("🗑️ Del", key=f"delete_{pos.position_id}")
                 
-                # Second row of buttons for long leg management
-                col7, col8, col9 = st.columns([1, 1, 2])
+                # Second row of buttons for leg management
+                col7, col8, col9, col10 = st.columns([1, 1, 1, 1])
                 with col7:
                     roll_long_clicked = st.button("🔄 Roll Long", key=f"roll_long_{pos.position_id}",
                                                    help="Roll the LEAP to new strike/expiration")
                 with col8:
+                    if has_active_short:
+                        close_short_clicked = st.button("📕 Close Short", key=f"close_short_{pos.position_id}",
+                                                        help="Close just the short leg")
+                    else:
+                        close_short_clicked = False
+                with col9:
+                    close_long_clicked = st.button("📘 Close Long", key=f"close_long_{pos.position_id}",
+                                                   help="Close long leg (closes entire position)")
+                with col10:
                     long_dte = pos.days_to_long_expiry()
                     if long_dte <= 60:
                         st.warning(f"⚠️ Long DTE: {long_dte}d")
@@ -2487,6 +2613,12 @@ def _render_diagonal_positions(trade_log):
                     st.session_state[f"deleting_{pos.position_id}"] = True
                 if roll_long_clicked:
                     st.session_state[f"rolling_long_{pos.position_id}"] = True
+                if close_short_clicked:
+                    st.session_state[f"closing_short_{pos.position_id}"] = True
+                    st.rerun()
+                if close_long_clicked:
+                    st.session_state[f"closing_long_{pos.position_id}"] = True
+                    st.rerun()
                 
                 # Render forms based on state
                 if st.session_state.get(f"rolling_{pos.position_id}"):
@@ -2505,6 +2637,10 @@ def _render_diagonal_positions(trade_log):
                     _render_delete_confirm(trade_log, pos)
                 if st.session_state.get(f"rolling_long_{pos.position_id}"):
                     _render_roll_long_form(trade_log, pos)
+                if st.session_state.get(f"closing_short_{pos.position_id}"):
+                    _render_close_short_form(trade_log, pos)
+                if st.session_state.get(f"closing_long_{pos.position_id}"):
+                    _render_close_long_form(trade_log, pos)
             
             else:
                 # Closed positions can still be edited or deleted
@@ -2646,9 +2782,19 @@ def _render_roll_form(trade_log, pos):
     
     st.markdown("---")
     
-    col1, col2 = st.columns(2)
-    with col1:
+    # Partial roll support
+    max_contracts = short.contracts if short else pos.contracts
+    
+    col0, col1, col2 = st.columns([1, 1, 1])
+    with col0:
         st.write(f"Current Short: ${short.strike} exp {short.expiration_date}")
+        st.write(f"Contracts: {max_contracts}")
+        contracts_to_roll = st.number_input(
+            "Contracts to Roll",
+            min_value=1, max_value=max_contracts, value=max_contracts,
+            key=f"roll_contracts_{pos.position_id}",
+            help=f"Partial roll: 1-{max_contracts}"
+        )
         exit_price = st.number_input(
             "Buy Back Price ($)",
             min_value=0.0, max_value=20.0, value=0.05, step=0.01,
@@ -2656,7 +2802,7 @@ def _render_roll_form(trade_log, pos):
             help="If expired worthless, enter 0"
         )
     
-    with col2:
+    with col1:
         new_strike = st.number_input(
             "New Strike",
             min_value=1.0, value=float(suggested_strikes[1]), step=0.5,
@@ -2669,7 +2815,11 @@ def _render_roll_form(trade_log, pos):
             key=f"roll_new_credit_{pos.position_id}"
         )
     
-    underlying = st.number_input("Current Underlying Price", min_value=1.0, value=current_price, key=f"roll_underlying_{pos.position_id}")
+    with col2:
+        underlying = st.number_input("Current Underlying Price", min_value=1.0, value=current_price, key=f"roll_underlying_{pos.position_id}")
+        
+        if contracts_to_roll < max_contracts:
+            st.info(f"⚠️ Partial roll: {contracts_to_roll} of {max_contracts} contracts")
     
     net_roll = new_credit - exit_price
     st.info(f"Net Roll {'Credit' if net_roll > 0 else 'Debit'}: ${abs(net_roll):.2f} per contract")
@@ -2686,8 +2836,12 @@ def _render_roll_form(trade_log, pos):
                     new_credit=new_credit,
                     underlying_price=underlying,
                     regime="CALM",
+                    contracts=contracts_to_roll,
                 )
-                st.success(f"✅ Rolled: Net credit ${roll.roll_credit:.2f}")
+                if contracts_to_roll < max_contracts:
+                    st.success(f"✅ Partial roll ({contracts_to_roll} contracts): Net credit ${roll.roll_credit:.2f}")
+                else:
+                    st.success(f"✅ Rolled: Net credit ${roll.roll_credit:.2f}")
                 st.session_state[f"rolling_{pos.position_id}"] = False
                 st.rerun()
             except Exception as e:
@@ -3032,6 +3186,136 @@ def _render_roll_long_form(trade_log, pos):
     if cancelled:
         st.session_state[f"rolling_long_{pos.position_id}"] = False
         st.rerun()
+
+def _render_close_short_form(trade_log, pos):
+    """Form to close just the short leg."""
+    st.markdown("##### 📕 Close Short Leg")
+    
+    short = pos.current_short_leg
+    if not short or short.status != "open":
+        st.warning("No active short leg to close.")
+        if st.button("Cancel", key=f"close_short_cancel_{pos.position_id}"):
+            st.session_state[f"closing_short_{pos.position_id}"] = False
+            st.rerun()
+        return
+    
+    st.info(f"""
+    **Current Short Leg:**
+    - Strike: ${short.strike:.0f}
+    - Expiration: {short.expiration_date}
+    - Entry Credit: ${short.entry_credit:.2f}
+    - Current Price: ${short.current_price:.2f}
+    - Contracts: {short.contracts}
+    """)
+    
+    with st.form(key=f"close_short_form_{pos.position_id}"):
+        col1, col2 = st.columns(2)
+        with col1:
+            buyback_price = st.number_input(
+                "Buyback Price ($)",
+                min_value=0.0,
+                value=float(short.current_price) if short.current_price else 0.05,
+                step=0.01,
+                key=f"cs_buyback_{pos.position_id}"
+            )
+        with col2:
+            close_reason = st.selectbox(
+                "Reason",
+                ["closed_manual", "expired_worthless", "expired_itm", "stop_loss", "take_profit"],
+                key=f"cs_reason_{pos.position_id}"
+            )
+        
+        # Show P&L preview
+        pnl = (short.entry_credit - buyback_price) * 100 * short.contracts
+        pnl_color = "green" if pnl >= 0 else "red"
+        st.markdown(f"**Estimated P&L:** :{pnl_color}[${pnl:,.0f}]")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.form_submit_button("✅ Close Short"):
+                trade_log.close_short_leg(
+                    pos.position_id,
+                    exit_price=buyback_price,
+                    exit_reason=close_reason
+                )
+                st.success("✅ Short leg closed!")
+                st.session_state[f"closing_short_{pos.position_id}"] = False
+                st.rerun()
+        with col2:
+            if st.form_submit_button("Cancel"):
+                st.session_state[f"closing_short_{pos.position_id}"] = False
+                st.rerun()
+
+
+def _render_close_long_form(trade_log, pos):
+    """Form to close the long leg (and entire position)."""
+    st.markdown("##### 📘 Close Long Leg")
+    
+    st.warning("⚠️ Closing the long leg will close the entire diagonal position!")
+    
+    st.info(f"""
+    **Current Long Leg:**
+    - Strike: ${pos.long_strike:.0f}
+    - Expiration: {pos.long_expiration}
+    - Entry Price: ${pos.long_entry_price:.2f}
+    - Current Price: ${pos.long_current_price:.2f}
+    - Contracts: {pos.contracts}
+    """)
+    
+    short = pos.current_short_leg
+    if short and short.status == "open":
+        st.warning(f"⚠️ Active short leg (${short.strike} @ ${short.current_price:.2f}) will also be closed!")
+    
+    with st.form(key=f"close_long_form_{pos.position_id}"):
+        col1, col2 = st.columns(2)
+        with col1:
+            sell_price = st.number_input(
+                "Sell Price ($)",
+                min_value=0.0,
+                value=float(pos.long_current_price) if pos.long_current_price else 1.0,
+                step=0.05,
+                key=f"cl_sell_{pos.position_id}"
+            )
+        with col2:
+            close_reason = st.selectbox(
+                "Reason",
+                ["closed_manual", "expired_worthless", "expired_itm", "stop_loss", "take_profit", "regime_change"],
+                key=f"cl_reason_{pos.position_id}"
+            )
+        
+        # Show P&L preview
+        long_pnl = (sell_price - pos.long_entry_price) * 100 * pos.contracts
+        short_pnl = pos.short_pnl
+        total_pnl = long_pnl + short_pnl - pos.total_commissions
+        
+        st.markdown(f"""
+        **P&L Preview:**
+        - Long Leg: ${long_pnl:,.0f}
+        - Short Legs (total): ${short_pnl:,.0f}
+        - Commissions: -${pos.total_commissions:,.0f}
+        - **Total: ${total_pnl:,.0f}**
+        """)
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.form_submit_button("✅ Close Position"):
+                # Close any open short first
+                if short and short.status == "open":
+                    trade_log.close_short_leg(pos.position_id, exit_price=0.0, exit_reason="closed_with_long")
+                # Close the position
+                trade_log.close_diagonal(
+                    pos.position_id,
+                    long_exit_price=sell_price,
+                    exit_reason=close_reason
+                )
+                st.success("✅ Position closed!")
+                st.session_state[f"closing_long_{pos.position_id}"] = False
+                st.rerun()
+        with col2:
+            if st.form_submit_button("Cancel"):
+                st.session_state[f"closing_long_{pos.position_id}"] = False
+                st.rerun()
+
 
 def _render_sell_short_form(trade_log, pos):
     """Form to sell a new short leg when position has none."""
