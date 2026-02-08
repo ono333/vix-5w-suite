@@ -1024,7 +1024,8 @@ def get_position_live_summary(trade_log, symbol: str = "UVXY") -> list:
             "_spot": spot,
         })
     
-    return sorted(summaries, key=lambda x: x["_total_pnl"], reverse=True)
+    # Sort by variant name (V1, V2, V3, V4, V5)
+    return sorted(summaries, key=lambda x: x["Variant"])
 
 
 
@@ -2436,7 +2437,8 @@ def _render_diagonal_positions(trade_log):
     # Use filtered positions if filter is set, otherwise show all
     display_positions = filtered_positions if 'filtered_positions' in dir() else diagonals
     
-    for pos in sorted(display_positions, key=lambda p: p.entry_date, reverse=True):
+    # Sort by variant name (V1, V2, V3, V4, V5) then by entry date
+    for pos in sorted(display_positions, key=lambda p: (p.variant_id.upper(), p.entry_date)):
         # Get health status
         health = pos.get_health_status() if pos.status == "open" else None
         
