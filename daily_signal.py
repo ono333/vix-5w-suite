@@ -569,7 +569,7 @@ def build_position_aware_email(
         
         # Calculate actual expiry dates (datetime/timedelta imported at top)
         today = datetime.now()
-        long_expiry = today + timedelta(weeks=variant.long_dte_weeks)
+        long_expiry = snap_to_uvxy_expiry((today + timedelta(weeks=variant.long_dte_weeks)).date())
         short_expiry = today + timedelta(weeks=variant.short_dte_weeks)
         # Find next Friday for short expiry
         days_to_friday = (4 - short_expiry.weekday()) % 7
@@ -689,6 +689,33 @@ def send_email(
 # ============================================================
 # Main
 # ============================================================
+
+def snap_to_uvxy_expiry(target_date):
+    """
+    Snap a theoretical expiration date to the nearest real UVXY option expiry.
+    UVXY lists: 3rd Friday monthly + some quarterlies.
+    Try to fetch from yfinance, fall back to computed 3rd Fridays.
+    """
+    import yfinance as yf
+    from datetime import date, timedelta
+    try:
+        tk = yf.Ticker("UVXY")
+        exps = [date.fromisoformat(e) for e in tk.options]
+        # Find nearest expiry >= target_date
+        future = [e for e in exps if e >= target_date]
+        if future:
+            return min(future, key=lambda e: abs((e - target_date).days))
+        return max(exps)  # fallback to furthest available
+    except:
+        # Fallback: compute 3rd Friday of target month
+        d = target_date.replace(day=1)
+        fridays = []
+        while d.month == target_date.month:
+            if d.weekday() == 4:
+                fridays.append(d)
+            d += timedelta(days=1)
+        return fridays[2] if len(fridays) >= 3 else target_date
+
 
 def main():
     parser = argparse.ArgumentParser(description="Position-Aware VIX Signal Generator")
