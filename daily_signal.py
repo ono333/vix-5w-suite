@@ -202,6 +202,10 @@ def classify_variants(
             
             # Suggest action based on SHORT LEG status (not total P&L)
             short = diag.current_short_leg if diag else None
+            short_current = 0.0
+            short_target = 0.0
+            short_stop = 0.0
+            short_credit = 0.0
             
             if short:
                 # Fix: calculate DTE directly, with null guard
