@@ -99,6 +99,14 @@ def evaluate_roll(
             "high", est_bb, est_bb_0dte, theta_pct, False,
             dict(delta=effective_delta, trigger=delta_trig))
 
+    if dte_remaining == 1:
+        return RollDecision(
+            "order_roll",
+            f"DTE=1 — Thursday signal. Place roll order NOW for Friday morning fill. "
+            f"Est BB ~${est_bb:.2f} at open (theta ~{theta_pct*100:.0f}% remaining).",
+            "medium", est_bb, est_bb_0dte, theta_pct, False,
+            dict(dte=dte_remaining))
+
     if dte_remaining <= roll_dte:
         return RollDecision(
             "roll_now",
