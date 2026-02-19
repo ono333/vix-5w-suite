@@ -252,6 +252,7 @@ class RollRecord:
     
     # Market context
     underlying_price: float
+    contracts: int = 1
     roll_type: str = "short"  # "short" or "long"
     regime: str = ""
     
@@ -586,6 +587,7 @@ class DiagonalPosition:
             new_credit=new_credit,
             roll_credit=roll_credit,
             underlying_price=underlying_price,
+            contracts=contracts_to_roll,
             regime=regime,
             notes=roll_notes if 'roll_notes' in dir() else notes,
         )
@@ -658,6 +660,7 @@ class DiagonalPosition:
             new_credit=-roll_debit,  # Negative if we paid more
             roll_credit=-roll_debit,
             underlying_price=underlying_price,
+            contracts=self.contracts,
             regime=regime,
             notes=notes,
         )
@@ -674,6 +677,21 @@ class DiagonalPosition:
         
         self.updated_at = datetime.now().isoformat()
         return roll_info
+
+    def recalc_roll_totals(self) -> None:
+        """Recalculate roll totals from roll history."""
+        total_rolls = 0
+        total_roll_credits = 0.0
+        for roll in self.roll_history:
+            roll_type = getattr(roll, "roll_type", "short") or "short"
+            if roll_type == "short":
+                total_rolls += 1
+                roll_contracts = getattr(roll, "contracts", None)
+                if roll_contracts is None:
+                    roll_contracts = self.contracts or 1
+                total_roll_credits += roll.roll_credit * roll_contracts
+        self.total_rolls = total_rolls
+        self.total_roll_credits = total_roll_credits
     
     def close_short_expired(self, expired_itm: bool = False, exit_price: float = 0.0) -> None:
         """Mark short as expired (worthless or ITM assignment)."""
@@ -1183,6 +1201,50 @@ class TradeLog:
         pos.updated_at = datetime.now().isoformat()
         self._save()
         return short
+
+    def update_roll_record(
+        self,
+        position_id: str,
+        roll_id: str,
+        **kwargs,
+    ) -> Optional[RollRecord]:
+        """Update a roll history record and recalc totals."""
+        pos = self.diagonal_positions.get(position_id)
+        if not pos:
+            return None
+        
+        roll = next((r for r in pos.roll_history if r.roll_id == roll_id), None)
+        if not roll:
+            return None
+        
+        for key, value in kwargs.items():
+            if hasattr(roll, key) and value is not None:
+                setattr(roll, key, value)
+        
+        # Keep roll_credit in sync with old/new prices
+        if hasattr(roll, "new_credit") and hasattr(roll, "old_exit_price"):
+            roll.roll_credit = roll.new_credit - roll.old_exit_price
+        
+        pos.recalc_roll_totals()
+        pos.updated_at = datetime.now().isoformat()
+        self._save()
+        return roll
+
+    def delete_roll_record(self, position_id: str, roll_id: str) -> bool:
+        """Delete a roll record and recalc totals."""
+        pos = self.diagonal_positions.get(position_id)
+        if not pos:
+            return False
+        
+        original_count = len(pos.roll_history)
+        pos.roll_history = [r for r in pos.roll_history if r.roll_id != roll_id]
+        if len(pos.roll_history) == original_count:
+            return False
+        
+        pos.recalc_roll_totals()
+        pos.updated_at = datetime.now().isoformat()
+        self._save()
+        return True
 
 
     def get_roll_summary(self) -> Dict[str, Any]:

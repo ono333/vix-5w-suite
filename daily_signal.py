@@ -35,6 +35,7 @@ from regime_detector import classify_regime, RegimeState
 from variant_generator import generate_all_variants, get_variant_display_name, SignalBatch, VariantParams
 from trade_log import get_trade_log, TradeLog, Position
 from market_calendar import format_calendar_warning, is_market_open, get_next_trading_day
+from roll_manager import evaluate_roll
 
 # ============================================================
 # Helper Functions
@@ -203,20 +204,66 @@ def classify_variants(
             short = diag.current_short_leg if diag else None
             
             if short:
-                short_dte = short.days_to_expiry()
+                # Fix: calculate DTE directly, with null guard
+                from datetime import date as _date
+                if short is None:
+                    short_dte = -1
+                else:
+                    try:
+                        _exp = _date.fromisoformat(short.expiration_date)
+                        short_dte = max(0, (_exp - _date.today()).days)
+                    except:
+                        short_dte = 0
+                short_credit = short.entry_credit if short else 0.0
+                # Re-evaluate action using correct DTE (overrides state.action_suggestion)
+                from roll_manager import evaluate_roll as _er
+                _roll = _er(
+                    dte_remaining    = max(short_dte, 0),
+                    short_delta      = getattr(short, "delta", None) if short else None,
+                    uvxy_price       = batch.uvxy_price if hasattr(batch, 'uvxy_price') else uvxy_price if 'uvxy_price' in dir() else 38.0,
+                    short_strike     = short.strike if short else 0.0,
+                    variant_params   = variant.__dict__ if hasattr(variant, "__dict__") else {},
+                    last_spike_date  = None,
+                    original_premium = short_credit if short_credit else None,
+                )
+                if short is None:
+                    action = "SELL_SHORT"
+                elif _roll.action == "roll_now":
+                    action = "ROLL_NOW"
+                elif _roll.action in ("roll_early_delta", "roll_early_itm"):
+                    action = "ROLL"
+                elif _roll.action == "spike_guard_hold":
+                    action = "HOLD"
+                elif short_current <= short_target and short_target > 0:
+                    action = "TAKE_PROFIT"
+                elif short_current >= short_stop and short_stop > 0:
+                    action = "STOP_LOSS"
+                else:
+                    action = "HOLD"
                 short_current = short.current_price
                 short_credit = short.entry_credit
                 target_price = short_credit * 0.20  # 80% profit target
                 stop_price = short_credit * 2.0     # Double = stop
                 
-                if short_dte <= 0:
-                    state.action_suggestion = "ROLL_NOW"  # Expired, roll immediately
-                elif short_dte <= 3:
-                    state.action_suggestion = "ROLL"  # Roll soon
+                _roll = evaluate_roll(
+                    dte_remaining    = max(short_dte, 0),
+                    short_delta      = getattr(short, "delta", None),
+                    uvxy_price       = getattr(short, "underlying_price", short.strike),
+                    short_strike     = short.strike,
+                    variant_params   = variant.__dict__ if hasattr(variant, "__dict__") else {},
+                    last_spike_date  = None,
+                    original_premium = short_credit,
+                )
+                if _roll.action == "roll_now":
+                    state.action_suggestion = "ROLL_NOW"
+                elif _roll.action in ("roll_early_delta", "roll_early_itm"):
+                    state.action_suggestion = "ROLL"
+                elif _roll.action == "spike_guard_hold":
+                    state.action_suggestion = "HOLD"
                 elif short_current <= target_price:
-                    state.action_suggestion = "TAKE_PROFIT"  # Can close early for profit
+                    state.action_suggestion = "TAKE_PROFIT"
                 elif short_current >= stop_price:
-                    state.action_suggestion = "STOP_LOSS"  # Short went against us
+                    state.action_suggestion = "STOP_LOSS"
                 elif not is_recommended:
                     state.action_suggestion = "REGIME_DRIFT"
                 else:
@@ -377,7 +424,42 @@ def build_position_aware_email(
                     short_current = short.current_price
                     short_target = short_credit * 0.20  # Buy back at 20% = 80% profit
                     short_stop = short_credit * 2.0     # Stop if doubled
-                    short_dte = short.days_to_expiry()
+                    # Fix: calculate DTE directly, with null guard
+                from datetime import date as _date
+                if short is None:
+                    short_dte = -1
+                else:
+                    try:
+                        _exp = _date.fromisoformat(short.expiration_date)
+                        short_dte = max(0, (_exp - _date.today()).days)
+                    except:
+                        short_dte = 0
+                short_credit = short.entry_credit if short else 0.0
+                # Re-evaluate action using correct DTE (overrides state.action_suggestion)
+                from roll_manager import evaluate_roll as _er
+                _roll = _er(
+                    dte_remaining    = max(short_dte, 0),
+                    short_delta      = getattr(short, "delta", None) if short else None,
+                    uvxy_price       = batch.uvxy_price if hasattr(batch, 'uvxy_price') else uvxy_price if 'uvxy_price' in dir() else 38.0,
+                    short_strike     = short.strike if short else 0.0,
+                    variant_params   = variant.__dict__ if hasattr(variant, "__dict__") else {},
+                    last_spike_date  = None,
+                    original_premium = short_credit if short_credit else None,
+                )
+                if short is None:
+                    action = "SELL_SHORT"
+                elif _roll.action == "roll_now":
+                    action = "ROLL_NOW"
+                elif _roll.action in ("roll_early_delta", "roll_early_itm"):
+                    action = "ROLL"
+                elif _roll.action == "spike_guard_hold":
+                    action = "HOLD"
+                elif short_current <= short_target and short_target > 0:
+                    action = "TAKE_PROFIT"
+                elif short_current >= short_stop and short_stop > 0:
+                    action = "STOP_LOSS"
+                else:
+                    action = "HOLD"
             
             # Suggested roll strikes based on current UVXY price
             suggested_conservative = round(vix_level * 1.02, 0)
@@ -387,7 +469,7 @@ def build_position_aware_email(
             action_colors = {
                 "TAKE_PROFIT": ("#4CAF50", "🎯 TAKE PROFIT - Short decayed, can close early"),
                 "STOP_LOSS": ("#f44336", "🛑 STOP LOSS - Short doubled, manage risk"),
-                "ROLL": ("#ff9800", "🔄 ROLL SOON - Short expiring in ≤3 days"),
+                "ROLL": ("#ff9800", "🔄 ROLL EARLY - Delta trigger hit"),
                 "ROLL_NOW": ("#f44336", "⚠️ ROLL NOW - Short expired!"),
                 "SELL_SHORT": ("#9c27b0", "📝 SELL SHORT - No active short leg"),
                 "CLOSE": ("#9c27b0", "⚠️ CLOSE - Exit recommended"),
@@ -528,7 +610,7 @@ def build_position_aware_email(
                     <td style="padding: 4px 0; color: #666;">Long Exp:</td>
                     <td style="padding: 4px 0; font-weight: 500;">{long_exp_str} ({variant.long_dte_weeks}w)</td>
                     <td style="padding: 4px 0; color: #666;">Short Exp:</td>
-                    <td style="padding: 4px 0; font-weight: 500;">{short_exp_str} (roll {variant.roll_dte_days}d)</td>
+                    <td style="padding: 4px 0; font-weight: 500;">{short_exp_str} (roll 0d / delta≥0.45)</td>
                 </tr>
                 <tr style="background: #e8f5e9;">
                     <td style="padding: 6px 0; color: #666;">Est. Credit:</td>
