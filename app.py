@@ -2242,6 +2242,125 @@ Backups:     {STORAGE_DIR / 'backups'}
         if st.button("🔄 Refresh Status"):
             st.rerun()
     
+    # ═══════════════════════════════════════════════════════════════
+    # DOWNLOAD SECTION - Download trade_log.json to sync across machines
+    # ═══════════════════════════════════════════════════════════════
+    st.markdown("#### 📥 Download Data")
+    st.caption("Download files to sync between Ubuntu server and Mac development machine")
+    
+    download_col1, download_col2, download_col3 = st.columns(3)
+    
+    with download_col1:
+        # Download trade_log.json
+        trade_log_path = STORAGE_DIR / "trade_log.json"
+        if trade_log_path.exists():
+            with open(trade_log_path, "r") as f:
+                trade_log_content = f.read()
+            st.download_button(
+                label="📒 Download trade_log.json",
+                data=trade_log_content,
+                file_name="trade_log.json",
+                mime="application/json",
+                help="Download to sync positions with Mac",
+            )
+        else:
+            st.warning("trade_log.json not found")
+    
+    with download_col2:
+        # Download current_signal_batch.json
+        signal_batch_path = STORAGE_DIR / "current_signal_batch.json"
+        if signal_batch_path.exists():
+            with open(signal_batch_path, "r") as f:
+                signal_content = f.read()
+            st.download_button(
+                label="📊 Download signal_batch.json",
+                data=signal_content,
+                file_name="current_signal_batch.json",
+                mime="application/json",
+                help="Download current signals",
+            )
+        else:
+            st.info("No signal batch yet")
+    
+    with download_col3:
+        # Download all as ZIP
+        import io
+        import zipfile
+        
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+            # Add trade_log.json
+            if trade_log_path.exists():
+                zf.write(trade_log_path, "trade_log.json")
+            # Add signal batch
+            if signal_batch_path.exists():
+                zf.write(signal_batch_path, "current_signal_batch.json")
+            # Add regime history if exists
+            regime_path = STORAGE_DIR / "regime_history.json"
+            if regime_path.exists():
+                zf.write(regime_path, "regime_history.json")
+        
+        zip_buffer.seek(0)
+        st.download_button(
+            label="📦 Download All (ZIP)",
+            data=zip_buffer.getvalue(),
+            file_name=f"vix_suite_backup_{dt.datetime.now().strftime('%Y%m%d_%H%M')}.zip",
+            mime="application/zip",
+            help="Download all data files as ZIP",
+        )
+    
+    st.markdown("---")
+    
+    # ═══════════════════════════════════════════════════════════════
+    # UPLOAD SECTION - Upload from Mac to sync
+    # ═══════════════════════════════════════════════════════════════
+    st.markdown("#### 📤 Upload Data")
+    st.caption("Upload trade_log.json from Mac to sync positions to Ubuntu")
+    
+    uploaded_file = st.file_uploader(
+        "Upload trade_log.json",
+        type=["json"],
+        help="Upload a trade_log.json file to replace current data",
+        key="upload_trade_log",
+    )
+    
+    if uploaded_file is not None:
+        try:
+            import json
+            uploaded_content = uploaded_file.read().decode("utf-8")
+            uploaded_data = json.loads(uploaded_content)
+            
+            # Validate structure
+            if "diagonal_positions" not in uploaded_data:
+                st.error("❌ Invalid file: missing 'diagonal_positions' key")
+            else:
+                positions_count = len(uploaded_data.get("diagonal_positions", {}))
+                st.info(f"📋 File contains {positions_count} diagonal position(s)")
+                
+                # Show preview
+                with st.expander("Preview uploaded data"):
+                    for pos_id, pos in uploaded_data.get("diagonal_positions", {}).items():
+                        st.write(f"• **{pos_id}**: {pos.get('variant_name', 'Unknown')} - {pos.get('status', 'unknown')}")
+                
+                # Confirm upload
+                upload_confirm = st.checkbox("I confirm I want to replace current data", key="upload_confirm")
+                if st.button("⬆️ Upload & Replace", disabled=not upload_confirm, type="primary"):
+                    # Backup current first
+                    try:
+                        backup_mgr.backup_now(reason="before_upload")
+                    except:
+                        pass
+                    
+                    # Save uploaded file
+                    with open(trade_log_path, "w") as f:
+                        f.write(uploaded_content)
+                    st.success("✅ trade_log.json updated! Refresh the page to see changes.")
+                    st.rerun()
+        except json.JSONDecodeError as e:
+            st.error(f"❌ Invalid JSON: {e}")
+        except Exception as e:
+            st.error(f"❌ Error: {e}")
+    
     # List recent backups
     st.markdown("#### Recent Backups")
     backups = backup_mgr.list_backups()[:10]  # Show last 10
@@ -2521,7 +2640,13 @@ def _render_diagonal_positions(trade_log):
             # Roll history
             if pos.roll_history:
                 st.markdown("---")
-                st.markdown("**🔄 Roll History**")
+                rh_col1, rh_col2 = st.columns([4, 1])
+                with rh_col1:
+                    st.markdown("**🔄 Roll History**")
+                with rh_col2:
+                    edit_rolls_clicked = st.button("✏️ Edit Rolls", key=f"edit_rolls_{pos.position_id}")
+                    if edit_rolls_clicked:
+                        st.session_state[f"editing_rolls_{pos.position_id}"] = True
                 roll_data = []
                 for roll in pos.roll_history:
                     roll_data.append({
@@ -2534,6 +2659,9 @@ def _render_diagonal_positions(trade_log):
                         "Underlying": f"${roll.underlying_price:.2f}",
                     })
                 st.dataframe(roll_data, use_container_width=True, hide_index=True)
+                
+                if st.session_state.get(f"editing_rolls_{pos.position_id}"):
+                    _render_roll_history_edit_form(trade_log, pos)
             
             # Action buttons
             st.markdown("---")
@@ -2847,7 +2975,9 @@ def _render_roll_form(trade_log, pos):
                 st.session_state[f"rolling_{pos.position_id}"] = False
                 st.rerun()
             except Exception as e:
-                st.error(f"Error: {e}")
+                import traceback
+                st.error(f"Roll failed: {e}")
+                st.code(traceback.format_exc())
     
     with col2:
         if st.button("❌ Cancel", key=f"roll_cancel_{pos.position_id}"):
@@ -3055,6 +3185,587 @@ def _render_edit_form(trade_log, pos):
             st.session_state[f"editing_{pos.position_id}"] = False
             st.rerun()
 
+
+
+
+def _render_roll_history_edit_form(trade_log, pos):
+    """Spreadsheet-style editor for ALL roll history records at once."""
+    st.markdown("##### ✏️ Edit Roll History (Spreadsheet Mode)")
+    
+    import pandas as pd
+    
+    # Show existing roll history in spreadsheet if any
+    if pos.roll_history:
+        # Convert roll history to DataFrame
+        roll_data = []
+        for roll in pos.roll_history:
+            roll_data.append({
+                "roll_id": roll.roll_id,
+                "roll_date": roll.roll_date,
+                "roll_type": roll.roll_type,
+                "contracts": getattr(roll, "contracts", pos.contracts),
+                "old_strike": roll.old_strike,
+                "old_expiration": roll.old_expiration,
+                "old_exit_price": roll.old_exit_price,
+                "new_strike": roll.new_strike,
+                "new_expiration": roll.new_expiration,
+                "new_credit": roll.new_credit,
+                "roll_credit": roll.roll_credit,
+                "underlying_price": roll.underlying_price,
+                "regime": roll.regime or "",
+                "notes": roll.notes or "",
+            })
+        
+        df = pd.DataFrame(roll_data)
+        
+        # Show legend for column meanings
+        with st.expander("📖 Column Guide (Short vs Long Rolls)", expanded=False):
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("""
+                **Short Roll** (weekly call):
+                - Old Exit = Buyback price (0 if expired)
+                - New Credit = Premium received
+                - Net = Credit received
+                """)
+            with col2:
+                st.markdown("""
+                **Long Roll** (LEAP):
+                - Old Exit = Sale price of old LEAP
+                - New Credit = Negative of new LEAP cost
+                - Net = Usually negative (debit)
+                """)
+        
+        # Configure column display
+        column_config = {
+            "roll_id": st.column_config.TextColumn(
+                "Roll ID",
+                disabled=True,  # Read-only
+                width="small",
+            ),
+            "roll_date": st.column_config.TextColumn(
+                "Date",
+                width="small",
+            ),
+            "roll_type": st.column_config.SelectboxColumn(
+                "Type",
+                options=["short", "long"],
+                width="small",
+            ),
+            "contracts": st.column_config.NumberColumn(
+                "Qty",
+                min_value=1,
+                max_value=100,
+                step=1,
+                width="small",
+            ),
+            "old_strike": st.column_config.NumberColumn(
+                "Old K",
+                min_value=1.0,
+                format="$%.1f",
+                width="small",
+                help="Old strike price",
+            ),
+            "old_expiration": st.column_config.TextColumn(
+                "Old Exp",
+                width="small",
+            ),
+            "old_exit_price": st.column_config.NumberColumn(
+                "Old Exit",
+                min_value=0.0,
+                format="$%.2f",
+                width="small",
+                help="Short: buyback price (0=expired). Long: sale price of old LEAP",
+            ),
+            "new_strike": st.column_config.NumberColumn(
+                "New K",
+                min_value=1.0,
+                format="$%.1f",
+                width="small",
+                help="New strike price",
+            ),
+            "new_expiration": st.column_config.TextColumn(
+                "New Exp",
+                width="small",
+            ),
+            "new_credit": st.column_config.NumberColumn(
+                "New Entry",
+                format="$%.2f",
+                width="small",
+                help="Short: credit received. Long: negative of LEAP cost",
+            ),
+            "roll_credit": st.column_config.NumberColumn(
+                "Net",
+                format="$%.2f",
+                disabled=True,  # Computed field
+                width="small",
+                help="Net credit (+) or debit (-). Auto-computed.",
+            ),
+            "underlying_price": st.column_config.NumberColumn(
+                "UVXY",
+                min_value=0.0,
+                format="$%.2f",
+                width="small",
+            ),
+            "regime": st.column_config.TextColumn(
+                "Regime",
+                width="small",
+            ),
+            "notes": st.column_config.TextColumn(
+                "Notes",
+                width="medium",
+            ),
+        }
+        
+        # Editable dataframe
+        edited_df = st.data_editor(
+            df,
+            column_config=column_config,
+            use_container_width=True,
+            hide_index=True,
+            num_rows="fixed",  # Don't allow adding/deleting rows here
+            key=f"roll_editor_{pos.position_id}",
+        )
+        
+        # Show computed totals
+        if len(edited_df) > 0:
+            # Recompute roll_credit for display
+            edited_df["roll_credit_computed"] = edited_df["new_credit"] - edited_df["old_exit_price"]
+            total_roll_credit = (edited_df["roll_credit_computed"] * edited_df["contracts"]).sum()
+            
+            # Count short vs long rolls
+            short_rolls = len(edited_df[edited_df["roll_type"] == "short"])
+            long_rolls = len(edited_df[edited_df["roll_type"] == "long"])
+            
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Rolls in History", len(edited_df), help=f"Short: {short_rolls}, Long: {long_rolls}")
+            with col2:
+                # Show discrepancy if any
+                if pos.total_rolls != short_rolls:
+                    st.metric("total_rolls Field", pos.total_rolls, delta=f"Should be {short_rolls}", delta_color="off")
+                else:
+                    st.metric("total_rolls Field", pos.total_rolls)
+            with col3:
+                st.metric("Total Roll Credits", f"${total_roll_credit:.2f}")
+            with col4:
+                avg_credit = edited_df["roll_credit_computed"].mean()
+                st.metric("Avg Credit/Roll", f"${avg_credit:.2f}")
+            
+            # Warning if mismatch
+            if pos.total_rolls != short_rolls:
+                st.warning(f"⚠️ `total_rolls` ({pos.total_rolls}) doesn't match short roll count ({short_rolls}). Click 'Recalculate Totals' to fix.")
+        
+        # Action buttons for spreadsheet
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            if st.button("💾 Save All Changes", key=f"save_rolls_{pos.position_id}", type="primary"):
+                try:
+                    # Update each roll record
+                    changes_made = 0
+                    for idx, row in edited_df.iterrows():
+                        roll_id = row["roll_id"]
+                        
+                        # Recompute roll_credit
+                        computed_credit = row["new_credit"] - row["old_exit_price"]
+                        
+                        trade_log.update_roll_record(
+                            pos.position_id,
+                            roll_id,
+                            roll_date=row["roll_date"],
+                            roll_type=row["roll_type"],
+                            old_strike=row["old_strike"],
+                            old_expiration=row["old_expiration"],
+                            old_exit_price=row["old_exit_price"],
+                            new_strike=row["new_strike"],
+                            new_expiration=row["new_expiration"],
+                            new_credit=row["new_credit"],
+                            underlying_price=row["underlying_price"],
+                            regime=row["regime"],
+                            notes=row["notes"],
+                            contracts=int(row["contracts"]),
+                        )
+                        changes_made += 1
+                    
+                    st.success(f"✅ Saved {changes_made} roll records!")
+                    st.session_state[f"editing_rolls_{pos.position_id}"] = False
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error saving: {e}")
+        
+        with col2:
+            if st.button("❌ Cancel", key=f"cancel_rolls_{pos.position_id}"):
+                st.session_state[f"editing_rolls_{pos.position_id}"] = False
+                st.rerun()
+        
+        with col3:
+            if st.button("🔄 Recalculate Totals", key=f"recalc_rolls_{pos.position_id}"):
+                try:
+                    pos.recalc_roll_totals()  # Fixed method name
+                    trade_log._save()
+                    st.success(f"✅ Totals recalculated! Rolls: {pos.total_rolls}, Credits: ${pos.total_roll_credits:.2f}")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error: {e}")
+        
+        # Delete individual roll section
+        st.markdown("---")
+        st.markdown("**Delete a Roll Record**")
+        
+        roll_options = [f"{r.roll_id} ({r.roll_date})" for r in pos.roll_history]
+        selected_for_delete = st.selectbox(
+            "Select roll to delete",
+            options=roll_options,
+            key=f"delete_roll_select_{pos.position_id}",
+        )
+        
+        delete_col1, delete_col2 = st.columns([1, 3])
+        with delete_col1:
+            delete_confirm = st.checkbox("Confirm", key=f"delete_confirm_{pos.position_id}")
+        with delete_col2:
+            if st.button(
+                "🗑️ Delete Selected Roll",
+                key=f"delete_roll_btn_{pos.position_id}",
+                disabled=not delete_confirm,
+            ):
+                roll_id_to_delete = selected_for_delete.split(" ")[0]
+                if trade_log.delete_roll_record(pos.position_id, roll_id_to_delete):
+                    st.success(f"✅ Deleted {roll_id_to_delete}")
+                    st.session_state[f"editing_rolls_{pos.position_id}"] = False
+                    st.rerun()
+                else:
+                    st.error("Failed to delete")
+    
+    else:
+        # No roll history yet
+        st.info("📭 No roll history yet. Add the first roll record below.")
+    
+    # ═══════════════════════════════════════════════════════════════
+    # ADD NEW ROLL RECORD - Insert at any position (sorted by date)
+    # ═══════════════════════════════════════════════════════════════
+    st.markdown("---")
+    st.markdown("**➕ Add Roll Record**")
+    st.caption("Add a roll at any date - records will be re-sorted and renumbered automatically")
+    
+    # Select roll type FIRST (outside form so it can change the form displayed)
+    add_roll_type = st.radio(
+        "Roll Type",
+        options=["Short Roll", "Long Roll"],
+        horizontal=True,
+        key=f"add_roll_type_radio_{pos.position_id}",
+        help="Short = roll weekly call, Long = roll LEAP"
+    )
+    
+    if add_roll_type == "Short Roll":
+        # ─────────────────────────────────────────────────────────
+        # SHORT ROLL FORM
+        # ─────────────────────────────────────────────────────────
+        with st.form(key=f"add_short_roll_form_{pos.position_id}"):
+            st.markdown("**Short Roll** (sell new weekly, buy back old)")
+            
+            add_col1, add_col2, add_col3 = st.columns(3)
+            
+            with add_col1:
+                add_date = st.date_input(
+                    "Roll Date",
+                    value=dt.date.today(),
+                )
+                add_contracts = st.number_input(
+                    "Contracts",
+                    min_value=1,
+                    max_value=100,
+                    value=pos.contracts,
+                )
+            
+            with add_col2:
+                st.markdown("**Old Short (Closed)**")
+                add_old_strike = st.number_input(
+                    "Old Strike",
+                    min_value=1.0,
+                    value=float(pos.current_short_leg.strike if pos.current_short_leg else 40.0),
+                    step=0.5,
+                )
+                add_old_exp = st.date_input("Old Expiration")
+                add_old_exit = st.number_input(
+                    "Buyback Price",
+                    min_value=0.0,
+                    value=0.0,
+                    step=0.01,
+                    help="Price paid to close (0 if expired worthless)",
+                )
+            
+            with add_col3:
+                st.markdown("**New Short (Opened)**")
+                add_new_strike = st.number_input(
+                    "New Strike",
+                    min_value=1.0,
+                    value=38.0,
+                    step=0.5,
+                )
+                add_new_exp = st.date_input("New Expiration")
+                add_new_credit = st.number_input(
+                    "Credit Received",
+                    min_value=0.0,
+                    value=0.30,
+                    step=0.01,
+                )
+            
+            # Additional fields
+            add_col4, add_col5 = st.columns(2)
+            with add_col4:
+                add_underlying = st.number_input(
+                    "UVXY Price",
+                    min_value=0.0,
+                    value=15.0,
+                    step=0.5,
+                )
+                add_regime = st.selectbox(
+                    "Regime",
+                    options=["", "CALM", "ELEVATED", "HIGH", "EXTREME"],
+                )
+            with add_col5:
+                add_notes = st.text_input("Notes", value="")
+                # Show computed net credit
+                computed_net = add_new_credit - add_old_exit
+                if computed_net >= 0:
+                    st.success(f"Net Credit: ${computed_net:.2f}")
+                else:
+                    st.warning(f"Net Debit: ${abs(computed_net):.2f}")
+            
+            add_submitted = st.form_submit_button("➕ Add Short Roll", type="primary")
+        
+        if add_submitted:
+            try:
+                from trade_log import RollRecord
+                
+                new_roll = RollRecord(
+                    roll_id=f"{pos.position_id}-TEMP",
+                    position_id=pos.position_id,
+                    roll_date=add_date.isoformat(),
+                    roll_type="short",
+                    old_strike=add_old_strike,
+                    old_expiration=add_old_exp.isoformat(),
+                    old_exit_price=add_old_exit,
+                    new_strike=add_new_strike,
+                    new_expiration=add_new_exp.isoformat(),
+                    new_credit=add_new_credit,
+                    roll_credit=add_new_credit - add_old_exit,
+                    underlying_price=add_underlying,
+                    contracts=add_contracts,
+                    regime=add_regime,
+                    notes=add_notes,
+                )
+                
+                # Add, sort, renumber
+                pos.roll_history.append(new_roll)
+                pos.roll_history.sort(key=lambda r: r.roll_date)
+                
+                short_num = 0
+                long_num = 0
+                for roll in pos.roll_history:
+                    if roll.roll_type == "long":
+                        long_num += 1
+                        roll.roll_id = f"{pos.position_id}-RL{long_num}"
+                    else:
+                        short_num += 1
+                        roll.roll_id = f"{pos.position_id}-R{short_num}"
+                
+                pos.recalc_roll_totals()
+                trade_log._save()
+                
+                st.success(f"✅ Added short roll! Total rolls: {len(pos.roll_history)}")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error: {e}")
+    
+    else:
+        # ─────────────────────────────────────────────────────────
+        # LONG ROLL FORM
+        # ─────────────────────────────────────────────────────────
+        with st.form(key=f"add_long_roll_form_{pos.position_id}"):
+            st.markdown("**Long Roll** (sell old LEAP, buy new LEAP)")
+            
+            add_col1, add_col2, add_col3 = st.columns(3)
+            
+            with add_col1:
+                add_date = st.date_input(
+                    "Roll Date",
+                    value=dt.date.today(),
+                )
+                add_contracts = st.number_input(
+                    "Contracts",
+                    min_value=1,
+                    max_value=100,
+                    value=pos.contracts,
+                )
+            
+            with add_col2:
+                st.markdown("**Old Long (Sold)**")
+                add_old_strike = st.number_input(
+                    "Old Strike",
+                    min_value=1.0,
+                    value=float(pos.long_strike),
+                    step=0.5,
+                )
+                add_old_exp = st.date_input(
+                    "Old Expiration",
+                    value=dt.datetime.strptime(pos.long_expiration, "%Y-%m-%d").date() if pos.long_expiration else dt.date.today(),
+                )
+                add_old_exit = st.number_input(
+                    "Sale Price",
+                    min_value=0.0,
+                    value=float(pos.long_current_price) if pos.long_current_price else 5.0,
+                    step=0.05,
+                    help="Price received for selling old LEAP",
+                )
+            
+            with add_col3:
+                st.markdown("**New Long (Bought)**")
+                add_new_strike = st.number_input(
+                    "New Strike",
+                    min_value=1.0,
+                    value=float(pos.long_strike),
+                    step=0.5,
+                )
+                add_new_exp = st.date_input("New Expiration")
+                add_new_entry = st.number_input(
+                    "Purchase Price",
+                    min_value=0.0,
+                    value=8.0,
+                    step=0.05,
+                    help="Price paid for new LEAP",
+                )
+            
+            # Additional fields
+            add_col4, add_col5 = st.columns(2)
+            with add_col4:
+                add_underlying = st.number_input(
+                    "UVXY Price",
+                    min_value=0.0,
+                    value=15.0,
+                    step=0.5,
+                )
+                add_regime = st.selectbox(
+                    "Regime",
+                    options=["", "CALM", "ELEVATED", "HIGH", "EXTREME"],
+                )
+            with add_col5:
+                add_notes = st.text_input("Notes", value="")
+                # Show computed net debit/credit
+                roll_debit = add_new_entry - add_old_exit
+                if roll_debit > 0:
+                    st.warning(f"Net Debit: ${roll_debit:.2f} (paid to roll)")
+                else:
+                    st.success(f"Net Credit: ${abs(roll_debit):.2f} (received)")
+            
+            add_submitted = st.form_submit_button("➕ Add Long Roll", type="primary")
+        
+        if add_submitted:
+            try:
+                from trade_log import RollRecord
+                
+                # For long rolls: new_credit stores negative of debit
+                roll_debit = add_new_entry - add_old_exit
+                
+                new_roll = RollRecord(
+                    roll_id=f"{pos.position_id}-TEMP",
+                    position_id=pos.position_id,
+                    roll_date=add_date.isoformat(),
+                    roll_type="long",
+                    old_strike=add_old_strike,
+                    old_expiration=add_old_exp.isoformat(),
+                    old_exit_price=add_old_exit,
+                    new_strike=add_new_strike,
+                    new_expiration=add_new_exp.isoformat(),
+                    new_credit=-roll_debit,  # Negative if debit
+                    roll_credit=-roll_debit,
+                    underlying_price=add_underlying,
+                    contracts=add_contracts,
+                    regime=add_regime,
+                    notes=add_notes,
+                )
+                
+                # Add, sort, renumber
+                pos.roll_history.append(new_roll)
+                pos.roll_history.sort(key=lambda r: r.roll_date)
+                
+                short_num = 0
+                long_num = 0
+                for roll in pos.roll_history:
+                    if roll.roll_type == "long":
+                        long_num += 1
+                        roll.roll_id = f"{pos.position_id}-RL{long_num}"
+                    else:
+                        short_num += 1
+                        roll.roll_id = f"{pos.position_id}-R{short_num}"
+                
+                pos.recalc_roll_totals()
+                trade_log._save()
+                
+                st.success(f"✅ Added long roll! Total rolls: {len(pos.roll_history)}")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error: {e}")
+    
+    # Debug section
+    st.markdown("---")
+    with st.expander("🔧 Debug: View Raw Roll Data"):
+        st.markdown(f"**Position:** `{pos.position_id}`")
+        st.markdown(f"**total_rolls field:** `{pos.total_rolls}`")
+        st.markdown(f"**total_roll_credits field:** `${pos.total_roll_credits:.2f}`")
+        st.markdown(f"**roll_history length:** `{len(pos.roll_history)}`")
+        st.markdown(f"**short_legs count:** `{len(pos.short_legs)}`")
+        
+        # Short legs info
+        if len(pos.short_legs) > 1:
+            st.info(f"💡 You have {len(pos.short_legs)} short legs, which implies {len(pos.short_legs) - 1} rolls occurred. "
+                   f"If roll_history shows fewer, some rolls may have been done before roll tracking was added.")
+        
+        st.markdown("**Short Legs:**")
+        for i, leg in enumerate(pos.short_legs):
+            st.code(f"""
+Short Leg {i+1}: {leg.leg_id}
+  status: {leg.status}
+  strike: {leg.strike}
+  expiration: {leg.expiration_date}
+  entry_credit: {leg.entry_credit}
+  entry_date: {leg.entry_date}
+""")
+        
+        st.markdown("**Raw roll_history:**")
+        if not pos.roll_history:
+            st.warning("⚠️ roll_history is empty! Rolls may have been done before tracking was added.")
+        for i, roll in enumerate(pos.roll_history):
+            roll_type = getattr(roll, "roll_type", "NOT SET")
+            st.code(f"""
+Roll {i+1}: {roll.roll_id}
+  roll_type: {roll_type}
+  roll_date: {roll.roll_date}
+  old_strike: {roll.old_strike} -> new_strike: {roll.new_strike}
+  old_exit_price: {roll.old_exit_price}, new_credit: {roll.new_credit}
+  roll_credit: {roll.roll_credit}
+  contracts: {getattr(roll, 'contracts', 'NOT SET')}
+""")
+        
+        # Fix all positions button
+        if st.button("🔧 Fix ALL Position Roll Counts", key=f"fix_all_rolls_{pos.position_id}"):
+            fixed = 0
+            for pid, p in trade_log.diagonal_positions.items():
+                old_total = p.total_rolls
+                p.recalc_roll_totals()
+                if p.total_rolls != old_total:
+                    fixed += 1
+            trade_log._save()
+            st.success(f"✅ Recalculated totals for all positions. Fixed {fixed} discrepancies.")
+            st.rerun()
+        
+        # Info about short_legs vs roll_history
+        if len(pos.short_legs) > 1 and len(pos.roll_history) < len(pos.short_legs) - 1:
+            st.markdown("---")
+            st.warning(f"⚠️ **Missing Roll Records**: You have {len(pos.short_legs)} short legs but only {len(pos.roll_history)} roll records. "
+                      f"This likely means {len(pos.short_legs) - 1 - len(pos.roll_history)} rolls were done before roll tracking was added.")
+            st.info("Use the '➕ Add Roll Record' form above to add missing roll records.")
 
 
 
