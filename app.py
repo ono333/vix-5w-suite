@@ -4280,7 +4280,30 @@ def render_trade_log():
     
     with tab1:
         _render_diagonal_positions(trade_log)
-    
+
+    with tab_real:
+        from real_trade_log import get_real_trade_log
+        rtl = get_real_trade_log()
+        # ── Summary bar
+        real_open = rtl.open_positions()
+        summary   = rtl.summary()
+        st.markdown(f"""
+        <div style="background:#1a0a00;border:2px solid #3d1f00;border-radius:8px;
+                    padding:14px 20px;margin-bottom:16px">
+          <span style="font-size:16px;font-weight:800;color:#ff6b35">
+            💵 REAL MONEY TRADES</span>
+          <span style="font-size:11px;color:#664422;margin-left:16px">
+            {summary['open_count']} open &nbsp;·&nbsp;
+            P&L: <b style="color:{'#00e5a0' if summary['total_pnl']>=0 else '#ff3366'}">
+            ${summary['total_pnl']:+,.0f}</b> &nbsp;·&nbsp;
+            Commissions: ${summary['total_commissions']:,.2f} &nbsp;·&nbsp;
+            Slippage: ${summary['total_slippage']:+,.2f}
+          </span>
+        </div>
+        """, unsafe_allow_html=True)
+        # Reuse all paper trade UI functions with real trade log
+        _render_diagonal_positions(rtl)
+
     with tab3:
         _render_roll_analytics(trade_log)
     

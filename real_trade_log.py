@@ -457,6 +457,88 @@ class RealTradeLog:
         )
 
 
+
+    # ── Compatibility methods — mirror trade_log.py interface ─────────────
+    def get_all_diagonals(self) -> list:
+        return list(self.diagonal_positions.values())
+
+    def get_open_diagonals(self) -> list:
+        return [p for p in self.diagonal_positions.values()
+                if p.status == "open"]
+
+    def get_diagonal(self, position_id: str):
+        return self.diagonal_positions.get(position_id)
+
+    def update_diagonal_prices(self, position_id: str,
+                               long_price: float, short_price: float):
+        pos = self.diagonal_positions.get(position_id)
+        if not pos:
+            return
+        pos.long_current_price = long_price
+        short = pos.current_short_leg
+        if short:
+            short.current_price = short_price
+        pos.updated_at = __import__("datetime").datetime.now().isoformat()
+        self._save()
+
+    def roll_diagonal_short(self, position_id, exit_price, new_strike,
+                            new_expiration, new_credit, underlying_price,
+                            regime="", notes="", contracts=None):
+        roll = self.roll_short(
+            position_id      = position_id,
+            old_exit_price   = exit_price,
+            old_fill_price   = exit_price,
+            new_strike       = new_strike,
+            new_expiration   = new_expiration,
+            new_credit       = new_credit,
+            new_fill_price   = new_credit,
+            underlying_price = underlying_price,
+            regime           = regime,
+            roll_reason      = "manual",
+            notes            = notes,
+        )
+        # Return (new_leg, roll) tuple matching paper trade interface
+        new_leg = self.diagonal_positions[position_id].current_short_leg
+        return new_leg, roll
+
+    def close_short_leg(self, position_id, exit_price,
+                        exit_reason="closed_manual"):
+        pos = self.diagonal_positions.get(position_id)
+        if not pos:
+            return False
+        short = pos.current_short_leg
+        if not short:
+            return False
+        short.status          = "closed"
+        short.exit_date       = __import__("datetime").date.today().isoformat()
+        short.exit_price      = exit_price
+        short.exit_fill_price = exit_price
+        short.exit_reason     = exit_reason
+        self._save()
+        return True
+
+    def add_short_leg(self, position_id, strike, expiration,
+                      credit, contracts=None):
+        pos = self.diagonal_positions.get(position_id)
+        if not pos:
+            return None
+        n      = contracts or pos.contracts
+        n_legs = len(pos.short_legs) + 1
+        from datetime import date, datetime
+        leg = RealShortLeg(
+            leg_id          = f"{position_id}-S{n_legs}",
+            position_id     = position_id,
+            entry_date      = date.today().isoformat(),
+            strike          = strike,
+            expiration_date = expiration,
+            entry_credit    = credit,
+            fill_price      = credit,
+            contracts       = n,
+        )
+        pos.short_legs.append(leg)
+        self._save()
+        return leg
+
 # ── Singleton ────────────────────────────────────────────────
 _real_log_instance: Optional[RealTradeLog] = None
 
