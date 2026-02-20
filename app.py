@@ -2527,13 +2527,10 @@ def _render_diagonal_positions(trade_log):
     
     # Live P&L Summary Table
     if open_diagonals:
-        col_title, col_refresh = st.columns([4, 1])
-    with col_title:
         st.markdown("### 📊 Live P&L Summary")
-    with col_refresh:
-        if st.button("🔄 Refresh Prices", key="refresh_live_pnl"):
-            update_diagonal_live_prices(get_trade_log(), symbol="UVXY")
-            st.rerun()
+    if st.button("🔄 Refresh Prices", key="refresh_live_pnl", help="Fetch live option prices from yfinance"):
+        update_diagonal_live_prices(get_trade_log(), symbol="UVXY")
+        st.rerun()
         summaries = get_position_live_summary(trade_log, symbol="UVXY")
         if summaries:
             import pandas as pd
