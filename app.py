@@ -2528,25 +2528,27 @@ def _render_diagonal_positions(trade_log):
     # Live P&L Summary Table
     if open_diagonals:
         st.markdown("### 📊 Live P&L Summary")
-    if st.button("🔄 Refresh Prices", key="refresh_live_pnl", help="Fetch live option prices from yfinance"):
-        update_diagonal_live_prices(get_trade_log(), symbol="UVXY")
-        st.rerun()
+        if st.button("🔄 Refresh Prices", key="refresh_live_pnl",
+                     help="Fetch live option prices from yfinance"):
+            update_diagonal_live_prices(get_trade_log(), symbol="UVXY")
+            st.rerun()
         summaries = get_position_live_summary(trade_log, symbol="UVXY")
         if summaries:
             import pandas as pd
-            # Remove internal columns for display
-            display_data = [{k: v for k, v in s.items() if not k.startswith('_')} for s in summaries]
+            display_data = [{k: v for k, v in s.items()
+                             if not k.startswith('_')} for s in summaries]
             df = pd.DataFrame(display_data)
-            
-            # Style the dataframe
             st.dataframe(
                 df,
                 use_container_width=True,
                 hide_index=True,
                 column_config={
-                    "Total P&L": st.column_config.TextColumn("Total P&L", help="Combined long + short P&L"),
-                    "Return %": st.column_config.TextColumn("Return %", help="Return on entry cost"),
-                    "Need Roll": st.column_config.TextColumn("Roll?", help="⚠️ = needs roll soon"),
+                    "Total P&L": st.column_config.TextColumn(
+                        "Total P&L", help="Combined long + short P&L"),
+                    "Return %": st.column_config.TextColumn(
+                        "Return %", help="Return on entry cost"),
+                    "Need Roll": st.column_config.TextColumn(
+                        "Roll?", help="⚠️ = needs roll soon"),
                 }
             )
     
