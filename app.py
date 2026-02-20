@@ -969,6 +969,11 @@ def update_diagonal_live_prices(trade_log, position_id: str = None, symbol: str 
 
 
 def get_position_live_summary(trade_log, symbol: str = "UVXY") -> list:
+    # Auto-fetch live prices before building summary
+    try:
+        update_diagonal_live_prices(trade_log, symbol=symbol)
+    except Exception:
+        pass  # Use stored prices if fetch fails
     """
     Get live P&L summary for all open diagonal positions.
     Returns list of dicts suitable for display.
@@ -2522,7 +2527,13 @@ def _render_diagonal_positions(trade_log):
     
     # Live P&L Summary Table
     if open_diagonals:
+        col_title, col_refresh = st.columns([4, 1])
+    with col_title:
         st.markdown("### 📊 Live P&L Summary")
+    with col_refresh:
+        if st.button("🔄 Refresh Prices", key="refresh_live_pnl"):
+            update_diagonal_live_prices(get_trade_log(), symbol="UVXY")
+            st.rerun()
         summaries = get_position_live_summary(trade_log, symbol="UVXY")
         if summaries:
             import pandas as pd
