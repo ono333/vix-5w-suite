@@ -34,6 +34,7 @@ from enums import VolatilityRegime, VariantRole
 from regime_detector import classify_regime, RegimeState
 from variant_generator import generate_all_variants, get_variant_display_name, SignalBatch, VariantParams
 from trade_log import get_trade_log, TradeLog, Position
+from real_trade_log import get_real_trade_log
 from market_calendar import format_calendar_warning, is_market_open, get_next_trading_day
 from roll_manager import evaluate_roll
 

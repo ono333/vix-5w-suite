@@ -736,6 +736,7 @@ def compute_price_targets(entry_credit: float, target_pct: float, stop_pct: floa
 import yfinance as yf
 from functools import lru_cache
 from datetime import datetime, timedelta
+from real_trade_ui import render_real_trade_section
 
 @lru_cache(maxsize=1)
 def _get_option_chain_cached(symbol: str, cache_key: str):
@@ -4275,7 +4276,7 @@ def render_trade_log():
     st.markdown("---")
     
     # Tabs for different views (Diagonal Positions is default/first)
-    tab1, tab2, tab3 = st.tabs(["🔄 Diagonal Positions", "📋 Simple Trades", "📊 Roll Analytics"])
+    tab1, tab2, tab3, tab_real = st.tabs(["🔄 Diagonal Positions", "📋 Simple Trades", "📊 Roll Analytics", "💵 Real Trades"])
     
     with tab1:
         _render_diagonal_positions(trade_log)
