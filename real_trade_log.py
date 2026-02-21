@@ -458,6 +458,40 @@ class RealTradeLog:
 
 
 
+
+    def get_position_health_summary(self) -> dict:
+        """Compatibility stub — returns basic health for real positions."""
+        open_pos = self.open_positions()
+        needing_roll, needing_long_roll = [], []
+        for pos in open_pos.values():
+            dte = pos.days_to_expiry()
+            if dte <= 1:
+                needing_roll.append(pos)
+        return {
+            "total":            len(self.diagonal_positions),
+            "open":             len(open_pos),
+            "closed":           len(self.diagonal_positions) - len(open_pos),
+            "needing_roll":     needing_roll,
+            "needing_long_roll": needing_long_roll,
+        }
+
+    def days_to_long_expiry(self) -> int:
+        return 0
+
+    def get_open_diagonals(self) -> list:
+        return list(self.open_positions().values())
+
+    def get_all_diagonals(self) -> list:
+        return list(self.diagonal_positions.values())
+
+    @property
+    def total_pnl(self) -> float:
+        return sum(p.total_pnl for p in self.open_positions().values())
+
+    @property 
+    def total_rolls(self) -> int:
+        return sum(len(p.roll_history) for p in self.diagonal_positions.values())
+
     # ── Compatibility methods — mirror trade_log.py interface ─────────────
     def get_all_diagonals(self) -> list:
         return list(self.diagonal_positions.values())

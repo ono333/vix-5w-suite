@@ -4301,8 +4301,9 @@ def render_trade_log():
           </span>
         </div>
         """, unsafe_allow_html=True)
-        # Reuse all paper trade UI functions with real trade log
-        _render_diagonal_positions(rtl)
+        # Real trade entry and position list
+        from real_trade_ui import render_real_trade_section
+        render_real_trade_section()
 
     with tab3:
         _render_roll_analytics(trade_log)
@@ -4488,6 +4489,287 @@ def render_trade_log():
                 st.write(f"**Entry Debit:** ${trade.entry_debit:,.2f}")
                 st.markdown(f"**P&L:** <span style='color:{pnl_color}'>${trade.total_pnl:+,.2f}</span>", unsafe_allow_html=True)
 
+
+def render_real_trade_log_page():
+    """Trade Log Real — mirrors Trade Log page but uses real_trade_log.json."""
+    from real_trade_log import get_real_trade_log, reset_real_trade_log_cache
+    import pandas as pd
+
+    rtl = get_real_trade_log()
+    open_pos   = rtl.open_positions()
+    all_pos    = rtl.diagonal_positions
+    summary    = rtl.summary()
+    total_pnl  = summary["total_pnl"]
+    total_comm = summary["total_commissions"]
+    total_slip = summary["total_slippage"]
+    closed     = [p for p in all_pos.values() if p.status == "closed"]
+    win_rate   = (sum(1 for p in closed if p.total_pnl > 0) / len(closed) * 100
+                  if closed else 0.0)
+
+    # ── Header
+    st.markdown("""
+    <div style="background:#1a0a00;border:2px solid #3d1f00;border-radius:8px;
+                padding:16px 20px;margin-bottom:20px">
+      <span style="font-size:22px;font-weight:800;color:#ff6b35">
+        💵 Trade Log — Real Money</span>
+      <span style="font-size:11px;color:#664422;margin-left:12px">
+        Fidelity / IB · Live capital · Separate from paper trades</span>
+    </div>""", unsafe_allow_html=True)
+
+    # ── Stats bar
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Total Positions", len(all_pos))
+    c2.metric("Open",            len(open_pos))
+    c3.metric("Closed",          len(closed))
+    c4.metric("Win Rate",        f"{win_rate:.0f}%")
+    c5.metric("Total P&L",       f"${total_pnl:+,.0f}")
+
+    c6, c7, c8 = st.columns(3)
+    c6.metric("Commissions Paid", f"${total_comm:.2f}")
+    c7.metric("Total Slippage",   f"${total_slip:+.2f}")
+    c8.metric("Net After Costs",  f"${summary['net_after_costs']:+,.0f}")
+
+    st.divider()
+
+    tab_open, tab_new, tab_history, tab_analytics = st.tabs([
+        "📋 Open Positions", "➕ New Entry",
+        "📊 History", "📈 Analytics"
+    ])
+
+    # ══ OPEN POSITIONS ══════════════════════════════════════
+    with tab_open:
+        if not open_pos:
+            st.info("No open real money positions. Use 'New Entry' to add one.")
+        else:
+            # Live P&L table
+            if st.button("🔄 Refresh Prices", key="rtl_refresh"):
+                try:
+                    update_diagonal_live_prices(rtl, symbol="UVXY")
+                    reset_real_trade_log_cache()
+                except Exception as e:
+                    st.warning(f"Price fetch: {e}")
+                st.rerun()
+
+            rows = []
+            for pid, pos in sorted(open_pos.items(),
+                                   key=lambda x: x[1].variant_id):
+                short = pos.current_short_leg
+                dte   = pos.days_to_expiry()
+                rows.append({
+                    "Variant":     pos.variant_name,
+                    "Broker":      f"{pos.broker} {pos.account_id}",
+                    "Contracts":   pos.contracts,
+                    "Long":        f"${pos.long_strike:.0f} exp {pos.long_expiration}",
+                    "Long Fill":   f"${pos.long_fill_price:.2f}",
+                    "Short":       f"${short.strike:.0f} exp {short.expiration_date}" if short else "—",
+                    "Short Fill":  f"${short.fill_price:.2f}" if short else "—",
+                    "DTE":         dte,
+                    "Net Credits": f"${pos.net_short_credits:,.0f}",
+                    "Coverage%":   f"{pos.short_coverage_pct:.0f}%",
+                    "Commission":  f"${pos.total_commissions:.2f}",
+                    "Slippage":    f"${pos.total_slippage:+.2f}",
+                    "Total P&L":   f"${pos.total_pnl:+,.0f}",
+                    "Rolls":       len(pos.roll_history),
+                })
+            st.dataframe(pd.DataFrame(rows), use_container_width=True,
+                         hide_index=True)
+
+            st.divider()
+
+            # Position cards with roll forms
+            for pid, pos in sorted(open_pos.items(),
+                                   key=lambda x: x[1].variant_id):
+                short = pos.current_short_leg
+                dte   = pos.days_to_expiry()
+                label = (f"⚠️ ROLL NOW" if dte <= 0 else
+                         f"📋 ORDER ROLL" if dte == 1 else "✓ HOLD")
+                color = "#ff3366" if dte <= 0 else "#ff9800" if dte == 1 else "#00e5a0"
+
+                with st.expander(
+                    f"💵 {pos.variant_name}  |  {pos.broker}  |  "
+                    f"P&L: ${pos.total_pnl:+,.0f}  |  DTE: {dte}d  |  {label}",
+                    expanded=(dte <= 1)
+                ):
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.markdown(f"**Entry** {pos.entry_date}")
+                        st.markdown(f"**Regime** {pos.entry_regime}")
+                        st.markdown(f"**Contracts** {pos.contracts}")
+                    with col2:
+                        st.markdown(f"**Long** ${pos.long_strike:.0f} exp {pos.long_expiration}")
+                        st.markdown(f"**Long fill** ${pos.long_fill_price:.2f}")
+                        st.markdown(f"**Long mid** ${pos.long_entry_price:.2f}")
+                    with col3:
+                        if short:
+                            st.markdown(f"**Short** ${short.strike:.0f} exp {short.expiration_date}")
+                            st.markdown(f"**Short fill** ${short.fill_price:.2f}")
+                            st.markdown(f"**Short mid** ${short.entry_credit:.2f}")
+                        else:
+                            st.warning("No active short leg")
+                    with col4:
+                        st.metric("Net Credits",  f"${pos.net_short_credits:,.0f}")
+                        st.metric("Coverage",     f"{pos.short_coverage_pct:.0f}%")
+                        st.metric("Slippage",     f"${pos.total_slippage:+.2f}")
+
+                    # Roll form
+                    if short and short.is_open():
+                        st.markdown("---")
+                        st.markdown("#### 🔄 Roll Short Leg")
+                        try:
+                            import yfinance as yf
+                            uvxy_px = float(yf.Ticker("UVXY")
+                                .history(period="1d",interval="1m")
+                                ["Close"].iloc[-1])
+                        except:
+                            uvxy_px = 0.0
+
+                        from datetime import datetime, timedelta
+                        today_dt = datetime.now()
+                        days_fri = (4 - today_dt.weekday()) % 7 or 7
+                        next_fri = (today_dt + timedelta(days=days_fri)).date()
+
+                        with st.form(f"rtl_roll_{pid}"):
+                            rc1, rc2, rc3 = st.columns(3)
+                            with rc1:
+                                bb_mid  = st.number_input("Buy-back mid",  value=0.10, step=0.01, key=f"rbb_mid_{pid}")
+                                bb_fill = st.number_input("Buy-back fill", value=0.10, step=0.01, key=f"rbb_fill_{pid}")
+                            with rc2:
+                                ns = st.number_input("New strike", value=float(short.strike+1), step=1.0, key=f"rns_{pid}")
+                                ne = st.date_input("New expiry", value=next_fri, key=f"rne_{pid}")
+                            with rc3:
+                                nc_mid  = st.number_input("New credit mid",  value=1.50, step=0.01, key=f"rnc_mid_{pid}")
+                                nc_fill = st.number_input("New credit fill", value=1.50, step=0.01, key=f"rnc_fill_{pid}")
+                            reason = st.selectbox("Reason",
+                                ["order_roll","delta_trigger","itm_threat","manual"],
+                                key=f"rreason_{pid}")
+                            notes = st.text_input("Notes", key=f"rnotes_{pid}")
+                            submitted = st.form_submit_button("✅ Execute Roll", type="primary")
+
+                        if submitted:
+                            try:
+                                rtl.roll_short(
+                                    position_id      = pid,
+                                    old_exit_price   = bb_mid,
+                                    old_fill_price   = bb_fill,
+                                    new_strike       = ns,
+                                    new_expiration   = ne.isoformat(),
+                                    new_credit       = nc_mid,
+                                    new_fill_price   = nc_fill,
+                                    underlying_price = uvxy_px,
+                                    roll_reason      = reason,
+                                    notes            = notes,
+                                )
+                                reset_real_trade_log_cache()
+                                st.success(
+                                    f"✅ Rolled → ${ns:.0f} exp {ne}  "
+                                    f"Net credit: ${nc_fill-bb_fill:.2f}/c  "
+                                    f"Slippage: ${(nc_fill-nc_mid)+(bb_mid-bb_fill):.2f}")
+                                st.rerun()
+                            except Exception as e:
+                                import traceback
+                                st.error(f"Roll failed: {e}")
+                                st.code(traceback.format_exc())
+
+                    # Roll history
+                    if pos.roll_history:
+                        st.markdown("---")
+                        st.markdown("**Roll History**")
+                        rh = [{
+                            "Date":       r.roll_date,
+                            "Old Strike": f"${r.old_strike:.0f}",
+                            "BB Mid":     f"${r.old_exit_price:.2f}",
+                            "BB Fill":    f"${r.old_fill_price:.2f}",
+                            "BB Slip":    f"${r.old_fill_price-r.old_exit_price:+.2f}",
+                            "New Strike": f"${r.new_strike:.0f}",
+                            "Cr Mid":     f"${r.new_credit:.2f}",
+                            "Cr Fill":    f"${r.new_fill_price:.2f}",
+                            "Cr Slip":    f"${r.new_fill_price-r.new_credit:+.2f}",
+                            "Net Credit": f"${r.roll_credit:.2f}",
+                            "Reason":     r.roll_reason,
+                        } for r in pos.roll_history]
+                        st.dataframe(pd.DataFrame(rh),
+                                     use_container_width=True, hide_index=True)
+
+                    # Close position
+                    if st.button(f"❌ Close Position", key=f"rtl_close_{pid}"):
+                        rtl.close_position(pid, reason="manual")
+                        reset_real_trade_log_cache()
+                        st.rerun()
+
+    # ══ NEW ENTRY ════════════════════════════════════════════
+    with tab_new:
+        from real_trade_ui import _render_new_entry
+        _render_new_entry(rtl)
+
+    # ══ HISTORY ══════════════════════════════════════════════
+    with tab_history:
+        if not all_pos:
+            st.info("No trade history yet.")
+        else:
+            rows = []
+            for pid, pos in sorted(all_pos.items(),
+                                   key=lambda x: x[1].entry_date, reverse=True):
+                rows.append({
+                    "ID":          pid[-12:],
+                    "Variant":     pos.variant_name,
+                    "Status":      pos.status.upper(),
+                    "Entry":       pos.entry_date,
+                    "Broker":      pos.broker,
+                    "Contracts":   pos.contracts,
+                    "Long Strike": f"${pos.long_strike:.0f}",
+                    "Long Fill":   f"${pos.long_fill_price:.2f}",
+                    "Short Fills": len(pos.short_legs),
+                    "Net Credits": f"${pos.net_short_credits:,.0f}",
+                    "Total P&L":   f"${pos.total_pnl:+,.0f}",
+                    "Commission":  f"${pos.total_commissions:.2f}",
+                    "Slippage":    f"${pos.total_slippage:+.2f}",
+                    "Coverage%":   f"{pos.short_coverage_pct:.0f}%",
+                    "Rolls":       len(pos.roll_history),
+                })
+            st.dataframe(pd.DataFrame(rows), use_container_width=True,
+                         hide_index=True)
+
+    # ══ ANALYTICS ════════════════════════════════════════════
+    with tab_analytics:
+        if not all_pos:
+            st.info("No data yet.")
+            return
+
+        st.markdown("#### Credit Efficiency vs Long Duration")
+        from datetime import date
+        today = date.today()
+        analytics_rows = []
+        for pid, pos in all_pos.items():
+            try:
+                long_entry  = date.fromisoformat(pos.entry_date)
+                long_expiry = date.fromisoformat(pos.long_expiration)
+                long_total  = (long_expiry - long_entry).days
+                long_elapsed = (today - long_entry).days
+                long_frac   = long_elapsed / long_total if long_total > 0 else 0
+                cpd = pos.net_short_credits / long_elapsed if long_elapsed > 0 else 0
+                proj = cpd * long_total
+                be_days = pos.long_cost / cpd if cpd > 0 else 9999
+                analytics_rows.append({
+                    "Variant":      pos.variant_name,
+                    "Status":       pos.status,
+                    "%Long Used":   f"{long_frac*100:.0f}%",
+                    "Long Cost":    f"${pos.long_cost:,.0f}",
+                    "Net Credits":  f"${pos.net_short_credits:,.0f}",
+                    "Recovery%":    f"{pos.short_coverage_pct:.0f}%",
+                    "$/day":        f"${cpd:.2f}",
+                    "Proj Total":   f"${proj:,.0f}",
+                    "BE days":      int(be_days),
+                    "BB Drag%":     f"{pos.total_buybacks/pos.gross_short_credits*100:.0f}%" if pos.gross_short_credits > 0 else "—",
+                    "Commission":   f"${pos.total_commissions:.2f}",
+                    "Slippage":     f"${pos.total_slippage:+.2f}",
+                })
+            except Exception:
+                continue
+        if analytics_rows:
+            st.dataframe(pd.DataFrame(analytics_rows),
+                         use_container_width=True, hide_index=True)
+
+
 def main():
     st.set_page_config(
         page_title="VIX 5% Weekly Suite",
@@ -4587,6 +4869,7 @@ def main():
                 "Execution Window", 
                 "Active Trades",
                 "Trade Log",
+                "Trade Log Real",
                 "Post-Mortem Review",
                 "Variant Analytics",
                 "System Health",
@@ -4605,6 +4888,8 @@ def main():
             render_execution_window()
         elif page == "Active Trades":
             render_active_trades()
+        elif page == "Trade Log Real":
+            render_real_trade_log_page()
         elif page == "Post-Mortem Review":
             render_post_mortem()
         elif page == "Variant Analytics":
