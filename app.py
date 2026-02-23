@@ -2073,15 +2073,71 @@ def render_variant_analytics(trade_log=None):
 
     today = date.today()
 
+    def _net_credits(p):
+        """Works for both paper DiagonalPosition and RealDiagonalPosition."""
+        if hasattr(p, "net_short_credits"):
+            return p.net_short_credits
+        return getattr(p, "total_credits_received", 0.0)
+
+    def _long_pnl(p):
+        if hasattr(p, "long_pnl"):
+            v = p.long_pnl
+            return v() if callable(v) else v
+        price = getattr(p, "long_current_price", 0.0) or 0.0
+        entry = getattr(p, "long_entry_price", 0.0) or 0.0
+        c     = getattr(p, "contracts", 1)
+        return (price - entry) * c * 100
+
+    def _total_pnl(p):
+        if hasattr(p, "total_pnl"):
+            v = p.total_pnl
+            return v() if callable(v) else v
+        return _long_pnl(p) + _net_credits(p)
+
+    def _commissions(p):
+        return getattr(p, "total_commissions", 0.0) or 0.0
+
+    def _total_rolls(p):
+        v = getattr(p, "total_rolls", 0)
+        return v() if callable(v) else (len(p.roll_history) if hasattr(p, "roll_history") else int(v))
+
+    def _long_cost(p):
+        if hasattr(p, "long_cost"):
+            v = p.long_cost
+            return v() if callable(v) else v
+        fill  = getattr(p, "long_fill_price",  getattr(p, "long_entry_price", 0.0))
+        c     = getattr(p, "contracts", 1)
+        comm  = getattr(p, "long_commission", 0.65)
+        return fill * c * 100 + comm * c
+
+    def _gross_credits(p):
+        if hasattr(p, "gross_short_credits"):
+            v = p.gross_short_credits
+            return v() if callable(v) else v
+        return getattr(p, "total_short_credits", _net_credits(p))
+
+    def _buybacks(p):
+        if hasattr(p, "total_buybacks"):
+            v = p.total_buybacks
+            return v() if callable(v) else v
+        return max(0.0, _gross_credits(p) - _net_credits(p))
+
+    def _coverage(p):
+        if hasattr(p, "short_coverage_pct"):
+            v = p.short_coverage_pct
+            return v() if callable(v) else v
+        lc = _long_cost(p)
+        return min(100.0, _net_credits(p) / lc * 100) if lc > 0 else 0.0
+
     # ═══════════════════════════════════════════════════════
     # SUMMARY BAR
     # ═══════════════════════════════════════════════════════
-    total_pnl   = sum(p.total_pnl for p in all_pos)
-    total_long  = sum(p.long_pnl  for p in all_pos)
-    total_short = sum(p.net_short_credits for p in all_pos)
-    total_comm  = sum(p.total_commissions for p in all_pos)
-    total_rolls = sum(p.total_rolls for p in all_pos)
-    win_rate    = (sum(1 for p in closed_pos if p.total_pnl > 0)
+    total_pnl   = sum(_total_pnl(p)   for p in all_pos)
+    total_long  = sum(_long_pnl(p)    for p in all_pos)
+    total_short = sum(_net_credits(p) for p in all_pos)
+    total_comm  = sum(_commissions(p) for p in all_pos)
+    total_rolls = sum(_total_rolls(p) for p in all_pos)
+    win_rate    = (sum(1 for p in closed_pos if _total_pnl(p) > 0)
                    / len(closed_pos) * 100) if closed_pos else 0.0
 
     c1,c2,c3,c4,c5,c6 = st.columns(6)
@@ -2118,55 +2174,56 @@ def render_variant_analytics(trade_log=None):
             long_total = long_elapsed = long_remaining = 1
             long_pct_used = 0.0
 
-        cpd = pos.net_short_credits / long_elapsed if long_elapsed > 0 else 0
+        nc  = _net_credits(pos)
+        lc  = _long_cost(pos)
+        gc  = _gross_credits(pos)
+        bb  = _buybacks(pos)
+        lpnl = _long_pnl(pos)
+        tpnl = _total_pnl(pos)
+        cov  = _coverage(pos)
+        cpd  = nc / long_elapsed if long_elapsed > 0 else 0
         proj_total = cpd * long_total
-        be_days = int(pos.long_cost / cpd) if cpd > 0 else 9999
+        be_days = int(lc / cpd) if cpd > 0 else 9999
         be_date = (long_entry + __import__("datetime").timedelta(days=be_days)
                    ).isoformat() if be_days < 9999 else "N/A"
-        bb_drag = (pos.total_buybacks / pos.gross_short_credits * 100
-                   if pos.gross_short_credits > 0 else 0)
+        bb_drag = bb / gc * 100 if gc > 0 else 0
+        tr = _total_rolls(pos)
+        tc = _commissions(pos)
 
         short = pos.current_short_leg
         rows.append({
-            # Identity
             "_pos":          pos,
             "Variant":       pos.variant_name,
             "Status":        pos.status.upper(),
             "Entry":         pos.entry_date,
             "Regime":        getattr(pos, "entry_regime", ""),
-            # Long leg
             "Long Strike":   f"${pos.long_strike:.0f}",
             "Long Exp":      pos.long_expiration,
             "Long DTE":      long_remaining,
             "Long % Used":   f"{long_pct_used:.0f}%",
-            "Long Cost":     pos.long_cost,
-            "Long P&L":      pos.long_pnl,
-            "Long Fill":     f"${pos.long_fill_price:.2f}",
-            # Short leg
+            "Long Cost":     lc,
+            "Long P&L":      lpnl,
+            "Long Fill":     f"${getattr(pos,'long_fill_price', getattr(pos,'long_entry_price',0)):.2f}",
             "Short Strike":  f"${short.strike:.0f}" if short else "—",
             "Short Exp":     short.expiration_date if short else "—",
-            "Short DTE":     pos.days_to_expiry(),
+            "Short DTE":     pos.days_to_expiry() if hasattr(pos,"days_to_expiry") else 0,
             "Short Fill":    f"${short.fill_price:.2f}" if short else "—",
-            # Credits
-            "Gross Credits": pos.gross_short_credits,
-            "Buy-backs":     pos.total_buybacks,
-            "Net Credits":   pos.net_short_credits,
+            "Gross Credits": gc,
+            "Buy-backs":     bb,
+            "Net Credits":   nc,
             "BB Drag%":      f"{bb_drag:.0f}%",
-            "Coverage%":     pos.short_coverage_pct,
-            # P&L
-            "Long P&L $":    pos.long_pnl,
-            "Short P&L $":   pos.net_short_credits,
-            "Total P&L $":   pos.total_pnl,
-            "Return%":       (pos.total_pnl / pos.long_cost * 100
-                              if pos.long_cost > 0 else 0),
-            # Efficiency
+            "Coverage%":     cov,
+            "Long P&L $":    lpnl,
+            "Short P&L $":   nc,
+            "Total P&L $":   tpnl,
+            "Return%":       tpnl / lc * 100 if lc > 0 else 0,
             "$/day":         cpd,
             "Proj Total":    proj_total,
             "BE Date":       be_date,
             "Days Open":     long_elapsed,
             "Contracts":     pos.contracts,
-            "Rolls":         pos.total_rolls,
-            "Commission":    pos.total_commissions,
+            "Rolls":         tr,
+            "Commission":    tc,
         })
 
     # ═══════════════════════════════════════════════════════
@@ -2278,12 +2335,12 @@ def render_variant_analytics(trade_log=None):
         # Totals row
         st.markdown("##### Totals")
         t1,t2,t3,t4,t5,t6 = st.columns(6)
-        t1.metric("Long Cost",     f"${sum(r['Long Cost'] for r in rows):,.0f}")
-        t2.metric("Long P&L",      f"${sum(r['Long P&L $'] for r in rows):+,.0f}")
+        t1.metric("Long Cost",     f"${sum(r['Long Cost']     for r in rows):,.0f}")
+        t2.metric("Long P&L",      f"${sum(r['Long P&L $']   for r in rows):+,.0f}")
         t3.metric("Gross Credits", f"${sum(r['Gross Credits'] for r in rows):,.0f}")
-        t4.metric("Net Credits",   f"${sum(r['Net Credits'] for r in rows):,.0f}")
-        t5.metric("Commission",    f"${sum(r['Commission'] for r in rows):.2f}")
-        t6.metric("Total P&L",     f"${sum(r['Total P&L $'] for r in rows):+,.0f}")
+        t4.metric("Net Credits",   f"${sum(r['Net Credits']   for r in rows):,.0f}")
+        t5.metric("Commission",    f"${sum(r['Commission']    for r in rows):.2f}")
+        t6.metric("Total P&L",     f"${sum(r['Total P&L $']  for r in rows):+,.0f}")
 
     # ═══════════════════════════════════════════════════════
     # TAB 4 — ROLL EFFICIENCY
