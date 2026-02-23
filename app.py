@@ -4807,6 +4807,8 @@ def main():
                 "Trade Log Real",
                 "Signal Dashboard",
                 "Active Trades",
+                "Post-Mortem Review",
+                "Variant Analytics",
                 "System Health",
             ],
             index=0,
@@ -4831,6 +4833,10 @@ def main():
             render_signal_dashboard(trade_log=rtl)
         elif page == "Active Trades":
             render_active_trades(trade_log=rtl)
+        elif page == "Post-Mortem Review":
+            render_post_mortem(trade_log=rtl)
+        elif page == "Variant Analytics":
+            render_variant_analytics(trade_log=rtl)
         elif page == "System Health":
             render_system_health(trade_log=rtl)
 
@@ -4913,7 +4919,6 @@ def main():
                 "Execution Window", 
                 "Active Trades",
                 "Trade Log",
-                "Trade Log Real",
                 "Post-Mortem Review",
                 "Variant Analytics",
                 "System Health",
@@ -4932,8 +4937,6 @@ def main():
             render_execution_window()
         elif page == "Active Trades":
             render_active_trades()
-        elif page == "Trade Log Real":
-            render_real_trade_log_page()
         elif page == "Post-Mortem Review":
             render_post_mortem()
         elif page == "Variant Analytics":
