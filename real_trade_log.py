@@ -210,6 +210,24 @@ class RealShortLeg:
     def long_current_price(self, value: float):
         self._long_current_price = value
 
+
+    @property
+    def legs(self) -> list:
+        """Compat: app.py reads trade.legs[0].quantity for contract count."""
+        return self.short_legs
+
+    @property
+    def structure(self) -> str:
+        return "Diagonal"
+
+    @property
+    def variant_role(self) -> str:
+        return self.variant_id
+
+    @property
+    def total_contracts(self) -> int:
+        return self.contracts
+
     # ── Full compatibility layer for app.py ─────────────────
 
     def days_to_short_expiry(self) -> int:
@@ -223,8 +241,13 @@ class RealShortLeg:
             return 0
 
     def days_to_expiry(self) -> int:
-        short = self.current_short_leg
-        return short.days_to_expiry() if short else -1
+        if not self.expiration_date:
+            return 0
+        try:
+            from datetime import date
+            return max(0, (date.fromisoformat(self.expiration_date) - date.today()).days)
+        except Exception:
+            return 0
 
     @property
     def long_dte(self) -> int:
@@ -530,6 +553,24 @@ class RealRollRecord:
     @long_current_price.setter
     def long_current_price(self, value: float):
         self._long_current_price = value
+
+
+    @property
+    def legs(self) -> list:
+        """Compat: app.py reads trade.legs[0].quantity for contract count."""
+        return self.short_legs
+
+    @property
+    def structure(self) -> str:
+        return "Diagonal"
+
+    @property
+    def variant_role(self) -> str:
+        return self.variant_id
+
+    @property
+    def total_contracts(self) -> int:
+        return self.contracts
 
     # ── Full compatibility layer for app.py ─────────────────
 
@@ -924,6 +965,24 @@ class RealDiagonalPosition:
     @long_current_price.setter
     def long_current_price(self, value: float):
         self._long_current_price = value
+
+
+    @property
+    def legs(self) -> list:
+        """Compat: app.py reads trade.legs[0].quantity for contract count."""
+        return self.short_legs
+
+    @property
+    def structure(self) -> str:
+        return "Diagonal"
+
+    @property
+    def variant_role(self) -> str:
+        return self.variant_id
+
+    @property
+    def total_contracts(self) -> int:
+        return self.contracts
 
     # ── Full compatibility layer for app.py ─────────────────
 
