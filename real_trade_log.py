@@ -492,16 +492,33 @@ class RealTradeLog:
     def total_rolls(self) -> int:
         return sum(len(p.roll_history) for p in self.diagonal_positions.values())
 
-    # ── Compatibility methods — mirror trade_log.py interface ─────────────
-    def get_all_diagonals(self) -> list:
+
+    def get_open_trades(self) -> list:
+        """Compat: return open diagonal positions as list."""
+        return list(self.open_positions().values())
+
+    def get_all_trades(self) -> list:
         return list(self.diagonal_positions.values())
 
-    def get_open_diagonals(self) -> list:
+    def get_closed_trades(self) -> list:
         return [p for p in self.diagonal_positions.values()
-                if p.status == "open"]
+                if p.status == "closed"]
+
+    def get_trades_by_variant(self, variant_id: str) -> list:
+        return [p for p in self.diagonal_positions.values()
+                if p.variant_id.upper() == variant_id.upper()]
+
+    def get_trade(self, position_id: str):
+        return self.diagonal_positions.get(position_id)
 
     def get_diagonal(self, position_id: str):
         return self.diagonal_positions.get(position_id)
+
+    def get_open_diagonals(self) -> list:
+        return list(self.open_positions().values())
+
+    def get_all_diagonals(self) -> list:
+        return list(self.diagonal_positions.values())
 
     def update_diagonal_prices(self, position_id: str,
                                long_price: float, short_price: float):
@@ -512,8 +529,32 @@ class RealTradeLog:
         short = pos.current_short_leg
         if short:
             short.current_price = short_price
-        pos.updated_at = __import__("datetime").datetime.now().isoformat()
+        import datetime
+        pos.updated_at = datetime.datetime.now().isoformat()
         self._save()
+
+    def get_position_health_summary(self) -> dict:
+        open_pos = self.open_positions()
+        needing_roll, needing_long_roll = [], []
+        for pos in open_pos.values():
+            dte = pos.days_to_expiry()
+            if dte <= 1:
+                needing_roll.append(pos)
+            try:
+                import datetime
+                long_exp = datetime.date.fromisoformat(pos.long_expiration)
+                long_dte = (long_exp - datetime.date.today()).days
+                if long_dte < 30:
+                    needing_long_roll.append(pos)
+            except Exception:
+                pass
+        return {
+            "total":             len(self.diagonal_positions),
+            "open":              len(open_pos),
+            "closed":            len(self.diagonal_positions) - len(open_pos),
+            "needing_roll":      needing_roll,
+            "needing_long_roll": needing_long_roll,
+        }
 
     def roll_diagonal_short(self, position_id, exit_price, new_strike,
                             new_expiration, new_credit, underlying_price,
@@ -531,7 +572,6 @@ class RealTradeLog:
             roll_reason      = "manual",
             notes            = notes,
         )
-        # Return (new_leg, roll) tuple matching paper trade interface
         new_leg = self.diagonal_positions[position_id].current_short_leg
         return new_leg, roll
 
@@ -543,8 +583,9 @@ class RealTradeLog:
         short = pos.current_short_leg
         if not short:
             return False
+        import datetime
         short.status          = "closed"
-        short.exit_date       = __import__("datetime").date.today().isoformat()
+        short.exit_date       = datetime.date.today().isoformat()
         short.exit_price      = exit_price
         short.exit_fill_price = exit_price
         short.exit_reason     = exit_reason
@@ -556,13 +597,13 @@ class RealTradeLog:
         pos = self.diagonal_positions.get(position_id)
         if not pos:
             return None
+        import datetime
         n      = contracts or pos.contracts
         n_legs = len(pos.short_legs) + 1
-        from datetime import date, datetime
         leg = RealShortLeg(
             leg_id          = f"{position_id}-S{n_legs}",
             position_id     = position_id,
-            entry_date      = date.today().isoformat(),
+            entry_date      = datetime.date.today().isoformat(),
             strike          = strike,
             expiration_date = expiration,
             entry_credit    = credit,
@@ -572,6 +613,31 @@ class RealTradeLog:
         pos.short_legs.append(leg)
         self._save()
         return leg
+
+    def should_roll(self, roll_dte_threshold: int = 1) -> bool:
+        return self.days_to_expiry() <= roll_dte_threshold
+
+    @property
+    def total_rolls(self) -> int:
+        return sum(len(p.roll_history)
+                   for p in self.diagonal_positions.values())
+
+    @property
+    def total_roll_credits(self) -> float:
+        return sum(
+            sum(r.roll_credit for r in p.roll_history)
+            for p in self.diagonal_positions.values()
+        )
+
+    @property
+    def total_commissions_all(self) -> float:
+        return sum(p.total_commissions
+                   for p in self.diagonal_positions.values())
+
+    def days_to_long_expiry(self) -> int:
+        return 0  # position-level stub
+
+
 
 # ── Singleton ────────────────────────────────────────────────
 _real_log_instance: Optional[RealTradeLog] = None
