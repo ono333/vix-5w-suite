@@ -74,6 +74,19 @@ class RealShortLeg:
         return self.status == "open"
 
     @property
+    def quantity(self) -> int:
+        """Compat: negative = short position."""
+        return -self.contracts
+
+    @property
+    def current_price(self) -> float:
+        return getattr(self, '_current_price', 0.0)
+
+    @current_price.setter
+    def current_price(self, value: float):
+        self._current_price = value
+
+    @property
     def total_commission(self) -> float:
         return (self.commission + self.exit_commission) * self.contracts
 
