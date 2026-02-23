@@ -2176,13 +2176,15 @@ def render_variant_analytics(trade_log=None):
     rows = []
     for pos in sorted(all_pos, key=lambda p: p.variant_id):
         try:
-            long_entry  = date.fromisoformat(pos.entry_date)
-            long_expiry = date.fromisoformat(pos.long_expiration)
-            long_total  = max(1, (long_expiry - long_entry).days)
-            long_elapsed = (today - long_entry).days
-            long_remaining = max(0, (long_expiry - today).days)
-            long_pct_used = long_elapsed / long_total * 100
-        except Exception:
+            from datetime import date as _date
+            long_entry   = _date.fromisoformat(str(pos.entry_date)[:10])
+            long_expiry  = _date.fromisoformat(str(pos.long_expiration)[:10])
+            _today       = _date.today()
+            long_total   = max(1, (long_expiry - long_entry).days)
+            long_elapsed = max(1, (_today - long_entry).days)
+            long_remaining = max(0, (long_expiry - _today).days)
+            long_pct_used  = long_elapsed / long_total * 100
+        except Exception as _e:
             long_total = long_elapsed = long_remaining = 1
             long_pct_used = 0.0
 
@@ -2214,7 +2216,8 @@ def render_variant_analytics(trade_log=None):
             "Long DTE":      long_remaining,
             "Long % Used":   f"{long_pct_used:.0f}%",
             "Long Cost":     lc,
-            "Long P&L":      lpnl,
+            "Long P&L":      lpnl if pos.long_current_price > 0 else 0.0,
+            "Long Cost $":   lc,
             "Long Fill":     f"${getattr(pos,'long_fill_price', getattr(pos,'long_entry_price',0)):.2f}",
             "Short Strike":  f"${short.strike:.0f}" if short else "—",
             "Short Exp":     short.expiration_date if short else "—",
@@ -2246,6 +2249,7 @@ def render_variant_analytics(trade_log=None):
         display_cols = [
             "Variant","Status","Entry","Regime","Contracts",
             "Long Strike","Long Exp","Long DTE","Long % Used",
+            "Long Cost $",
             "Short Strike","Short Exp","Short DTE",
             "Coverage%","Total P&L $","Return%","Rolls",
         ]
@@ -4780,6 +4784,16 @@ def render_real_trade_log_page():
     import pandas as pd
 
     rtl = get_real_trade_log()
+    # Auto-fetch live prices on page load if any long_current_price is 0
+    _needs_px = any(p.long_current_price <= 0
+                    for p in rtl.diagonal_positions.values())
+    if _needs_px:
+        try:
+            update_diagonal_live_prices(rtl, symbol="UVXY")
+            reset_real_trade_log_cache()
+            rtl = get_real_trade_log()
+        except Exception:
+            pass
     open_pos   = rtl.open_positions()
     all_pos    = rtl.diagonal_positions
     summary    = rtl.summary()
@@ -4881,8 +4895,15 @@ def render_real_trade_log_page():
                         st.markdown(f"**Contracts** {pos.contracts}")
                     with col2:
                         st.markdown(f"**Long** ${pos.long_strike:.0f} exp {pos.long_expiration}")
-                        st.markdown(f"**Long fill** ${pos.long_fill_price:.2f}")
-                        st.markdown(f"**Long mid** ${pos.long_entry_price:.2f}")
+                        st.markdown(f"**Long fill** ${pos.long_fill_price:.2f}  "
+                                    f"*(cost: ${pos.long_cost:,.0f})*")
+                        _lc = pos.long_current_price
+                        if _lc > 0:
+                            _lpnl = (_lc - pos.long_fill_price) * pos.contracts * 100
+                            st.markdown(f"**Long current** ${_lc:.2f}  "
+                                        f"*(P&L: ${_lpnl:+,.0f})*")
+                        else:
+                            st.markdown("**Long current** *(pending refresh)*")
                     with col3:
                         if short:
                             st.markdown(f"**Short** ${short.strike:.0f} exp {short.expiration_date}")
