@@ -4931,14 +4931,15 @@ def main():
         render_paper_sidebar()
         
         # Render page
+        _ptl = get_trade_log()
         if page == "Signal Dashboard":
-            render_signal_dashboard()
+            render_signal_dashboard(trade_log=_ptl)
         elif page == "Execution Window":
-            render_execution_window()
+            render_execution_window(trade_log=_ptl)
         elif page == "Active Trades":
-            render_active_trades()
+            render_active_trades(trade_log=_ptl)
         elif page == "Post-Mortem Review":
-            render_post_mortem()
+            render_post_mortem(trade_log=_ptl)
         elif page == "Variant Analytics":
             render_variant_analytics(trade_log=_ptl)
         elif page == "Trade Log":
