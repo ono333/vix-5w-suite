@@ -2219,7 +2219,7 @@ def render_variant_analytics(trade_log=None):
             "Short Strike":  f"${short.strike:.0f}" if short else "—",
             "Short Exp":     short.expiration_date if short else "—",
             "Short DTE":     pos.days_to_expiry() if hasattr(pos,"days_to_expiry") else 0,
-            "Short Fill":    f"${short.fill_price:.2f}" if short else "—",
+            "Short Fill":    f"${getattr(short, 'fill_price', getattr(short, 'entry_credit', 0.0)):.2f}" if short else "—",
             "Gross Credits": gc,
             "Buy-backs":     bb,
             "Net Credits":   nc,
@@ -2376,14 +2376,14 @@ def render_variant_analytics(trade_log=None):
         for pos in all_pos:
             for r in pos.roll_history:
                 all_rolls.append({
-                    "Date":       r.roll_date,
+                    "Date":       getattr(r, "roll_date", getattr(r, "exit_date", "")),
                     "Variant":    pos.variant_name,
-                    "Old Strike": f"${r.old_strike:.0f}",
-                    "Old Exit":   f"${r.old_exit_price:.2f}",
-                    "New Strike": f"${r.new_strike:.0f}",
-                    "New Credit": f"${r.new_credit:.2f}",
-                    "Net Credit": f"${r.roll_credit:.2f}",
-                    "Underlying": f"${r.underlying_price:.2f}",
+                    "Old Strike": f"${getattr(r, 'old_strike', 0):.0f}",
+                    "Old Exit":   f"${getattr(r, 'old_exit_price', getattr(r, 'exit_price', 0.0)):.2f}",
+                    "New Strike": f"${getattr(r, 'new_strike', 0):.0f}",
+                    "New Credit": f"${getattr(r, 'new_credit', 0.0):.2f}",
+                    "Net Credit": f"${getattr(r, 'roll_credit', 0.0):.2f}",
+                    "Underlying": f"${getattr(r, 'underlying_price', 0.0):.2f}",
                     "Regime":     getattr(r, "regime", ""),
                 })
         if all_rolls:
@@ -4961,13 +4961,13 @@ def render_real_trade_log_page():
                         rh = [{
                             "Date":       r.roll_date,
                             "Old Strike": f"${r.old_strike:.0f}",
-                            "BB Mid":     f"${r.old_exit_price:.2f}",
-                            "BB Fill":    f"${r.old_fill_price:.2f}",
-                            "BB Slip":    f"${r.old_fill_price-r.old_exit_price:+.2f}",
+                            "BB Mid":     f"${getattr(r, 'old_exit_price', getattr(r, 'exit_price', 0.0)):.2f}",
+                            "BB Fill":    f"${getattr(r, 'old_fill_price', getattr(r, 'exit_price', 0.0)):.2f}",
+                            "BB Slip":    f"${getattr(r,'old_fill_price',0)-getattr(r,'old_exit_price',0):+.2f}",
                             "New Strike": f"${r.new_strike:.0f}",
-                            "Cr Mid":     f"${r.new_credit:.2f}",
-                            "Cr Fill":    f"${r.new_fill_price:.2f}",
-                            "Cr Slip":    f"${r.new_fill_price-r.new_credit:+.2f}",
+                            "Cr Mid":     f"${getattr(r, 'new_credit', r.new_credit):.2f}",
+                            "Cr Fill":    f"${getattr(r, 'new_fill_price', r.new_credit):.2f}",
+                            "Cr Slip":    f"${getattr(r,'new_fill_price',r.new_credit)-r.new_credit:+.2f}",
                             "Net Credit": f"${r.roll_credit:.2f}",
                             "Reason":     r.roll_reason,
                         } for r in pos.roll_history]
