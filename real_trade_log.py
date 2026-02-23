@@ -105,14 +105,6 @@ class RealShortLeg:
             return 0
 
     @property
-    def pnl(self) -> float:
-        if self.exit_price is not None:
-            return (self.fill_price - self.exit_price) * self.contracts * 100
-        if hasattr(self, '_current_price') and self._current_price > 0:
-            return (self.fill_price - self._current_price) * self.contracts * 100
-        return 0.0
-
-    @property
     def quantity(self) -> int:
         """Compat: negative = short position."""
         return -self.contracts
