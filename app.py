@@ -1240,7 +1240,7 @@ def send_roll_notification_email(positions_needing_roll, recipient: str = "onosh
         return False, str(e)
 
 
-def render_signal_dashboard():
+def render_signal_dashboard(trade_log=None):
     """Signal Dashboard - Generate and freeze signals (Thursday 4:30 PM focus)."""
     st.title("📡 Signal Dashboard")
     
@@ -1335,7 +1335,8 @@ def render_signal_dashboard():
         # ═══════════════════════════════════════════════════════════════
         # POSITION-AWARE: Get existing positions from trade log
         # ═══════════════════════════════════════════════════════════════
-        trade_log = get_trade_log()
+        trade_log = trade_log or get_trade_log()
+
         open_diagonals = trade_log.get_open_diagonals()
         
         # Map variant prefixes (V1, V2, etc.) to existing positions
@@ -1827,7 +1828,7 @@ def render_signal_dashboard():
             st.code(summary_text)
 
 
-def render_execution_window():
+def render_execution_window(trade_log=None):
     """Execution Window - Decide whether/how to execute (Fri-Mon)."""
     st.title("⚡ Execution Window")
     
@@ -1850,7 +1851,8 @@ def render_execution_window():
     # Show active variants for execution
     st.markdown("### Variants Ready for Execution")
     
-    trade_log = get_trade_log()
+    trade_log = trade_log or get_trade_log()
+
     
     for variant in batch.variants:
         # Check if variant is active in current regime
@@ -1944,7 +1946,7 @@ def render_execution_window():
             st.markdown("---")
 
 
-def render_active_trades():
+def render_active_trades(trade_log=None):
     """Active Trades - Monitor open positions."""
     st.title("📈 Active Trades")
     
@@ -1952,7 +1954,8 @@ def render_active_trades():
         st.error("Paper trading modules not available")
         return
     
-    trade_log = get_trade_log()
+    trade_log = trade_log or get_trade_log()
+
     open_trades = trade_log.get_open_trades()
     
     if not open_trades:
@@ -2002,7 +2005,7 @@ def render_active_trades():
                     st.warning("Close form would appear here")
 
 
-def render_post_mortem():
+def render_post_mortem(trade_log=None):
     """Post-Mortem Review page."""
     st.title("📝 Post-Mortem Review")
     
@@ -2010,7 +2013,8 @@ def render_post_mortem():
         st.error("Paper trading modules not available")
         return
     
-    trade_log = get_trade_log()
+    trade_log = trade_log or get_trade_log()
+
     closed_trades = [t for t in trade_log.diagonal_positions.values() if t.status == "closed"]
     
     if not closed_trades:
@@ -2051,7 +2055,7 @@ def render_post_mortem():
                 st.success("Notes saved")
 
 
-def render_variant_analytics():
+def render_variant_analytics(trade_log=None):
     """Variant Analytics - Paper trading learning metrics."""
     st.title("📊 Variant Analytics")
     
@@ -2059,7 +2063,8 @@ def render_variant_analytics():
         st.error("Paper trading modules not available")
         return
     
-    trade_log = get_trade_log()
+    trade_log = trade_log or get_trade_log()
+
     
     st.markdown("""
     Track operational metrics to decide which variants survive the paper trading period.
@@ -2109,7 +2114,7 @@ def render_variant_analytics():
     col3.metric("Open Positions", len(open_positions))
 
 
-def render_system_health():
+def render_system_health(trade_log=None):
     """System Health page with Backup Management."""
     st.title("🏥 System Health")
     
@@ -4238,7 +4243,7 @@ def _render_roll_analytics(trade_log):
 
 
 
-def render_trade_log():
+def render_trade_log(trade_log=None):
     """Trade Log - View and manage all paper trades."""
     st.title("📒 Trade Log")
     
@@ -4246,7 +4251,8 @@ def render_trade_log():
         st.error("Paper trading modules not available")
         return
     
-    trade_log = get_trade_log()
+    trade_log = trade_log or get_trade_log()
+
     summary = trade_log.get_summary()
     
     # Summary metrics (includes both simple trades and diagonal positions)
@@ -4783,14 +4789,52 @@ def main():
     
     mode = st.sidebar.radio(
         "Mode",
-        ["📊 Research", "📈 Paper Trading"],
+        ["📊 Research", "📈 Paper Trading", "💵 Real Trading"],
         index=0,
         key="app_mode",
     )
     
     st.sidebar.markdown("---")
     
-    if "Research" in mode:
+    if "Real Trading" in mode:
+        from real_trade_log import get_real_trade_log
+        rtl = get_real_trade_log()
+        # ── Real Trading sidebar
+        st.sidebar.markdown("## 💵 Real Trading")
+        page = st.sidebar.radio(
+            "Real Trading Pages",
+            [
+                "Trade Log Real",
+                "Signal Dashboard",
+                "Active Trades",
+                "System Health",
+            ],
+            index=0,
+            key="real_page",
+        )
+        st.sidebar.markdown("---")
+        # Real Trading context (bottom sidebar)
+        real_summary = rtl.summary()
+        st.sidebar.markdown("**Real Trading**")
+        st.sidebar.markdown(f"Open Positions: **{real_summary['open_count']}**")
+        st.sidebar.markdown(
+            f"Total P&L: **{'$+' if real_summary['total_pnl'] >= 0 else '$'}"
+            f"{real_summary['total_pnl']:,.0f}**")
+        st.sidebar.markdown(
+            f"Commissions: **${real_summary['total_commissions']:.2f}**")
+        st.sidebar.markdown(
+            f"Slippage: **${real_summary['total_slippage']:+.2f}**")
+        # Dispatch with real trade log
+        if page == "Trade Log Real":
+            render_real_trade_log_page()
+        elif page == "Signal Dashboard":
+            render_signal_dashboard(trade_log=rtl)
+        elif page == "Active Trades":
+            render_active_trades(trade_log=rtl)
+        elif page == "System Health":
+            render_system_health(trade_log=rtl)
+
+    elif "Research" in mode:
         # Research mode navigation
         page = st.sidebar.radio(
             "Research Pages",
@@ -4893,11 +4937,11 @@ def main():
         elif page == "Post-Mortem Review":
             render_post_mortem()
         elif page == "Variant Analytics":
-            render_variant_analytics()
+            render_variant_analytics(trade_log=_ptl)
         elif page == "Trade Log":
-            render_trade_log()
+            render_trade_log(trade_log=_ptl)
         elif page == "System Health":
-            render_system_health()
+            render_system_health(trade_log=_ptl)
 
 
 if __name__ == "__main__":
