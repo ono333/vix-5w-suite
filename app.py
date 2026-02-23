@@ -2074,15 +2074,19 @@ def render_variant_analytics(trade_log=None):
     today = date.today()
 
     def _net_credits(p):
-        """Works for both paper DiagonalPosition and RealDiagonalPosition."""
-        if hasattr(p, "net_short_credits"):
-            return p.net_short_credits
-        return getattr(p, "total_credits_received", 0.0)
+        """Net short credits — paper uses short_pnl, real uses net_short_credits."""
+        for attr in ("net_short_credits", "short_pnl"):
+            if hasattr(p, attr):
+                v = getattr(p, attr)
+                return v() if callable(v) else float(v)
+        # fallback: total_short_credits + total_roll_credits
+        return (getattr(p, "total_short_credits", 0.0)
+                + getattr(p, "total_roll_credits", 0.0))
 
     def _long_pnl(p):
         if hasattr(p, "long_pnl"):
             v = p.long_pnl
-            return v() if callable(v) else v
+            return v() if callable(v) else float(v)
         price = getattr(p, "long_current_price", 0.0) or 0.0
         entry = getattr(p, "long_entry_price", 0.0) or 0.0
         c     = getattr(p, "contracts", 1)
@@ -2091,41 +2095,49 @@ def render_variant_analytics(trade_log=None):
     def _total_pnl(p):
         if hasattr(p, "total_pnl"):
             v = p.total_pnl
-            return v() if callable(v) else v
-        return _long_pnl(p) + _net_credits(p)
+            return v() if callable(v) else float(v)
+        return _long_pnl(p) + _net_credits(p) - _commissions(p)
 
     def _commissions(p):
-        return getattr(p, "total_commissions", 0.0) or 0.0
+        return float(getattr(p, "total_commissions", 0.0) or 0.0)
 
     def _total_rolls(p):
-        v = getattr(p, "total_rolls", 0)
-        return v() if callable(v) else (len(p.roll_history) if hasattr(p, "roll_history") else int(v))
+        v = getattr(p, "total_rolls", None)
+        if v is not None:
+            return v() if callable(v) else int(v)
+        return len(p.roll_history) if hasattr(p, "roll_history") else 0
 
     def _long_cost(p):
         if hasattr(p, "long_cost"):
             v = p.long_cost
-            return v() if callable(v) else v
-        fill  = getattr(p, "long_fill_price",  getattr(p, "long_entry_price", 0.0))
-        c     = getattr(p, "contracts", 1)
-        comm  = getattr(p, "long_commission", 0.65)
+            return v() if callable(v) else float(v)
+        # paper: long_entry_price * contracts * 100 + first short credit removed
+        fill = getattr(p, "long_fill_price",
+               getattr(p, "long_entry_price", 0.0)) or 0.0
+        c    = getattr(p, "contracts", 1)
+        comm = getattr(p, "long_commission",
+               getattr(p, "fee_per_contract", 0.65))
         return fill * c * 100 + comm * c
 
     def _gross_credits(p):
         if hasattr(p, "gross_short_credits"):
             v = p.gross_short_credits
-            return v() if callable(v) else v
-        return getattr(p, "total_short_credits", _net_credits(p))
+            return v() if callable(v) else float(v)
+        # paper: total_short_credits (raw, before buybacks)
+        return float(getattr(p, "total_short_credits",
+                     getattr(p, "total_credits_received",
+                     _net_credits(p))))
 
     def _buybacks(p):
         if hasattr(p, "total_buybacks"):
             v = p.total_buybacks
-            return v() if callable(v) else v
+            return v() if callable(v) else float(v)
         return max(0.0, _gross_credits(p) - _net_credits(p))
 
     def _coverage(p):
         if hasattr(p, "short_coverage_pct"):
             v = p.short_coverage_pct
-            return v() if callable(v) else v
+            return v() if callable(v) else float(v)
         lc = _long_cost(p)
         return min(100.0, _net_credits(p) / lc * 100) if lc > 0 else 0.0
 
