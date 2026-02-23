@@ -73,6 +73,45 @@ class RealShortLeg:
     def is_open(self) -> bool:
         return self.status == "open"
 
+
+    @property
+    def side(self):
+        """Compat: return LegSide-like object with .value = 'SHORT'."""
+        class _Side:
+            value = "SHORT"
+            def __eq__(self, other):
+                return str(other).upper() in ("SHORT", "SELL")
+        return _Side()
+
+    @property
+    def entry_price(self) -> float:
+        """Compat alias for entry_credit."""
+        return self.entry_credit
+
+    @property
+    def option_type(self) -> str:
+        return "call"
+
+    @property
+    def expiry(self) -> str:
+        return self.expiration_date
+
+    @property
+    def days_held(self) -> int:
+        from datetime import date
+        try:
+            return (date.today() - date.fromisoformat(self.entry_date)).days
+        except Exception:
+            return 0
+
+    @property
+    def pnl(self) -> float:
+        if self.exit_price is not None:
+            return (self.fill_price - self.exit_price) * self.contracts * 100
+        if hasattr(self, '_current_price') and self._current_price > 0:
+            return (self.fill_price - self._current_price) * self.contracts * 100
+        return 0.0
+
     @property
     def quantity(self) -> int:
         """Compat: negative = short position."""

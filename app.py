@@ -1989,7 +1989,7 @@ def render_active_trades(trade_log=None):
             # Legs
             st.markdown("**Legs:**")
             for leg in trade.legs:
-                status_icon = "🟢" if leg.status == LegStatus.OPEN else "⚫"
+                status_icon = "🟢" if str(leg.status).upper() in ("OPEN", "LEGSTATUS.OPEN") else "⚫"
                 st.write(
                     f"{status_icon} {leg.side.value}: Strike ${leg.strike:.2f} | "
                     f"Entry ${leg.entry_price:.2f}"
