@@ -59,6 +59,12 @@ class RealShortLeg:
         if not self.expiration_date:
             return 0
         try:
+            from datetime import date
+            exp = date.fromisoformat(self.expiration_date)
+            return max(0, (exp - date.today()).days)
+        except Exception:
+            return 0
+        try:
             exp = date.fromisoformat(self.expiration_date)
             return max(0, (exp - date.today()).days)
         except:
@@ -66,6 +72,58 @@ class RealShortLeg:
 
     def is_open(self) -> bool:
         return self.status == "open"
+
+
+    @property
+    def side(self):
+        """Compat: return LegSide-like object with .value = 'SHORT'."""
+        class _Side:
+            value = "SHORT"
+            def __eq__(self, other):
+                return str(other).upper() in ("SHORT", "SELL")
+        return _Side()
+
+    @property
+    def entry_price(self) -> float:
+        """Compat alias for entry_credit."""
+        return self.entry_credit
+
+    @property
+    def option_type(self) -> str:
+        return "call"
+
+    @property
+    def expiry(self) -> str:
+        return self.expiration_date
+
+    @property
+    def days_held(self) -> int:
+        from datetime import date
+        try:
+            return (date.today() - date.fromisoformat(self.entry_date)).days
+        except Exception:
+            return 0
+
+    @property
+    def pnl(self) -> float:
+        if self.exit_price is not None:
+            return (self.fill_price - self.exit_price) * self.contracts * 100
+        if hasattr(self, '_current_price') and self._current_price > 0:
+            return (self.fill_price - self._current_price) * self.contracts * 100
+        return 0.0
+
+    @property
+    def quantity(self) -> int:
+        """Compat: negative = short position."""
+        return -self.contracts
+
+    @property
+    def current_price(self) -> float:
+        return getattr(self, '_current_price', 0.0)
+
+    @current_price.setter
+    def current_price(self, value: float):
+        self._current_price = value
 
     @property
     def total_commission(self) -> float:
@@ -77,6 +135,322 @@ class RealShortLeg:
         gross = self.fill_price * self.contracts * 100
         costs = self.total_commission
         return gross - costs
+
+
+    def get_health_status(self) -> dict:
+        """Position-level health — mirrors DiagonalPosition.get_health_status()."""
+        from datetime import date
+        short = self.current_short_leg
+        dte   = self.days_to_expiry()
+        today = date.today()
+
+        # Short leg status
+        if short is None:
+            short_status = "none"
+        elif dte <= 0:
+            short_status = "expired"
+        elif dte <= 1:
+            short_status = "roll_now"
+        elif dte <= 3:
+            short_status = "roll_soon"
+        else:
+            short_status = "ok"
+
+        # Long leg DTE
+        try:
+            long_exp  = date.fromisoformat(self.long_expiration)
+            long_dte  = (long_exp - today).days
+        except Exception:
+            long_dte  = 999
+
+        # Overall status
+        if short_status in ("expired", "roll_now"):
+            status = "critical"
+        elif short_status == "roll_soon" or long_dte < 30:
+            status = "attention"
+        else:
+            status = "ok"
+
+        return {
+            "status":       status,
+            "short_status": short_status,
+            "dte":          dte,
+            "long_dte":     long_dte,
+            "coverage_pct": self.short_coverage_pct,
+            "total_pnl":    self.total_pnl,
+        }
+
+    def days_to_long_expiry(self) -> int:
+        from datetime import date
+        try:
+            return max(0, (date.fromisoformat(self.long_expiration) - date.today()).days)
+        except Exception:
+            return 0
+
+    def should_roll(self, roll_dte_threshold: int = 1) -> bool:
+        return self.days_to_expiry() <= roll_dte_threshold
+
+    @property
+    def total_rolls(self) -> int:
+        return len(self.roll_history)
+
+    @property
+    def total_roll_credits(self) -> float:
+        return sum(r.roll_credit for r in self.roll_history)
+
+    @property
+    def long_pnl(self) -> float:
+        if self.long_current_price <= 0:
+            return 0.0
+        return (self.long_current_price - self.long_fill_price) * self.contracts * 100
+
+    @property
+    def short_pnl(self) -> float:
+        return self.net_short_credits
+
+    @property
+    def entry_debit(self) -> float:
+        return self.long_cost
+
+    @property
+    def total_contracts(self) -> int:
+        return self.contracts
+
+    @property
+    def fee_per_contract(self) -> float:
+        return self.long_commission
+
+    def get_roll_summary(self) -> dict:
+        return {
+            "total_rolls":   len(self.roll_history),
+            "roll_credits":  sum(r.roll_credit for r in self.roll_history),
+            "last_roll":     self.roll_history[-1].roll_date if self.roll_history else None,
+        }
+
+
+
+    @property
+    def entry_datetime(self):
+        """Compat: return entry_date as datetime for days_open calc."""
+        from datetime import datetime
+        try:
+            return datetime.fromisoformat(self.entry_date)
+        except Exception:
+            return None
+
+    @property
+    def days_held(self) -> int:
+        from datetime import datetime
+        try:
+            return (datetime.utcnow() - datetime.fromisoformat(self.entry_date)).days
+        except Exception:
+            return 0
+
+    @property
+    def signal_id(self) -> str:
+        return self.position_id
+
+    @property
+    def variant_role(self):
+        return self.variant_id
+
+    @property
+    def long_current_price(self) -> float:
+        return getattr(self, '_long_current_price', 0.0)
+
+    @long_current_price.setter
+    def long_current_price(self, value: float):
+        self._long_current_price = value
+
+
+    @property
+    def legs(self) -> list:
+        """Compat: app.py reads trade.legs[0].quantity for contract count."""
+        return self.short_legs
+
+    @property
+    def structure(self) -> str:
+        return "Diagonal"
+
+    @property
+    def variant_role(self) -> str:
+        return self.variant_id
+
+    @property
+    def total_contracts(self) -> int:
+        return self.contracts
+
+    # ── Full compatibility layer for app.py ─────────────────
+
+    def days_to_short_expiry(self) -> int:
+        return self.days_to_expiry()
+
+    def days_to_long_expiry(self) -> int:
+        from datetime import date
+        try:
+            return max(0, (date.fromisoformat(self.long_expiration) - date.today()).days)
+        except Exception:
+            return 0
+
+    def days_to_expiry(self) -> int:
+        if not self.expiration_date:
+            return 0
+        try:
+            from datetime import date
+            return max(0, (date.fromisoformat(self.expiration_date) - date.today()).days)
+        except Exception:
+            return 0
+
+    @property
+    def long_dte(self) -> int:
+        return self.days_to_long_expiry()
+
+    @property
+    def short_dte(self) -> int:
+        return self.days_to_short_expiry()
+
+    @property
+    def long_pnl(self) -> float:
+        if self.long_current_price <= 0:
+            return 0.0
+        return (self.long_current_price - self.long_fill_price) * self.contracts * 100
+
+    @property
+    def short_pnl(self) -> float:
+        return self.net_short_credits
+
+    @property
+    def total_pnl(self) -> float:
+        return self.long_pnl + self.net_short_credits
+
+    @property
+    def long_cost(self) -> float:
+        return (self.long_fill_price * self.contracts * 100
+                + self.long_commission * self.contracts)
+
+    @property
+    def total_rolls(self) -> int:
+        return len(self.roll_history)
+
+    @property
+    def total_roll_credits(self) -> float:
+        return sum(r.roll_credit for r in self.roll_history)
+
+    @property
+    def total_credits_received(self) -> float:
+        return self.gross_short_credits
+
+    @property
+    def gross_short_credits(self) -> float:
+        return sum(l.fill_price * l.contracts * 100 for l in self.short_legs)
+
+    @property
+    def total_buybacks(self) -> float:
+        return sum((l.exit_fill_price or 0) * l.contracts * 100
+                   for l in self.short_legs
+                   if l.status in ("rolled", "closed"))
+
+    @property
+    def net_short_credits(self) -> float:
+        return self.gross_short_credits - self.total_buybacks - self.total_commissions
+
+    @property
+    def total_commissions(self) -> float:
+        lc = self.long_commission * self.contracts
+        sc = sum(l.total_commission for l in self.short_legs)
+        return lc + sc
+
+    @property
+    def total_slippage(self) -> float:
+        entry_slip = (self.long_fill_price - self.long_entry_price) * self.contracts * 100
+        short_slip = sum(l.slippage * l.contracts * 100 for l in self.short_legs)
+        return entry_slip + short_slip
+
+    @property
+    def short_coverage_pct(self) -> float:
+        if self.long_cost <= 0:
+            return 0.0
+        return min(100.0, self.net_short_credits / self.long_cost * 100)
+
+    @property
+    def total_contracts(self) -> int:
+        return self.contracts
+
+    @property
+    def entry_debit(self) -> float:
+        return self.long_cost
+
+    @property
+    def fee_per_contract(self) -> float:
+        return self.long_commission
+
+    def should_roll(self, roll_dte_threshold: int = 1) -> bool:
+        return self.days_to_expiry() <= roll_dte_threshold
+
+    def recalc_roll_totals(self):
+        """Recalculate roll totals from roll_history (compat stub)."""
+        pass
+
+    def get_health_status(self) -> dict:
+        from datetime import date
+        short = self.current_short_leg
+        dte   = self.days_to_expiry()
+        long_dte = self.days_to_long_expiry()
+
+        if short is None:
+            short_status = "none"
+        elif dte <= 0:
+            short_status = "expired"
+        elif dte <= 1:
+            short_status = "roll_now"
+        elif dte <= 3:
+            short_status = "roll_soon"
+        else:
+            short_status = "ok"
+
+        if short_status in ("expired", "roll_now", "none"):
+            status = "critical"
+        elif short_status == "roll_soon" or long_dte < 30:
+            status = "attention"
+        else:
+            status = "ok"
+
+        return {
+            "status":        status,
+            "short_status":  short_status,
+            "dte":           dte,
+            "long_dte":      long_dte,
+            "coverage_pct":  self.short_coverage_pct,
+            "total_pnl":     self.total_pnl,
+            "needs_roll":    short_status in ("expired", "roll_now"),
+            "needs_attention": status in ("critical", "attention"),
+        }
+
+    def get_roll_summary(self) -> dict:
+        return {
+            "total_rolls":  len(self.roll_history),
+            "roll_credits": sum(r.roll_credit for r in self.roll_history),
+            "last_roll":    self.roll_history[-1].roll_date if self.roll_history else None,
+        }
+
+    def add_short_leg(self, strike: float, expiration: str,
+                      credit: float, contracts: int = None):
+        from datetime import date
+        n      = contracts or self.contracts
+        n_legs = len(self.short_legs) + 1
+        leg = RealShortLeg(
+            leg_id          = f"{self.position_id}-S{n_legs}",
+            position_id     = self.position_id,
+            entry_date      = date.today().isoformat(),
+            strike          = strike,
+            expiration_date = expiration,
+            entry_credit    = credit,
+            fill_price      = credit,
+            contracts       = n,
+        )
+        self.short_legs.append(leg)
+        return leg
+
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -105,6 +479,317 @@ class RealRollRecord:
     commission:       float        = 0.0      # total for both legs
     roll_reason:      str          = ""       # "delta_trigger" / "order_roll" / "manual"
     notes:            str          = ""
+
+
+    def get_health_status(self) -> dict:
+        """Position-level health — mirrors DiagonalPosition.get_health_status()."""
+        from datetime import date
+        short = self.current_short_leg
+        dte   = self.days_to_expiry()
+        today = date.today()
+
+        # Short leg status
+        if short is None:
+            short_status = "none"
+        elif dte <= 0:
+            short_status = "expired"
+        elif dte <= 1:
+            short_status = "roll_now"
+        elif dte <= 3:
+            short_status = "roll_soon"
+        else:
+            short_status = "ok"
+
+        # Long leg DTE
+        try:
+            long_exp  = date.fromisoformat(self.long_expiration)
+            long_dte  = (long_exp - today).days
+        except Exception:
+            long_dte  = 999
+
+        # Overall status
+        if short_status in ("expired", "roll_now"):
+            status = "critical"
+        elif short_status == "roll_soon" or long_dte < 30:
+            status = "attention"
+        else:
+            status = "ok"
+
+        return {
+            "status":       status,
+            "short_status": short_status,
+            "dte":          dte,
+            "long_dte":     long_dte,
+            "coverage_pct": self.short_coverage_pct,
+            "total_pnl":    self.total_pnl,
+        }
+
+    def days_to_long_expiry(self) -> int:
+        from datetime import date
+        try:
+            return max(0, (date.fromisoformat(self.long_expiration) - date.today()).days)
+        except Exception:
+            return 0
+
+    def should_roll(self, roll_dte_threshold: int = 1) -> bool:
+        return self.days_to_expiry() <= roll_dte_threshold
+
+    @property
+    def total_rolls(self) -> int:
+        return len(self.roll_history)
+
+    @property
+    def total_roll_credits(self) -> float:
+        return sum(r.roll_credit for r in self.roll_history)
+
+    @property
+    def long_pnl(self) -> float:
+        if self.long_current_price <= 0:
+            return 0.0
+        return (self.long_current_price - self.long_fill_price) * self.contracts * 100
+
+    @property
+    def short_pnl(self) -> float:
+        return self.net_short_credits
+
+    @property
+    def entry_debit(self) -> float:
+        return self.long_cost
+
+    @property
+    def total_contracts(self) -> int:
+        return self.contracts
+
+    @property
+    def fee_per_contract(self) -> float:
+        return self.long_commission
+
+    def get_roll_summary(self) -> dict:
+        return {
+            "total_rolls":   len(self.roll_history),
+            "roll_credits":  sum(r.roll_credit for r in self.roll_history),
+            "last_roll":     self.roll_history[-1].roll_date if self.roll_history else None,
+        }
+
+
+
+    @property
+    def entry_datetime(self):
+        """Compat: return entry_date as datetime for days_open calc."""
+        from datetime import datetime
+        try:
+            return datetime.fromisoformat(self.entry_date)
+        except Exception:
+            return None
+
+    @property
+    def days_held(self) -> int:
+        from datetime import datetime
+        try:
+            return (datetime.utcnow() - datetime.fromisoformat(self.entry_date)).days
+        except Exception:
+            return 0
+
+    @property
+    def signal_id(self) -> str:
+        return self.position_id
+
+    @property
+    def variant_role(self):
+        return self.variant_id
+
+    @property
+    def long_current_price(self) -> float:
+        return getattr(self, '_long_current_price', 0.0)
+
+    @long_current_price.setter
+    def long_current_price(self, value: float):
+        self._long_current_price = value
+
+
+    @property
+    def legs(self) -> list:
+        """Compat: app.py reads trade.legs[0].quantity for contract count."""
+        return self.short_legs
+
+    @property
+    def structure(self) -> str:
+        return "Diagonal"
+
+    @property
+    def variant_role(self) -> str:
+        return self.variant_id
+
+    @property
+    def total_contracts(self) -> int:
+        return self.contracts
+
+    # ── Full compatibility layer for app.py ─────────────────
+
+    def days_to_short_expiry(self) -> int:
+        return self.days_to_expiry()
+
+    def days_to_long_expiry(self) -> int:
+        from datetime import date
+        try:
+            return max(0, (date.fromisoformat(self.long_expiration) - date.today()).days)
+        except Exception:
+            return 0
+
+    def days_to_expiry(self) -> int:
+        short = self.current_short_leg
+        return short.days_to_expiry() if short else -1
+
+    @property
+    def long_dte(self) -> int:
+        return self.days_to_long_expiry()
+
+    @property
+    def short_dte(self) -> int:
+        return self.days_to_short_expiry()
+
+    @property
+    def long_pnl(self) -> float:
+        if self.long_current_price <= 0:
+            return 0.0
+        return (self.long_current_price - self.long_fill_price) * self.contracts * 100
+
+    @property
+    def short_pnl(self) -> float:
+        return self.net_short_credits
+
+    @property
+    def total_pnl(self) -> float:
+        return self.long_pnl + self.net_short_credits
+
+    @property
+    def long_cost(self) -> float:
+        return (self.long_fill_price * self.contracts * 100
+                + self.long_commission * self.contracts)
+
+    @property
+    def total_rolls(self) -> int:
+        return len(self.roll_history)
+
+    @property
+    def total_roll_credits(self) -> float:
+        return sum(r.roll_credit for r in self.roll_history)
+
+    @property
+    def total_credits_received(self) -> float:
+        return self.gross_short_credits
+
+    @property
+    def gross_short_credits(self) -> float:
+        return sum(l.fill_price * l.contracts * 100 for l in self.short_legs)
+
+    @property
+    def total_buybacks(self) -> float:
+        return sum((l.exit_fill_price or 0) * l.contracts * 100
+                   for l in self.short_legs
+                   if l.status in ("rolled", "closed"))
+
+    @property
+    def net_short_credits(self) -> float:
+        return self.gross_short_credits - self.total_buybacks - self.total_commissions
+
+    @property
+    def total_commissions(self) -> float:
+        lc = self.long_commission * self.contracts
+        sc = sum(l.total_commission for l in self.short_legs)
+        return lc + sc
+
+    @property
+    def total_slippage(self) -> float:
+        entry_slip = (self.long_fill_price - self.long_entry_price) * self.contracts * 100
+        short_slip = sum(l.slippage * l.contracts * 100 for l in self.short_legs)
+        return entry_slip + short_slip
+
+    @property
+    def short_coverage_pct(self) -> float:
+        if self.long_cost <= 0:
+            return 0.0
+        return min(100.0, self.net_short_credits / self.long_cost * 100)
+
+    @property
+    def total_contracts(self) -> int:
+        return self.contracts
+
+    @property
+    def entry_debit(self) -> float:
+        return self.long_cost
+
+    @property
+    def fee_per_contract(self) -> float:
+        return self.long_commission
+
+    def should_roll(self, roll_dte_threshold: int = 1) -> bool:
+        return self.days_to_expiry() <= roll_dte_threshold
+
+    def recalc_roll_totals(self):
+        """Recalculate roll totals from roll_history (compat stub)."""
+        pass
+
+    def get_health_status(self) -> dict:
+        from datetime import date
+        short = self.current_short_leg
+        dte   = self.days_to_expiry()
+        long_dte = self.days_to_long_expiry()
+
+        if short is None:
+            short_status = "none"
+        elif dte <= 0:
+            short_status = "expired"
+        elif dte <= 1:
+            short_status = "roll_now"
+        elif dte <= 3:
+            short_status = "roll_soon"
+        else:
+            short_status = "ok"
+
+        if short_status in ("expired", "roll_now", "none"):
+            status = "critical"
+        elif short_status == "roll_soon" or long_dte < 30:
+            status = "attention"
+        else:
+            status = "ok"
+
+        return {
+            "status":        status,
+            "short_status":  short_status,
+            "dte":           dte,
+            "long_dte":      long_dte,
+            "coverage_pct":  self.short_coverage_pct,
+            "total_pnl":     self.total_pnl,
+            "needs_roll":    short_status in ("expired", "roll_now"),
+            "needs_attention": status in ("critical", "attention"),
+        }
+
+    def get_roll_summary(self) -> dict:
+        return {
+            "total_rolls":  len(self.roll_history),
+            "roll_credits": sum(r.roll_credit for r in self.roll_history),
+            "last_roll":    self.roll_history[-1].roll_date if self.roll_history else None,
+        }
+
+    def add_short_leg(self, strike: float, expiration: str,
+                      credit: float, contracts: int = None):
+        from datetime import date
+        n      = contracts or self.contracts
+        n_legs = len(self.short_legs) + 1
+        leg = RealShortLeg(
+            leg_id          = f"{self.position_id}-S{n_legs}",
+            position_id     = self.position_id,
+            entry_date      = date.today().isoformat(),
+            strike          = strike,
+            expiration_date = expiration,
+            entry_credit    = credit,
+            fill_price      = credit,
+            contracts       = n,
+        )
+        self.short_legs.append(leg)
+        return leg
+
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -206,6 +891,317 @@ class RealDiagonalPosition:
     def days_to_expiry(self) -> int:
         short = self.current_short_leg
         return short.days_to_expiry() if short else -1
+
+
+    def get_health_status(self) -> dict:
+        """Position-level health — mirrors DiagonalPosition.get_health_status()."""
+        from datetime import date
+        short = self.current_short_leg
+        dte   = self.days_to_expiry()
+        today = date.today()
+
+        # Short leg status
+        if short is None:
+            short_status = "none"
+        elif dte <= 0:
+            short_status = "expired"
+        elif dte <= 1:
+            short_status = "roll_now"
+        elif dte <= 3:
+            short_status = "roll_soon"
+        else:
+            short_status = "ok"
+
+        # Long leg DTE
+        try:
+            long_exp  = date.fromisoformat(self.long_expiration)
+            long_dte  = (long_exp - today).days
+        except Exception:
+            long_dte  = 999
+
+        # Overall status
+        if short_status in ("expired", "roll_now"):
+            status = "critical"
+        elif short_status == "roll_soon" or long_dte < 30:
+            status = "attention"
+        else:
+            status = "ok"
+
+        return {
+            "status":       status,
+            "short_status": short_status,
+            "dte":          dte,
+            "long_dte":     long_dte,
+            "coverage_pct": self.short_coverage_pct,
+            "total_pnl":    self.total_pnl,
+        }
+
+    def days_to_long_expiry(self) -> int:
+        from datetime import date
+        try:
+            return max(0, (date.fromisoformat(self.long_expiration) - date.today()).days)
+        except Exception:
+            return 0
+
+    def should_roll(self, roll_dte_threshold: int = 1) -> bool:
+        return self.days_to_expiry() <= roll_dte_threshold
+
+    @property
+    def total_rolls(self) -> int:
+        return len(self.roll_history)
+
+    @property
+    def total_roll_credits(self) -> float:
+        return sum(r.roll_credit for r in self.roll_history)
+
+    @property
+    def long_pnl(self) -> float:
+        if self.long_current_price <= 0:
+            return 0.0
+        return (self.long_current_price - self.long_fill_price) * self.contracts * 100
+
+    @property
+    def short_pnl(self) -> float:
+        return self.net_short_credits
+
+    @property
+    def entry_debit(self) -> float:
+        return self.long_cost
+
+    @property
+    def total_contracts(self) -> int:
+        return self.contracts
+
+    @property
+    def fee_per_contract(self) -> float:
+        return self.long_commission
+
+    def get_roll_summary(self) -> dict:
+        return {
+            "total_rolls":   len(self.roll_history),
+            "roll_credits":  sum(r.roll_credit for r in self.roll_history),
+            "last_roll":     self.roll_history[-1].roll_date if self.roll_history else None,
+        }
+
+
+
+    @property
+    def entry_datetime(self):
+        """Compat: return entry_date as datetime for days_open calc."""
+        from datetime import datetime
+        try:
+            return datetime.fromisoformat(self.entry_date)
+        except Exception:
+            return None
+
+    @property
+    def days_held(self) -> int:
+        from datetime import datetime
+        try:
+            return (datetime.utcnow() - datetime.fromisoformat(self.entry_date)).days
+        except Exception:
+            return 0
+
+    @property
+    def signal_id(self) -> str:
+        return self.position_id
+
+    @property
+    def variant_role(self):
+        return self.variant_id
+
+    @property
+    def long_current_price(self) -> float:
+        return getattr(self, '_long_current_price', 0.0)
+
+    @long_current_price.setter
+    def long_current_price(self, value: float):
+        self._long_current_price = value
+
+
+    @property
+    def legs(self) -> list:
+        """Compat: app.py reads trade.legs[0].quantity for contract count."""
+        return self.short_legs
+
+    @property
+    def structure(self) -> str:
+        return "Diagonal"
+
+    @property
+    def variant_role(self) -> str:
+        return self.variant_id
+
+    @property
+    def total_contracts(self) -> int:
+        return self.contracts
+
+    # ── Full compatibility layer for app.py ─────────────────
+
+    def days_to_short_expiry(self) -> int:
+        return self.days_to_expiry()
+
+    def days_to_long_expiry(self) -> int:
+        from datetime import date
+        try:
+            return max(0, (date.fromisoformat(self.long_expiration) - date.today()).days)
+        except Exception:
+            return 0
+
+    def days_to_expiry(self) -> int:
+        short = self.current_short_leg
+        return short.days_to_expiry() if short else -1
+
+    @property
+    def long_dte(self) -> int:
+        return self.days_to_long_expiry()
+
+    @property
+    def short_dte(self) -> int:
+        return self.days_to_short_expiry()
+
+    @property
+    def long_pnl(self) -> float:
+        if self.long_current_price <= 0:
+            return 0.0
+        return (self.long_current_price - self.long_fill_price) * self.contracts * 100
+
+    @property
+    def short_pnl(self) -> float:
+        return self.net_short_credits
+
+    @property
+    def total_pnl(self) -> float:
+        return self.long_pnl + self.net_short_credits
+
+    @property
+    def long_cost(self) -> float:
+        return (self.long_fill_price * self.contracts * 100
+                + self.long_commission * self.contracts)
+
+    @property
+    def total_rolls(self) -> int:
+        return len(self.roll_history)
+
+    @property
+    def total_roll_credits(self) -> float:
+        return sum(r.roll_credit for r in self.roll_history)
+
+    @property
+    def total_credits_received(self) -> float:
+        return self.gross_short_credits
+
+    @property
+    def gross_short_credits(self) -> float:
+        return sum(l.fill_price * l.contracts * 100 for l in self.short_legs)
+
+    @property
+    def total_buybacks(self) -> float:
+        return sum((l.exit_fill_price or 0) * l.contracts * 100
+                   for l in self.short_legs
+                   if l.status in ("rolled", "closed"))
+
+    @property
+    def net_short_credits(self) -> float:
+        return self.gross_short_credits - self.total_buybacks - self.total_commissions
+
+    @property
+    def total_commissions(self) -> float:
+        lc = self.long_commission * self.contracts
+        sc = sum(l.total_commission for l in self.short_legs)
+        return lc + sc
+
+    @property
+    def total_slippage(self) -> float:
+        entry_slip = (self.long_fill_price - self.long_entry_price) * self.contracts * 100
+        short_slip = sum(l.slippage * l.contracts * 100 for l in self.short_legs)
+        return entry_slip + short_slip
+
+    @property
+    def short_coverage_pct(self) -> float:
+        if self.long_cost <= 0:
+            return 0.0
+        return min(100.0, self.net_short_credits / self.long_cost * 100)
+
+    @property
+    def total_contracts(self) -> int:
+        return self.contracts
+
+    @property
+    def entry_debit(self) -> float:
+        return self.long_cost
+
+    @property
+    def fee_per_contract(self) -> float:
+        return self.long_commission
+
+    def should_roll(self, roll_dte_threshold: int = 1) -> bool:
+        return self.days_to_expiry() <= roll_dte_threshold
+
+    def recalc_roll_totals(self):
+        """Recalculate roll totals from roll_history (compat stub)."""
+        pass
+
+    def get_health_status(self) -> dict:
+        from datetime import date
+        short = self.current_short_leg
+        dte   = self.days_to_expiry()
+        long_dte = self.days_to_long_expiry()
+
+        if short is None:
+            short_status = "none"
+        elif dte <= 0:
+            short_status = "expired"
+        elif dte <= 1:
+            short_status = "roll_now"
+        elif dte <= 3:
+            short_status = "roll_soon"
+        else:
+            short_status = "ok"
+
+        if short_status in ("expired", "roll_now", "none"):
+            status = "critical"
+        elif short_status == "roll_soon" or long_dte < 30:
+            status = "attention"
+        else:
+            status = "ok"
+
+        return {
+            "status":        status,
+            "short_status":  short_status,
+            "dte":           dte,
+            "long_dte":      long_dte,
+            "coverage_pct":  self.short_coverage_pct,
+            "total_pnl":     self.total_pnl,
+            "needs_roll":    short_status in ("expired", "roll_now"),
+            "needs_attention": status in ("critical", "attention"),
+        }
+
+    def get_roll_summary(self) -> dict:
+        return {
+            "total_rolls":  len(self.roll_history),
+            "roll_credits": sum(r.roll_credit for r in self.roll_history),
+            "last_roll":    self.roll_history[-1].roll_date if self.roll_history else None,
+        }
+
+    def add_short_leg(self, strike: float, expiration: str,
+                      credit: float, contracts: int = None):
+        from datetime import date
+        n      = contracts or self.contracts
+        n_legs = len(self.short_legs) + 1
+        leg = RealShortLeg(
+            leg_id          = f"{self.position_id}-S{n_legs}",
+            position_id     = self.position_id,
+            entry_date      = date.today().isoformat(),
+            strike          = strike,
+            expiration_date = expiration,
+            entry_credit    = credit,
+            fill_price      = credit,
+            contracts       = n,
+        )
+        self.short_legs.append(leg)
+        return leg
+
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -492,16 +1488,33 @@ class RealTradeLog:
     def total_rolls(self) -> int:
         return sum(len(p.roll_history) for p in self.diagonal_positions.values())
 
-    # ── Compatibility methods — mirror trade_log.py interface ─────────────
-    def get_all_diagonals(self) -> list:
+
+    def get_open_trades(self) -> list:
+        """Compat: return open diagonal positions as list."""
+        return list(self.open_positions().values())
+
+    def get_all_trades(self) -> list:
         return list(self.diagonal_positions.values())
 
-    def get_open_diagonals(self) -> list:
+    def get_closed_trades(self) -> list:
         return [p for p in self.diagonal_positions.values()
-                if p.status == "open"]
+                if p.status == "closed"]
+
+    def get_trades_by_variant(self, variant_id: str) -> list:
+        return [p for p in self.diagonal_positions.values()
+                if p.variant_id.upper() == variant_id.upper()]
+
+    def get_trade(self, position_id: str):
+        return self.diagonal_positions.get(position_id)
 
     def get_diagonal(self, position_id: str):
         return self.diagonal_positions.get(position_id)
+
+    def get_open_diagonals(self) -> list:
+        return list(self.open_positions().values())
+
+    def get_all_diagonals(self) -> list:
+        return list(self.diagonal_positions.values())
 
     def update_diagonal_prices(self, position_id: str,
                                long_price: float, short_price: float):
@@ -512,8 +1525,32 @@ class RealTradeLog:
         short = pos.current_short_leg
         if short:
             short.current_price = short_price
-        pos.updated_at = __import__("datetime").datetime.now().isoformat()
+        import datetime
+        pos.updated_at = datetime.datetime.now().isoformat()
         self._save()
+
+    def get_position_health_summary(self) -> dict:
+        open_pos = self.open_positions()
+        needing_roll, needing_long_roll = [], []
+        for pos in open_pos.values():
+            dte = pos.days_to_expiry()
+            if dte <= 1:
+                needing_roll.append(pos)
+            try:
+                import datetime
+                long_exp = datetime.date.fromisoformat(pos.long_expiration)
+                long_dte = (long_exp - datetime.date.today()).days
+                if long_dte < 30:
+                    needing_long_roll.append(pos)
+            except Exception:
+                pass
+        return {
+            "total":             len(self.diagonal_positions),
+            "open":              len(open_pos),
+            "closed":            len(self.diagonal_positions) - len(open_pos),
+            "needing_roll":      needing_roll,
+            "needing_long_roll": needing_long_roll,
+        }
 
     def roll_diagonal_short(self, position_id, exit_price, new_strike,
                             new_expiration, new_credit, underlying_price,
@@ -531,7 +1568,6 @@ class RealTradeLog:
             roll_reason      = "manual",
             notes            = notes,
         )
-        # Return (new_leg, roll) tuple matching paper trade interface
         new_leg = self.diagonal_positions[position_id].current_short_leg
         return new_leg, roll
 
@@ -543,8 +1579,9 @@ class RealTradeLog:
         short = pos.current_short_leg
         if not short:
             return False
+        import datetime
         short.status          = "closed"
-        short.exit_date       = __import__("datetime").date.today().isoformat()
+        short.exit_date       = datetime.date.today().isoformat()
         short.exit_price      = exit_price
         short.exit_fill_price = exit_price
         short.exit_reason     = exit_reason
@@ -556,13 +1593,13 @@ class RealTradeLog:
         pos = self.diagonal_positions.get(position_id)
         if not pos:
             return None
+        import datetime
         n      = contracts or pos.contracts
         n_legs = len(pos.short_legs) + 1
-        from datetime import date, datetime
         leg = RealShortLeg(
             leg_id          = f"{position_id}-S{n_legs}",
             position_id     = position_id,
-            entry_date      = date.today().isoformat(),
+            entry_date      = datetime.date.today().isoformat(),
             strike          = strike,
             expiration_date = expiration,
             entry_credit    = credit,
@@ -572,6 +1609,31 @@ class RealTradeLog:
         pos.short_legs.append(leg)
         self._save()
         return leg
+
+    def should_roll(self, roll_dte_threshold: int = 1) -> bool:
+        return self.days_to_expiry() <= roll_dte_threshold
+
+    @property
+    def total_rolls(self) -> int:
+        return sum(len(p.roll_history)
+                   for p in self.diagonal_positions.values())
+
+    @property
+    def total_roll_credits(self) -> float:
+        return sum(
+            sum(r.roll_credit for r in p.roll_history)
+            for p in self.diagonal_positions.values()
+        )
+
+    @property
+    def total_commissions_all(self) -> float:
+        return sum(p.total_commissions
+                   for p in self.diagonal_positions.values())
+
+    def days_to_long_expiry(self) -> int:
+        return 0  # position-level stub
+
+
 
 # ── Singleton ────────────────────────────────────────────────
 _real_log_instance: Optional[RealTradeLog] = None
