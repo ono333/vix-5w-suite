@@ -59,6 +59,12 @@ class RealShortLeg:
         if not self.expiration_date:
             return 0
         try:
+            from datetime import date
+            exp = date.fromisoformat(self.expiration_date)
+            return max(0, (exp - date.today()).days)
+        except Exception:
+            return 0
+        try:
             exp = date.fromisoformat(self.expiration_date)
             return max(0, (exp - date.today()).days)
         except:
@@ -169,6 +175,40 @@ class RealShortLeg:
             "last_roll":     self.roll_history[-1].roll_date if self.roll_history else None,
         }
 
+
+
+    @property
+    def entry_datetime(self):
+        """Compat: return entry_date as datetime for days_open calc."""
+        from datetime import datetime
+        try:
+            return datetime.fromisoformat(self.entry_date)
+        except Exception:
+            return None
+
+    @property
+    def days_held(self) -> int:
+        from datetime import datetime
+        try:
+            return (datetime.utcnow() - datetime.fromisoformat(self.entry_date)).days
+        except Exception:
+            return 0
+
+    @property
+    def signal_id(self) -> str:
+        return self.position_id
+
+    @property
+    def variant_role(self):
+        return self.variant_id
+
+    @property
+    def long_current_price(self) -> float:
+        return getattr(self, '_long_current_price', 0.0)
+
+    @long_current_price.setter
+    def long_current_price(self, value: float):
+        self._long_current_price = value
 
     # ── Full compatibility layer for app.py ─────────────────
 
@@ -456,6 +496,40 @@ class RealRollRecord:
             "last_roll":     self.roll_history[-1].roll_date if self.roll_history else None,
         }
 
+
+
+    @property
+    def entry_datetime(self):
+        """Compat: return entry_date as datetime for days_open calc."""
+        from datetime import datetime
+        try:
+            return datetime.fromisoformat(self.entry_date)
+        except Exception:
+            return None
+
+    @property
+    def days_held(self) -> int:
+        from datetime import datetime
+        try:
+            return (datetime.utcnow() - datetime.fromisoformat(self.entry_date)).days
+        except Exception:
+            return 0
+
+    @property
+    def signal_id(self) -> str:
+        return self.position_id
+
+    @property
+    def variant_role(self):
+        return self.variant_id
+
+    @property
+    def long_current_price(self) -> float:
+        return getattr(self, '_long_current_price', 0.0)
+
+    @long_current_price.setter
+    def long_current_price(self, value: float):
+        self._long_current_price = value
 
     # ── Full compatibility layer for app.py ─────────────────
 
@@ -816,6 +890,40 @@ class RealDiagonalPosition:
             "last_roll":     self.roll_history[-1].roll_date if self.roll_history else None,
         }
 
+
+
+    @property
+    def entry_datetime(self):
+        """Compat: return entry_date as datetime for days_open calc."""
+        from datetime import datetime
+        try:
+            return datetime.fromisoformat(self.entry_date)
+        except Exception:
+            return None
+
+    @property
+    def days_held(self) -> int:
+        from datetime import datetime
+        try:
+            return (datetime.utcnow() - datetime.fromisoformat(self.entry_date)).days
+        except Exception:
+            return 0
+
+    @property
+    def signal_id(self) -> str:
+        return self.position_id
+
+    @property
+    def variant_role(self):
+        return self.variant_id
+
+    @property
+    def long_current_price(self) -> float:
+        return getattr(self, '_long_current_price', 0.0)
+
+    @long_current_price.setter
+    def long_current_price(self, value: float):
+        self._long_current_price = value
 
     # ── Full compatibility layer for app.py ─────────────────
 
