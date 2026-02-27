@@ -1266,8 +1266,9 @@ def build_real_capital_email(
 
 </div>
 </body>
+</html>
+"""
     return html
-
 
 
 def send_email(
