@@ -1413,8 +1413,9 @@ def main():
         if real_html:
             real_subject = (f"[LIVE 💵] {regime_state.regime.value.upper()} "
                             f"({percentile:.0%}) — Real Capital Risk Report")
-            success_r, msg_r = send_email(real_html, real_subject, real_html)
-            print(f"   {'✅' if success_r else '⚠️'} Real capital email: {msg_r}")
+            to_addr = os.environ.get("SMTP_TO", os.environ.get("SMTP_USER", ""))
+            ok_r = send_email(real_html, to_addr, real_subject)
+            print(f"   {'✅' if ok_r else '⚠️'} Real capital email {'sent' if ok_r else 'failed'}")
     except Exception as _re:
         print(f"   ⚠️ Real capital email error: {_re}")
 
