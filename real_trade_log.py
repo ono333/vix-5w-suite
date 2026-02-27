@@ -192,9 +192,14 @@ class RealShortLeg:
 
     @property
     def long_pnl(self) -> float:
-        if self.long_current_price <= 0:
+        try:
+            cur  = float(self.long_current_price or 0)
+            fill = float(self.long_fill_price or 0)
+        except (TypeError, ValueError):
             return 0.0
-        return (self.long_current_price - self.long_fill_price) * self.contracts * 100
+        if cur <= 0:
+            return 0.0
+        return (cur - fill) * self.contracts * 100
 
     @property
     def short_pnl(self) -> float:
@@ -303,9 +308,14 @@ class RealShortLeg:
 
     @property
     def long_pnl(self) -> float:
-        if self.long_current_price <= 0:
+        try:
+            cur  = float(self.long_current_price or 0)
+            fill = float(self.long_fill_price or 0)
+        except (TypeError, ValueError):
             return 0.0
-        return (self.long_current_price - self.long_fill_price) * self.contracts * 100
+        if cur <= 0:
+            return 0.0
+        return (cur - fill) * self.contracts * 100
 
     @property
     def short_pnl(self) -> float:
@@ -344,7 +354,10 @@ class RealShortLeg:
 
     @property
     def net_short_credits(self) -> float:
-        return self.gross_short_credits - self.total_buybacks - self.total_commissions
+        try:
+            return float(self.gross_short_credits) - float(self.total_buybacks) - float(self.total_commissions)
+        except (TypeError, ValueError):
+            return 0.0
 
     @property
     def total_commissions(self) -> float:
@@ -536,9 +549,14 @@ class RealRollRecord:
 
     @property
     def long_pnl(self) -> float:
-        if self.long_current_price <= 0:
+        try:
+            cur  = float(self.long_current_price or 0)
+            fill = float(self.long_fill_price or 0)
+        except (TypeError, ValueError):
             return 0.0
-        return (self.long_current_price - self.long_fill_price) * self.contracts * 100
+        if cur <= 0:
+            return 0.0
+        return (cur - fill) * self.contracts * 100
 
     @property
     def short_pnl(self) -> float:
@@ -642,9 +660,14 @@ class RealRollRecord:
 
     @property
     def long_pnl(self) -> float:
-        if self.long_current_price <= 0:
+        try:
+            cur  = float(self.long_current_price or 0)
+            fill = float(self.long_fill_price or 0)
+        except (TypeError, ValueError):
             return 0.0
-        return (self.long_current_price - self.long_fill_price) * self.contracts * 100
+        if cur <= 0:
+            return 0.0
+        return (cur - fill) * self.contracts * 100
 
     @property
     def short_pnl(self) -> float:
@@ -683,7 +706,10 @@ class RealRollRecord:
 
     @property
     def net_short_credits(self) -> float:
-        return self.gross_short_credits - self.total_buybacks - self.total_commissions
+        try:
+            return float(self.gross_short_credits) - float(self.total_buybacks) - float(self.total_commissions)
+        except (TypeError, ValueError):
+            return 0.0
 
     @property
     def total_commissions(self) -> float:
@@ -854,7 +880,10 @@ class RealDiagonalPosition:
 
     @property
     def net_short_credits(self) -> float:
-        return self.gross_short_credits - self.total_buybacks - self.total_commissions
+        try:
+            return float(self.gross_short_credits) - float(self.total_buybacks) - float(self.total_commissions)
+        except (TypeError, ValueError):
+            return 0.0
 
     @property
     def long_pnl(self) -> float:
@@ -948,9 +977,14 @@ class RealDiagonalPosition:
 
     @property
     def long_pnl(self) -> float:
-        if self.long_current_price <= 0:
+        try:
+            cur  = float(self.long_current_price or 0)
+            fill = float(self.long_fill_price or 0)
+        except (TypeError, ValueError):
             return 0.0
-        return (self.long_current_price - self.long_fill_price) * self.contracts * 100
+        if cur <= 0:
+            return 0.0
+        return (cur - fill) * self.contracts * 100
 
     @property
     def short_pnl(self) -> float:
@@ -1054,9 +1088,14 @@ class RealDiagonalPosition:
 
     @property
     def long_pnl(self) -> float:
-        if self.long_current_price <= 0:
+        try:
+            cur  = float(self.long_current_price or 0)
+            fill = float(self.long_fill_price or 0)
+        except (TypeError, ValueError):
             return 0.0
-        return (self.long_current_price - self.long_fill_price) * self.contracts * 100
+        if cur <= 0:
+            return 0.0
+        return (cur - fill) * self.contracts * 100
 
     @property
     def short_pnl(self) -> float:
@@ -1095,7 +1134,10 @@ class RealDiagonalPosition:
 
     @property
     def net_short_credits(self) -> float:
-        return self.gross_short_credits - self.total_buybacks - self.total_commissions
+        try:
+            return float(self.gross_short_credits) - float(self.total_buybacks) - float(self.total_commissions)
+        except (TypeError, ValueError):
+            return 0.0
 
     @property
     def total_commissions(self) -> float:
