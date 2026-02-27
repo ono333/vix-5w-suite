@@ -5146,7 +5146,67 @@ def render_real_trade_log_page():
                                 st.rerun()
 
                     # ── Roll history ──
+                    st.markdown("---")
+                    if True:  # always show roll section
+                        rh_col1, rh_col2, rh_col3 = st.columns([4, 1, 1])
+                        with rh_col1:
+                            st.markdown("**🔄 Roll History**")
+                        with rh_col2:
+                            if st.button("✏️ Edit Rolls", key=f"redit_rolls_{pid}"):
+                                st.session_state[f"rediting_rolls_{pid}"] = not st.session_state.get(f"rediting_rolls_{pid}", False)
+                        with rh_col3:
+                            if st.button("🔄 Recalc", key=f"rrecalc_{pid}"):
+                                try:
+                                    pos.recalc_roll_totals()
+                                    rtl._save()
+                                    reset_real_trade_log_cache()
+                                    st.success("✅ Recalculated")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"{e}")
+                        # Spreadsheet view
+                        import pandas as pd
+                        roll_rows = []
+                        for r in pos.roll_history:
+                            roll_rows.append({
+                                "Date":       getattr(r, "roll_date", ""),
+                                "Old Strike": f"${getattr(r, 'old_strike', 0):.0f}",
+                                "Old Exp":    getattr(r, "old_expiration", ""),
+                                "Old Exit":   f"${getattr(r, 'old_exit_price', 0):.2f}",
+                                "Old Fill":   f"${getattr(r, 'old_fill_price', getattr(r, 'old_exit_price', 0)):.2f}",
+                                "New Strike": f"${getattr(r, 'new_strike', 0):.0f}",
+                                "New Exp":    getattr(r, "new_expiration", ""),
+                                "New Credit": f"${getattr(r, 'new_credit', 0):.2f}",
+                                "New Fill":   f"${getattr(r, 'new_fill_price', getattr(r, 'new_credit', 0)):.2f}",
+                                "Net Credit": f"${getattr(r, 'roll_credit', 0):.2f}",
+                                "BB Slip":    f"${getattr(r,'old_fill_price',getattr(r,'old_exit_price',0)) - getattr(r,'old_exit_price',0):+.2f}",
+                                "Cr Slip":    f"${getattr(r,'new_fill_price',getattr(r,'new_credit',0)) - getattr(r,'new_credit',0):+.2f}",
+                                "UVXY":       f"${getattr(r, 'underlying_price', 0):.2f}",
+                                "Reason":     getattr(r, "roll_reason", ""),
+                                "Notes":      getattr(r, "notes", ""),
+                            })
+                        st.dataframe(pd.DataFrame(roll_rows),
+                                     use_container_width=True, hide_index=True)
+                        # Totals
+                        total_net = sum(getattr(r, "roll_credit", 0) for r in pos.roll_history)
+                        total_bb_slip = sum(
+                            getattr(r,'old_fill_price',getattr(r,'old_exit_price',0)) - getattr(r,'old_exit_price',0)
+                            for r in pos.roll_history)
+                        total_cr_slip = sum(
+                            getattr(r,'new_fill_price',getattr(r,'new_credit',0)) - getattr(r,'new_credit',0)
+                            for r in pos.roll_history)
+                        ts1, ts2, ts3, ts4 = st.columns(4)
+                        ts1.metric("Total Net Credits", f"${total_net:,.2f}")
+                        ts2.metric("Total BB Slippage", f"${total_bb_slip:+.2f}")
+                        ts3.metric("Total Cr Slippage", f"${total_cr_slip:+.2f}")
+                        ts4.metric("Total Rolls", len(pos.roll_history))
+
+                        # Edit mode
+                        if st.session_state.get(f"rediting_rolls_{pid}"):
+                            _render_real_roll_edit_form(rtl, pos)
                     if pos.roll_history:
+                        pass  # already handled above
+                    if False:  # placeholder to avoid empty block
                         st.markdown("---")
                         st.markdown("**Roll History**")
                         rh = [{
