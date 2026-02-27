@@ -4785,7 +4785,7 @@ def render_real_trade_log_page():
 
     rtl = get_real_trade_log()
     # Auto-fetch live prices on page load if any long_current_price is 0
-    _needs_px = any(p.long_current_price <= 0
+    _needs_px = any(float(p.long_current_price or 0) <= 0
                     for p in rtl.diagonal_positions.values())
     if _needs_px:
         try:
