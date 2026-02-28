@@ -4649,7 +4649,16 @@ def render_trade_log(trade_log=None):
         st.markdown("---")
         
         # SHORT LEG
-        st.markdown("##### 📉 Short Leg (Weekly Call)")
+        long_only_mode = st.checkbox(
+            "📌 Long Only — short leg not sold yet",
+            value=False,
+            key="rtl_long_only_mode",
+            help="Use when you've bought the LEAP but haven't sold the short call yet"
+        )
+        if long_only_mode:
+            st.info("✅ Long-only position. Add short leg later via '📈 Add Short Leg' button.")
+        if not long_only_mode:
+            st.markdown("##### 📉 Short Leg (Weekly Call)")
         short_col1, short_col2, short_col3 = st.columns(3)
         with short_col1:
             short_strike = st.number_input(

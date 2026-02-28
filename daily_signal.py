@@ -1409,6 +1409,15 @@ def main():
 
     # 5b. Build and send real capital email (separate, orange theme)
     try:
+        # Fetch live long prices before building real email
+        try:
+            from real_trade_log import fetch_real_long_prices
+            _rtl_live = __import__('real_trade_log').get_real_trade_log()
+            _fetched = fetch_real_long_prices(_rtl_live)
+            if _fetched:
+                print(f"   💰 Live long prices fetched: {_fetched}")
+        except Exception as _pxe:
+            print(f"   ⚠️ Live price fetch: {_pxe}")
         real_html = build_real_capital_email(batch, variant_states)
         if real_html:
             real_subject = (f"[LIVE 💵] {regime_state.regime.value.upper()} "

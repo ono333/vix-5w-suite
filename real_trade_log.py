@@ -30,6 +30,65 @@ BROKERS = ["Fidelity", "IB", "Schwab", "TD", "Other"]
 # DATA STRUCTURES  (mirroring trade_log.py + real-trade fields)
 # ═══════════════════════════════════════════════════════════
 
+
+def fetch_real_long_prices(rtl) -> dict:
+    """
+    Fetch live option prices for all real long legs using yfinance.
+    Returns dict of {position_id: current_price}.
+    Updates rtl in-place and saves.
+    """
+    import yfinance as yf
+    from datetime import datetime
+    updated = {}
+    ticker = yf.Ticker("UVXY")
+    # Get all expiry dates needed
+    positions = [p for p in rtl.diagonal_positions.values() if p.status == "open"]
+    if not positions:
+        return {}
+    try:
+        available_exps = set(ticker.options)
+    except Exception:
+        available_exps = set()
+
+    for pos in positions:
+        exp = pos.long_expiration
+        strike = float(pos.long_strike)
+        try:
+            if exp not in available_exps:
+                # Find nearest available expiry
+                from datetime import date
+                target = date.fromisoformat(exp)
+                nearest = min(
+                    (e for e in available_exps),
+                    key=lambda e: abs((date.fromisoformat(e) - target).days),
+                    default=None
+                )
+                if not nearest:
+                    continue
+                exp_use = nearest
+            else:
+                exp_use = exp
+
+            chain = ticker.option_chain(exp_use)
+            calls = chain.calls
+            row = calls[abs(calls["strike"] - strike) < 0.51]
+            if row.empty:
+                # Try nearest strike
+                idx = (calls["strike"] - strike).abs().idxmin()
+                row = calls.iloc[[idx]]
+            if not row.empty:
+                mid = float((row["bid"].iloc[0] + row["ask"].iloc[0]) / 2)
+                if mid > 0:
+                    pos.long_current_price = mid
+                    updated[pos.position_id] = mid
+        except Exception as e:
+            pass
+
+    if updated:
+        rtl._save()
+    return updated
+
+
 @dataclass
 class RealShortLeg:
     leg_id:           str
@@ -1549,6 +1608,54 @@ class RealTradeLog:
 
     def get_all_diagonals(self) -> list:
         return list(self.diagonal_positions.values())
+
+
+    def open_long_only(
+        self,
+        variant_id:       str,
+        variant_name:     str,
+        regime:           str,
+        vix_level:        float,
+        vix_percentile:   float,
+        contracts:        int,
+        long_strike:      float,
+        long_expiration:  str,
+        long_entry_price: float,   # mid
+        long_fill_price:  float,   # actual fill
+        broker:           str      = "Fidelity",
+        account_id:       str      = "",
+        long_commission:  float    = 0.65,
+        notes:            str      = "",
+    ) -> "RealDiagonalPosition":
+        """Open a diagonal with only the long leg — short to be added later."""
+        from datetime import datetime, date
+        ts          = datetime.now().strftime("%Y%m%d%H%M%S")
+        position_id = f"{variant_id[:2].upper()}-REAL-{ts}"
+        entry_date  = date.today().isoformat()
+
+        pos = RealDiagonalPosition(
+            position_id      = position_id,
+            variant_id       = variant_id,
+            variant_name     = variant_name,
+            entry_date       = entry_date,
+            entry_regime     = regime,
+            entry_vix_level  = vix_level,
+            entry_percentile = vix_percentile,
+            contracts        = contracts,
+            broker           = broker,
+            account_id       = account_id,
+            long_strike      = long_strike,
+            long_expiration  = long_expiration,
+            long_entry_price = long_entry_price,
+            long_fill_price  = long_fill_price,
+            long_commission  = long_commission,
+            short_legs       = [],
+            notes            = (notes + " | Long-only entry, short pending").strip(" |"),
+            status           = "open",
+        )
+        self.diagonal_positions[position_id] = pos
+        self._save()
+        return pos
 
     def update_diagonal_prices(self, position_id: str,
                                long_price: float, short_price: float):
