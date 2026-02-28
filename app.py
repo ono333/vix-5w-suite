@@ -3112,7 +3112,8 @@ def _render_paper_diagonal_entry_form(trade_log):
     
     with col2:
         entry_regime = st.selectbox("Entry Regime", ["CALM", "ELEVATED", "HIGH", "EXTREME"], key="diag_entry_regime")
-        entry_vix = st.number_input("VIX Level", min_value=10.0, max_value=80.0, value=20.0, key="diag_entry_vix")
+        entry_vix = st.number_input("UVXY Price", min_value=1.0, max_value=200.0, value=20.0, key="diag_entry_vix")
+        entry_pct = st.number_input("VIX Percentile (%)", min_value=0.0, max_value=100.0, value=20.0, step=0.1, key="diag_entry_pct")
     
     st.markdown("##### Long Leg")
     lcol1, lcol2, lcol3 = st.columns(3)
@@ -5266,8 +5267,8 @@ def render_real_trade_log():
 
     # ══ NEW ENTRY ════════════════════════════════════════════
     with tab_new:
-        from real_trade_ui import _render_new_entry
-        _render_new_entry(rtl)
+        from real_trade_ui import _render_real_new_entry
+        _render_real_new_entry(rtl)
 
     # ══ HISTORY ══════════════════════════════════════════════
     with tab_history:

@@ -342,19 +342,27 @@ def _render_real_new_entry(tl):
             long_comm   = st.number_input(
                 "Long commission ($/contract)", value=0.65, step=0.01)
 
+            long_only_r = st.checkbox(
+                "📌 Long Only — short not sold yet",
+                value=False,
+                key="r_new_entry_long_only",
+                help="Buy the LEAP now, add the short call later via position card")
             st.markdown("**Short Leg (Credit)**")
-            short_strike = st.number_input(
-                "Short strike", value=round(uvxy_price + 2, 0),
-                step=1.0)
-            short_exp    = st.date_input(
-                "Short expiration",
-                value=date.today())
-            short_mid    = st.number_input(
-                "Short mid price (at order)", value=2.0, step=0.01)
-            short_fill   = st.number_input(
-                "Short actual fill price", value=2.0, step=0.01)
-            short_comm   = st.number_input(
-                "Short commission ($/contract)", value=0.65, step=0.01)
+            if not long_only_r:
+                short_strike = st.number_input(
+                    "Short strike", value=round(uvxy_price + 2, 0),
+                    step=1.0)
+                short_exp    = st.date_input(
+                    "Short expiration", value=date.today())
+                short_mid    = st.number_input(
+                    "Short mid price (at order)", value=2.0, step=0.01)
+                short_fill   = st.number_input(
+                    "Short actual fill price", value=2.0, step=0.01)
+                short_comm   = st.number_input(
+                    "Short commission ($/contract)", value=0.65, step=0.01)
+            else:
+                short_strike = short_mid = short_fill = short_comm = 0.0
+                short_exp = date.today()
 
         notes = st.text_area("Notes", placeholder="e.g. First real money trade, V1 CALM entry")
 
@@ -370,7 +378,30 @@ def _render_real_new_entry(tl):
         long_slip  = long_fill  - long_mid
         short_slip = short_fill - short_mid
 
-        pos = tl.open_diagonal(
+        _lo_r = st.session_state.get("r_new_entry_long_only", False)
+        if _lo_r:
+            pos = tl.open_long_only(
+                variant_id       = variant_id,
+                variant_name     = variant_name,
+                regime           = regime,
+                vix_level        = vix_level,
+                vix_percentile   = vix_pct / 100,
+                contracts        = int(contracts),
+                long_strike      = long_strike,
+                long_expiration  = long_exp.isoformat(),
+                long_entry_price = long_mid,
+                long_fill_price  = long_fill,
+                broker           = broker,
+                account_id       = account_id,
+                long_commission  = long_comm,
+                notes            = notes,
+            )
+            reset_real_trade_log_cache()
+            st.success(f"✅ Long-only position: {pos.position_id}\n"
+                       f"📌 Add short leg when ready via position card.")
+            st.rerun()
+        else:
+            pos = tl.open_diagonal(
             variant_id       = variant_id,
             variant_name     = variant_name,
             regime           = regime,
