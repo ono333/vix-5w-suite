@@ -5267,8 +5267,14 @@ def render_real_trade_log():
 
     # ══ NEW ENTRY ════════════════════════════════════════════
     with tab_new:
-        from real_trade_ui import _render_real_new_entry
-        _render_real_new_entry(rtl)
+        import importlib
+        try:
+            rtu_mod = importlib.import_module("real_trade_ui")
+            importlib.reload(rtu_mod)
+            rtu_mod._render_real_new_entry(rtl)
+        except Exception as _rtu_e:
+            st.error(f"New Entry form error: {_rtu_e}")
+            import traceback; st.code(traceback.format_exc())
 
     # ══ HISTORY ══════════════════════════════════════════════
     with tab_history:
