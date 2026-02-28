@@ -4812,6 +4812,126 @@ def render_paper_trade_log(trade_log=None):
 
 
 # ═══ REAL TRADING FUNCTIONS ════════════════════════════════════
+
+def _render_real_roll_edit_form(rtl, pos):
+    """Spreadsheet editor for real trade roll history."""
+    import pandas as pd
+    st.markdown("##### ✏️ Edit Roll History")
+    if not pos.roll_history:
+        st.info("No roll history yet.")
+        if st.button("❌ Close", key=f"r_cancel_rolls_{pos.position_id}"):
+            st.session_state[f"r_editing_rolls_{pos.position_id}"] = False
+            st.rerun()
+        return
+
+    roll_data = []
+    for r in pos.roll_history:
+        roll_data.append({
+            "roll_id":          getattr(r, "roll_id", ""),
+            "roll_date":        getattr(r, "roll_date", ""),
+            "old_strike":       float(getattr(r, "old_strike", 0) or 0),
+            "old_expiration":   getattr(r, "old_expiration", ""),
+            "old_exit_price":   float(getattr(r, "old_exit_price", 0) or 0),
+            "old_fill_price":   float(getattr(r, "old_fill_price",
+                                    getattr(r, "old_exit_price", 0)) or 0),
+            "new_strike":       float(getattr(r, "new_strike", 0) or 0),
+            "new_expiration":   getattr(r, "new_expiration", ""),
+            "new_credit":       float(getattr(r, "new_credit", 0) or 0),
+            "new_fill_price":   float(getattr(r, "new_fill_price",
+                                    getattr(r, "new_credit", 0)) or 0),
+            "roll_credit":      float(getattr(r, "roll_credit", 0) or 0),
+            "underlying_price": float(getattr(r, "underlying_price", 0) or 0),
+            "roll_reason":      getattr(r, "roll_reason", ""),
+            "notes":            getattr(r, "notes", ""),
+        })
+
+    df = pd.DataFrame(roll_data)
+    col_cfg = {
+        "roll_id":          st.column_config.TextColumn("Roll ID", disabled=True, width="small"),
+        "roll_date":        st.column_config.TextColumn("Date", width="small"),
+        "old_strike":       st.column_config.NumberColumn("Old K", format="$%.1f", width="small"),
+        "old_expiration":   st.column_config.TextColumn("Old Exp", width="small"),
+        "old_exit_price":   st.column_config.NumberColumn("BB Mid", format="$%.2f", width="small"),
+        "old_fill_price":   st.column_config.NumberColumn("BB Fill", format="$%.2f", width="small"),
+        "new_strike":       st.column_config.NumberColumn("New K", format="$%.1f", width="small"),
+        "new_expiration":   st.column_config.TextColumn("New Exp", width="small"),
+        "new_credit":       st.column_config.NumberColumn("Cr Mid", format="$%.2f", width="small"),
+        "new_fill_price":   st.column_config.NumberColumn("Cr Fill", format="$%.2f", width="small"),
+        "roll_credit":      st.column_config.NumberColumn("Net Cr", format="$%.2f",
+                                disabled=True, width="small"),
+        "underlying_price": st.column_config.NumberColumn("UVXY", format="$%.2f", width="small"),
+        "roll_reason":      st.column_config.SelectboxColumn("Reason", width="small",
+                                options=["order_roll","delta_trigger","itm_threat",
+                                         "manual","expired_worthless"]),
+        "notes":            st.column_config.TextColumn("Notes", width="medium"),
+    }
+
+    edited_df = st.data_editor(
+        df, column_config=col_cfg, use_container_width=True,
+        hide_index=True, num_rows="fixed",
+        key=f"r_roll_editor_{pos.position_id}")
+    edited_df["roll_credit"] = edited_df["new_fill_price"] - edited_df["old_fill_price"]
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Rolls", len(edited_df))
+    c2.metric("Net Credits",  f"${edited_df['roll_credit'].sum():,.2f}")
+    c3.metric("BB Slip", f"${(edited_df['old_fill_price']-edited_df['old_exit_price']).sum():+.2f}")
+    c4.metric("Cr Slip", f"${(edited_df['new_fill_price']-edited_df['new_credit']).sum():+.2f}")
+
+    sc1, sc2 = st.columns(2)
+    with sc1:
+        if st.button("💾 Save", key=f"r_save_rolls_{pos.position_id}", type="primary"):
+            try:
+                for i, row in edited_df.iterrows():
+                    r = pos.roll_history[i]
+                    for field, val in [
+                        ("roll_date", str(row["roll_date"])),
+                        ("old_strike", float(row["old_strike"])),
+                        ("old_expiration", str(row["old_expiration"])),
+                        ("old_exit_price", float(row["old_exit_price"])),
+                        ("old_fill_price", float(row["old_fill_price"])),
+                        ("new_strike", float(row["new_strike"])),
+                        ("new_expiration", str(row["new_expiration"])),
+                        ("new_credit", float(row["new_credit"])),
+                        ("new_fill_price", float(row["new_fill_price"])),
+                        ("roll_credit", float(row["roll_credit"])),
+                        ("underlying_price", float(row["underlying_price"])),
+                        ("roll_reason", str(row["roll_reason"])),
+                        ("notes", str(row["notes"])),
+                    ]:
+                        setattr(r, field, val)
+                rtl._save()
+                from real_trade_log import reset_real_trade_log_cache
+                reset_real_trade_log_cache()
+                st.session_state[f"r_editing_rolls_{pos.position_id}"] = False
+                st.success("✅ Saved.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Save failed: {e}")
+    with sc2:
+        if st.button("❌ Cancel", key=f"r_cancel_rolls_{pos.position_id}"):
+            st.session_state[f"r_editing_rolls_{pos.position_id}"] = False
+            st.rerun()
+
+    st.markdown("---")
+    st.markdown("**🗑️ Delete a Roll**")
+    roll_opts = [f"{getattr(r,'roll_id',str(i))} ({getattr(r,'roll_date','')})"
+                 for i, r in enumerate(pos.roll_history)]
+    sel = st.selectbox("Select", roll_opts, key=f"r_del_roll_sel_{pos.position_id}")
+    dc1, dc2 = st.columns([1, 3])
+    with dc1:
+        del_ok = st.checkbox("Confirm", key=f"r_del_roll_confirm_{pos.position_id}")
+    with dc2:
+        if st.button("🗑️ Delete", key=f"r_del_roll_btn_{pos.position_id}", disabled=not del_ok):
+            idx = roll_opts.index(sel)
+            pos.roll_history.pop(idx)
+            rtl._save()
+            from real_trade_log import reset_real_trade_log_cache
+            reset_real_trade_log_cache()
+            st.success("✅ Deleted.")
+            st.rerun()
+
+
 def render_real_trade_log():
     """Trade Log Real — mirrors Trade Log page but uses real_trade_log.json."""
     from real_trade_log import get_real_trade_log, reset_real_trade_log_cache
