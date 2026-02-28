@@ -1481,22 +1481,22 @@ def render_signal_dashboard(trade_log=None):
                         
                         if health["short_status"] in ["expired", "none"]:
                             with btn_col1:
-                                if st.button(f"🎉 Lock Profit", key=f"expire_{pos.position_id}", help="Short expired worthless - lock in the credit"):
+                                if st.button(f"🎉 Lock Profit", key=f"p_expire_{pos.position_id}", help="Short expired worthless - lock in the credit"):
                                     trade_log.expire_diagonal_short(pos.position_id)
                                     st.success("✅ Short expired - profit locked!")
                                     st.rerun()
                         
                         if health["short_status"] in ["expired", "roll_soon", "none"]:
                             with btn_col2:
-                                if st.button(f"🔄 Roll Short", key=f"roll_{pos.position_id}"):
-                                    st.session_state[f"rolling_{pos.position_id}"] = True
+                                if st.button(f"🔄 Roll Short", key=f"p_roll_{pos.position_id}"):
+                                    st.session_state[f"p_rolling_{pos.position_id}"] = True
                         
                         with btn_col3:
                             if st.button(f"💲 Update Prices", key=f"prices_{pos.position_id}"):
                                 st.session_state[f"updating_prices_{pos.position_id}"] = True
                         
                         with btn_col4:
-                            if st.button(f"❌ Close Diagonal", key=f"close_{pos.position_id}"):
+                            if st.button(f"❌ Close Diagonal", key=f"p_close_{pos.position_id}"):
                                 st.session_state[f"closing_{pos.position_id}"] = True
                         
                         # Additional buttons row for individual leg management
@@ -1510,7 +1510,7 @@ def render_signal_dashboard(trade_log=None):
                                 st.session_state[f"closing_long_{pos.position_id}"] = True
                         
                         # Roll form
-                        if st.session_state.get(f"rolling_{pos.position_id}"):
+                        if st.session_state.get(f"p_rolling_{pos.position_id}"):
                             with st.form(key=f"roll_form_{pos.position_id}"):
                                 st.markdown("#### 🔄 Roll to New Short")
                                 
@@ -1557,16 +1557,16 @@ def render_signal_dashboard(trade_log=None):
                                             st.success(f"✅ Partial roll: {contracts_to_roll} contracts rolled!")
                                         else:
                                             st.success("✅ Short rolled successfully!")
-                                        st.session_state[f"rolling_{pos.position_id}"] = False
+                                        st.session_state[f"p_rolling_{pos.position_id}"] = False
                                         st.rerun()
                                 with sub_col2:
                                     if st.form_submit_button("Cancel"):
-                                        st.session_state[f"rolling_{pos.position_id}"] = False
+                                        st.session_state[f"p_rolling_{pos.position_id}"] = False
                                         st.rerun()
                         
                         # Close Short form
                         if st.session_state.get(f"closing_short_{pos.position_id}"):
-                            with st.form(key=f"close_short_form_{pos.position_id}"):
+                            with st.form(key=f"p_close_short_form_{pos.position_id}"):
                                 st.markdown("#### 📕 Close Short Leg")
                                 current_short = pos.current_short_leg
                                 if current_short:
@@ -1585,7 +1585,7 @@ def render_signal_dashboard(trade_log=None):
                                         close_reason = st.selectbox(
                                             "Reason",
                                             ["closed_manual", "expired_worthless", "expired_itm", "stop_loss", "take_profit"],
-                                            key=f"cs_reason_{pos.position_id}"
+                                            key=f"p_cs_reason_{pos.position_id}"
                                         )
                                     
                                     cs_sub1, cs_sub2 = st.columns(2)
@@ -1606,7 +1606,7 @@ def render_signal_dashboard(trade_log=None):
                         
                         # Close Long form
                         if st.session_state.get(f"closing_long_{pos.position_id}"):
-                            with st.form(key=f"close_long_form_{pos.position_id}"):
+                            with st.form(key=f"p_close_long_form_{pos.position_id}"):
                                 st.markdown("#### 📘 Close Long Leg")
                                 st.write(f"Long: ${pos.long_strike} exp {pos.long_expiration}")
                                 st.write(f"Entry price: ${pos.long_entry_price:.2f}")
@@ -1624,7 +1624,7 @@ def render_signal_dashboard(trade_log=None):
                                     close_long_reason = st.selectbox(
                                         "Reason",
                                         ["closed_manual", "expired_worthless", "expired_itm", "stop_loss", "take_profit", "roll_to_new"],
-                                        key=f"cl_reason_{pos.position_id}"
+                                        key=f"p_cl_reason_{pos.position_id}"
                                     )
                                 
                                 st.warning("⚠️ Closing the long leg will close the entire diagonal position!")
@@ -2707,7 +2707,7 @@ Backups:     {STORAGE_DIR / 'backups'}
 
 
 
-def _render_diagonal_positions(trade_log):
+def _render_paper_diagonal_positions(trade_log):
     """Render diagonal positions with roll tracking."""
     st.subheader("🔄 Diagonal Positions with Roll Tracking")
     
@@ -2844,7 +2844,7 @@ def _render_diagonal_positions(trade_log):
     
     # Add new diagonal position
     with st.expander("➕ Open New Diagonal Position", expanded=False):
-        _render_diagonal_entry_form(trade_log)
+        _render_paper_diagonal_entry_form(trade_log)
     
     # Display existing positions
     if not diagonals:
@@ -2942,9 +2942,9 @@ def _render_diagonal_positions(trade_log):
                 with rh_col1:
                     st.markdown("**🔄 Roll History**")
                 with rh_col2:
-                    edit_rolls_clicked = st.button("✏️ Edit Rolls", key=f"edit_rolls_{pos.position_id}")
+                    edit_rolls_clicked = st.button("✏️ Edit Rolls", key=f"p_edit_rolls_{pos.position_id}")
                     if edit_rolls_clicked:
-                        st.session_state[f"editing_rolls_{pos.position_id}"] = True
+                        st.session_state[f"p_editing_rolls_{pos.position_id}"] = True
                 roll_data = []
                 for roll in pos.roll_history:
                     roll_data.append({
@@ -2958,8 +2958,8 @@ def _render_diagonal_positions(trade_log):
                     })
                 st.dataframe(roll_data, use_container_width=True, hide_index=True)
                 
-                if st.session_state.get(f"editing_rolls_{pos.position_id}"):
-                    _render_roll_history_edit_form(trade_log, pos)
+                if st.session_state.get(f"p_editing_rolls_{pos.position_id}"):
+                    _render_paper_roll_history_edit_form(trade_log, pos)
             
             # Action buttons
             st.markdown("---")
@@ -2972,32 +2972,32 @@ def _render_diagonal_positions(trade_log):
                 
                 with col1:
                     if has_active_short:
-                        roll_clicked = st.button("🔄 Roll Short", key=f"roll_{pos.position_id}")
+                        roll_clicked = st.button("🔄 Roll Short", key=f"p_roll_{pos.position_id}")
                     else:
-                        sell_short_clicked = st.button("📈 Sell Short", key=f"sell_short_{pos.position_id}",
+                        sell_short_clicked = st.button("📈 Sell Short", key=f"p_sell_short_{pos.position_id}",
                                                        help="Sell a new short leg")
                         roll_clicked = False
                 
                 with col2:
                     if has_active_short:
-                        expire_clicked = st.button("🎉 Expire Profit", key=f"expire_{pos.position_id}", 
+                        expire_clicked = st.button("🎉 Expire Profit", key=f"p_expire_{pos.position_id}", 
                                                    help="Mark short as expired worthless (keep LEAP)")
                     else:
                         expire_clicked = False
                         st.write("")  # Empty space
                 
                 with col3:
-                    update_clicked = st.button("💰 Prices", key=f"update_{pos.position_id}")
+                    update_clicked = st.button("💰 Prices", key=f"p_update_{pos.position_id}")
                 
                 with col4:
-                    close_clicked = st.button("🚪 Close All", key=f"close_{pos.position_id}",
+                    close_clicked = st.button("🚪 Close All", key=f"p_close_{pos.position_id}",
                                               help="Close entire diagonal position")
                 
                 with col5:
-                    edit_clicked = st.button("✏️ Edit", key=f"edit_{pos.position_id}")
+                    edit_clicked = st.button("✏️ Edit", key=f"p_edit_{pos.position_id}")
                 
                 with col6:
-                    delete_clicked = st.button("🗑️ Del", key=f"delete_{pos.position_id}")
+                    delete_clicked = st.button("🗑️ Del", key=f"p_delete_{pos.position_id}")
                 
                 # Second row of buttons for leg management
                 col7, col8, col9, col10 = st.columns([1, 1, 1, 1])
@@ -3022,7 +3022,7 @@ def _render_diagonal_positions(trade_log):
                 
                 # Handle button clicks
                 if roll_clicked:
-                    st.session_state[f"rolling_{pos.position_id}"] = True
+                    st.session_state[f"p_rolling_{pos.position_id}"] = True
                 if not has_active_short and 'sell_short_clicked' in dir() and sell_short_clicked:
                     st.session_state[f"selling_short_{pos.position_id}"] = True
                 if expire_clicked:
@@ -3032,11 +3032,11 @@ def _render_diagonal_positions(trade_log):
                 if close_clicked:
                     st.session_state[f"closing_{pos.position_id}"] = True
                 if edit_clicked:
-                    st.session_state[f"editing_{pos.position_id}"] = True
+                    st.session_state[f"p_editing_{pos.position_id}"] = True
                     st.rerun()
                     st.rerun()
                 if False:  # placeholder
-                    st.session_state[f"editing_{pos.position_id}"] = True
+                    st.session_state[f"p_editing_{pos.position_id}"] = True
                 if delete_clicked:
                     st.session_state[f"deleting_{pos.position_id}"] = True
                 if roll_long_clicked:
@@ -3049,26 +3049,26 @@ def _render_diagonal_positions(trade_log):
                     st.rerun()
                 
                 # Render forms based on state
-                if st.session_state.get(f"rolling_{pos.position_id}"):
-                    _render_roll_form(trade_log, pos)
+                if st.session_state.get(f"p_rolling_{pos.position_id}"):
+                    _render_paper_roll_form(trade_log, pos)
                 if st.session_state.get(f"selling_short_{pos.position_id}"):
-                    _render_sell_short_form(trade_log, pos)
+                    _render_paper_sell_short_form(trade_log, pos)
                 if st.session_state.get(f"expiring_{pos.position_id}"):
-                    _render_expire_confirm(trade_log, pos)
+                    _render_paper_expire_confirm(trade_log, pos)
                 if st.session_state.get(f"updating_{pos.position_id}"):
-                    _render_price_update_form(trade_log, pos)
+                    _render_paper_price_update_form(trade_log, pos)
                 if st.session_state.get(f"closing_{pos.position_id}"):
-                    _render_close_form(trade_log, pos)
-                if st.session_state.get(f"editing_{pos.position_id}"):
-                    _render_edit_form(trade_log, pos)
+                    _render_paper_close_form(trade_log, pos)
+                if st.session_state.get(f"p_editing_{pos.position_id}"):
+                    _render_paper_edit_form(trade_log, pos)
                 if st.session_state.get(f"deleting_{pos.position_id}"):
-                    _render_delete_confirm(trade_log, pos)
+                    _render_paper_delete_confirm(trade_log, pos)
                 if st.session_state.get(f"rolling_long_{pos.position_id}"):
-                    _render_roll_long_form(trade_log, pos)
+                    _render_paper_roll_long_form(trade_log, pos)
                 if st.session_state.get(f"closing_short_{pos.position_id}"):
-                    _render_close_short_form(trade_log, pos)
+                    _render_paper_close_short_form(trade_log, pos)
                 if st.session_state.get(f"closing_long_{pos.position_id}"):
-                    _render_close_long_form(trade_log, pos)
+                    _render_paper_close_long_form(trade_log, pos)
             
             else:
                 # Closed positions can still be edited or deleted
@@ -3079,25 +3079,25 @@ def _render_diagonal_positions(trade_log):
                     delete_clicked = st.button("🗑️ Delete", key=f"delete_closed_{pos.position_id}")
                 
                 if edit_clicked:
-                    st.session_state[f"editing_{pos.position_id}"] = True
+                    st.session_state[f"p_editing_{pos.position_id}"] = True
                     st.rerun()
                     st.rerun()
                 if False:  # placeholder
-                    st.session_state[f"editing_{pos.position_id}"] = True
+                    st.session_state[f"p_editing_{pos.position_id}"] = True
                 if delete_clicked:
                     st.session_state[f"deleting_{pos.position_id}"] = True
                 
-                if st.session_state.get(f"editing_{pos.position_id}"):
-                    _render_edit_form(trade_log, pos)
+                if st.session_state.get(f"p_editing_{pos.position_id}"):
+                    _render_paper_edit_form(trade_log, pos)
                 if st.session_state.get(f"deleting_{pos.position_id}"):
-                    _render_delete_confirm(trade_log, pos)
+                    _render_paper_delete_confirm(trade_log, pos)
                 if st.session_state.get(f"rolling_long_{pos.position_id}"):
-                    _render_roll_long_form(trade_log, pos)
+                    _render_paper_roll_long_form(trade_log, pos)
                 
 
 
 
-def _render_diagonal_entry_form(trade_log):
+def _render_paper_diagonal_entry_form(trade_log):
     """Form to create a new diagonal position."""
     from trade_log import DiagonalPosition
     
@@ -3167,7 +3167,7 @@ def _render_diagonal_entry_form(trade_log):
             st.error(f"Error: {e}")
 
 
-def _render_roll_form(trade_log, pos):
+def _render_paper_roll_form(trade_log, pos):
     """Form to roll a short leg with smart suggestions."""
     st.markdown("##### 🔄 Roll Short Leg")
     
@@ -3220,13 +3220,13 @@ def _render_roll_form(trade_log, pos):
         contracts_to_roll = st.number_input(
             "Contracts to Roll",
             min_value=1, max_value=max_contracts, value=max_contracts,
-            key=f"roll_contracts_{pos.position_id}",
+            key=f"p_roll_contracts_{pos.position_id}",
             help=f"Partial roll: 1-{max_contracts}"
         )
         exit_price = st.number_input(
             "Buy Back Price ($)",
             min_value=0.0, max_value=20.0, value=0.05, step=0.01,
-            key=f"roll_exit_{pos.position_id}",
+            key=f"p_roll_exit_{pos.position_id}",
             help="If expired worthless, enter 0"
         )
     
@@ -3234,17 +3234,17 @@ def _render_roll_form(trade_log, pos):
         new_strike = st.number_input(
             "New Strike",
             min_value=1.0, value=float(suggested_strikes[1]), step=0.5,
-            key=f"roll_new_strike_{pos.position_id}"
+            key=f"p_roll_new_strike_{pos.position_id}"
         )
-        new_exp = st.date_input("New Expiration", value=suggested_exp.date(), key=f"roll_new_exp_{pos.position_id}")
+        new_exp = st.date_input("New Expiration", value=suggested_exp.date(), key=f"p_roll_new_exp_{pos.position_id}")
         new_credit = st.number_input(
             "New Credit ($)",
             min_value=0.01, value=0.20, step=0.05,
-            key=f"roll_new_credit_{pos.position_id}"
+            key=f"p_roll_new_credit_{pos.position_id}"
         )
     
     with col2:
-        underlying = st.number_input("Current Underlying Price", min_value=1.0, value=current_price, key=f"roll_underlying_{pos.position_id}")
+        underlying = st.number_input("Current Underlying Price", min_value=1.0, value=current_price, key=f"p_roll_underlying_{pos.position_id}")
         
         if contracts_to_roll < max_contracts:
             st.info(f"⚠️ Partial roll: {contracts_to_roll} of {max_contracts} contracts")
@@ -3254,7 +3254,7 @@ def _render_roll_form(trade_log, pos):
     
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("✅ Execute Roll", key=f"roll_submit_{pos.position_id}"):
+        if st.button("✅ Execute Roll", key=f"p_roll_submit_{pos.position_id}"):
             try:
                 new_leg, roll = trade_log.roll_diagonal_short(
                     position_id=pos.position_id,
@@ -3270,7 +3270,7 @@ def _render_roll_form(trade_log, pos):
                     st.success(f"✅ Partial roll ({contracts_to_roll} contracts): Net credit ${roll.roll_credit:.2f}")
                 else:
                     st.success(f"✅ Rolled: Net credit ${roll.roll_credit:.2f}")
-                st.session_state[f"rolling_{pos.position_id}"] = False
+                st.session_state[f"p_rolling_{pos.position_id}"] = False
                 st.rerun()
             except Exception as e:
                 import traceback
@@ -3279,11 +3279,11 @@ def _render_roll_form(trade_log, pos):
     
     with col2:
         if st.button("❌ Cancel", key=f"roll_cancel_{pos.position_id}"):
-            st.session_state[f"rolling_{pos.position_id}"] = False
+            st.session_state[f"p_rolling_{pos.position_id}"] = False
             st.rerun()
 
 
-def _render_price_update_form(trade_log, pos):
+def _render_paper_price_update_form(trade_log, pos):
     """Form to update current prices."""
     st.markdown("##### 💰 Update Current Prices")
     
@@ -3315,7 +3315,7 @@ def _render_price_update_form(trade_log, pos):
             st.rerun()
 
 
-def _render_close_form(trade_log, pos):
+def _render_paper_close_form(trade_log, pos):
     """Form to close a diagonal position."""
     st.markdown("##### 🚪 Close Position")
     
@@ -3355,7 +3355,7 @@ def _render_close_form(trade_log, pos):
 
 
 
-def _render_edit_form(trade_log, pos):
+def _render_paper_edit_form(trade_log, pos):
     """Form to edit a diagonal position."""
     st.markdown("##### ✏️ Edit Position")
     
@@ -3420,7 +3420,7 @@ def _render_edit_form(trade_log, pos):
         new_long_price = st.number_input(
             "Long Entry Price",
             min_value=0.01, value=float(pos.long_entry_price), step=0.05,
-            key=f"edit_long_price_{pos.position_id}"
+            key=f"p_edit_long_price_{pos.position_id}"
         )
     
     st.markdown("**Short Leg**")
@@ -3473,20 +3473,20 @@ def _render_edit_form(trade_log, pos):
                     )
                 
                 st.success("✅ Position updated!")
-                st.session_state[f"editing_{pos.position_id}"] = False
+                st.session_state[f"p_editing_{pos.position_id}"] = False
                 st.rerun()
             except Exception as e:
                 st.error(f"Error: {e}")
     
     with col2:
         if st.button("❌ Cancel", key=f"edit_cancel_{pos.position_id}"):
-            st.session_state[f"editing_{pos.position_id}"] = False
+            st.session_state[f"p_editing_{pos.position_id}"] = False
             st.rerun()
 
 
 
 
-def _render_roll_history_edit_form(trade_log, pos):
+def _render_paper_roll_history_edit_form(trade_log, pos):
     """Spreadsheet-style editor for ALL roll history records at once."""
     st.markdown("##### ✏️ Edit Roll History (Spreadsheet Mode)")
     
@@ -3622,7 +3622,7 @@ def _render_roll_history_edit_form(trade_log, pos):
             use_container_width=True,
             hide_index=True,
             num_rows="fixed",  # Don't allow adding/deleting rows here
-            key=f"roll_editor_{pos.position_id}",
+            key=f"p_roll_editor_{pos.position_id}",
         )
         
         # Show computed totals
@@ -3687,18 +3687,18 @@ def _render_roll_history_edit_form(trade_log, pos):
                         changes_made += 1
                     
                     st.success(f"✅ Saved {changes_made} roll records!")
-                    st.session_state[f"editing_rolls_{pos.position_id}"] = False
+                    st.session_state[f"p_editing_rolls_{pos.position_id}"] = False
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error saving: {e}")
         
         with col2:
             if st.button("❌ Cancel", key=f"cancel_rolls_{pos.position_id}"):
-                st.session_state[f"editing_rolls_{pos.position_id}"] = False
+                st.session_state[f"p_editing_rolls_{pos.position_id}"] = False
                 st.rerun()
         
         with col3:
-            if st.button("🔄 Recalculate Totals", key=f"recalc_rolls_{pos.position_id}"):
+            if st.button("🔄 Recalculate Totals", key=f"p_recalc_rolls_{pos.position_id}"):
                 try:
                     pos.recalc_roll_totals()  # Fixed method name
                     trade_log._save()
@@ -3715,22 +3715,22 @@ def _render_roll_history_edit_form(trade_log, pos):
         selected_for_delete = st.selectbox(
             "Select roll to delete",
             options=roll_options,
-            key=f"delete_roll_select_{pos.position_id}",
+            key=f"p_delete_roll_select_{pos.position_id}",
         )
         
         delete_col1, delete_col2 = st.columns([1, 3])
         with delete_col1:
-            delete_confirm = st.checkbox("Confirm", key=f"delete_confirm_{pos.position_id}")
+            delete_confirm = st.checkbox("Confirm", key=f"p_delete_confirm_{pos.position_id}")
         with delete_col2:
             if st.button(
                 "🗑️ Delete Selected Roll",
-                key=f"delete_roll_btn_{pos.position_id}",
+                key=f"p_delete_roll_btn_{pos.position_id}",
                 disabled=not delete_confirm,
             ):
                 roll_id_to_delete = selected_for_delete.split(" ")[0]
                 if trade_log.delete_roll_record(pos.position_id, roll_id_to_delete):
                     st.success(f"✅ Deleted {roll_id_to_delete}")
-                    st.session_state[f"editing_rolls_{pos.position_id}"] = False
+                    st.session_state[f"p_editing_rolls_{pos.position_id}"] = False
                     st.rerun()
                 else:
                     st.error("Failed to delete")
@@ -3751,7 +3751,7 @@ def _render_roll_history_edit_form(trade_log, pos):
         "Roll Type",
         options=["Short Roll", "Long Roll"],
         horizontal=True,
-        key=f"add_roll_type_radio_{pos.position_id}",
+        key=f"p_add_roll_type_radio_{pos.position_id}",
         help="Short = roll weekly call, Long = roll LEAP"
     )
     
@@ -3759,7 +3759,7 @@ def _render_roll_history_edit_form(trade_log, pos):
         # ─────────────────────────────────────────────────────────
         # SHORT ROLL FORM
         # ─────────────────────────────────────────────────────────
-        with st.form(key=f"add_short_roll_form_{pos.position_id}"):
+        with st.form(key=f"p_add_short_roll_form_{pos.position_id}"):
             st.markdown("**Short Roll** (sell new weekly, buy back old)")
             
             add_col1, add_col2, add_col3 = st.columns(3)
@@ -3881,7 +3881,7 @@ def _render_roll_history_edit_form(trade_log, pos):
         # ─────────────────────────────────────────────────────────
         # LONG ROLL FORM
         # ─────────────────────────────────────────────────────────
-        with st.form(key=f"add_long_roll_form_{pos.position_id}"):
+        with st.form(key=f"p_add_long_roll_form_{pos.position_id}"):
             st.markdown("**Long Roll** (sell old LEAP, buy new LEAP)")
             
             add_col1, add_col2, add_col3 = st.columns(3)
@@ -4047,7 +4047,7 @@ Roll {i+1}: {roll.roll_id}
 """)
         
         # Fix all positions button
-        if st.button("🔧 Fix ALL Position Roll Counts", key=f"fix_all_rolls_{pos.position_id}"):
+        if st.button("🔧 Fix ALL Position Roll Counts", key=f"p_fix_all_rolls_{pos.position_id}"):
             fixed = 0
             for pid, p in trade_log.diagonal_positions.items():
                 old_total = p.total_rolls
@@ -4067,7 +4067,7 @@ Roll {i+1}: {roll.roll_id}
 
 
 
-def _render_roll_long_form(trade_log, pos):
+def _render_paper_roll_long_form(trade_log, pos):
     """Form to roll the long leg (LEAP) to a new strike/expiration."""
     st.markdown("##### 🔄 Roll Long Leg (LEAP)")
     
@@ -4124,19 +4124,19 @@ def _render_roll_long_form(trade_log, pos):
     st.markdown("---")
     
     # Simplified Roll UI - matches IB's single net price format
-    with st.form(key=f"roll_long_form_{pos.position_id}"):
+    with st.form(key=f"p_roll_long_form_{pos.position_id}"):
         col1, col2 = st.columns(2)
         with col1:
             st.markdown("**New Long Position:**")
             new_strike = st.number_input(
                 "New Strike",
                 min_value=1.0, value=float(suggested_strikes[1]), step=1.0,
-                key=f"roll_long_new_strike_{pos.position_id}"
+                key=f"p_roll_long_new_strike_{pos.position_id}"
             )
             new_exp = st.date_input(
                 "New Expiration", 
                 value=suggested_exp.date(), 
-                key=f"roll_long_new_exp_{pos.position_id}"
+                key=f"p_roll_long_new_exp_{pos.position_id}"
             )
         
         with col2:
@@ -4198,7 +4198,7 @@ def _render_roll_long_form(trade_log, pos):
         st.session_state[f"rolling_long_{pos.position_id}"] = False
         st.rerun()
 
-def _render_close_short_form(trade_log, pos):
+def _render_paper_close_short_form(trade_log, pos):
     """Form to close just the short leg."""
     st.markdown("##### 📕 Close Short Leg")
     
@@ -4219,7 +4219,7 @@ def _render_close_short_form(trade_log, pos):
     - Contracts: {short.contracts}
     """)
     
-    with st.form(key=f"close_short_form_{pos.position_id}"):
+    with st.form(key=f"p_close_short_form_{pos.position_id}"):
         col1, col2 = st.columns(2)
         with col1:
             buyback_price = st.number_input(
@@ -4233,7 +4233,7 @@ def _render_close_short_form(trade_log, pos):
             close_reason = st.selectbox(
                 "Reason",
                 ["closed_manual", "expired_worthless", "expired_itm", "stop_loss", "take_profit"],
-                key=f"cs_reason_{pos.position_id}"
+                key=f"p_cs_reason_{pos.position_id}"
             )
         
         # Show P&L preview
@@ -4258,7 +4258,7 @@ def _render_close_short_form(trade_log, pos):
                 st.rerun()
 
 
-def _render_close_long_form(trade_log, pos):
+def _render_paper_close_long_form(trade_log, pos):
     """Form to close the long leg (and entire position)."""
     st.markdown("##### 📘 Close Long Leg")
     
@@ -4277,7 +4277,7 @@ def _render_close_long_form(trade_log, pos):
     if short and short.status == "open":
         st.warning(f"⚠️ Active short leg (${short.strike} @ ${short.current_price:.2f}) will also be closed!")
     
-    with st.form(key=f"close_long_form_{pos.position_id}"):
+    with st.form(key=f"p_close_long_form_{pos.position_id}"):
         col1, col2 = st.columns(2)
         with col1:
             sell_price = st.number_input(
@@ -4291,7 +4291,7 @@ def _render_close_long_form(trade_log, pos):
             close_reason = st.selectbox(
                 "Reason",
                 ["closed_manual", "expired_worthless", "expired_itm", "stop_loss", "take_profit", "regime_change"],
-                key=f"cl_reason_{pos.position_id}"
+                key=f"p_cl_reason_{pos.position_id}"
             )
         
         # Show P&L preview
@@ -4328,7 +4328,7 @@ def _render_close_long_form(trade_log, pos):
                 st.rerun()
 
 
-def _render_sell_short_form(trade_log, pos):
+def _render_paper_sell_short_form(trade_log, pos):
     """Form to sell a new short leg when position has none."""
     st.markdown("##### 📈 Sell New Short Leg")
     
@@ -4410,7 +4410,7 @@ def _render_sell_short_form(trade_log, pos):
             st.rerun()
 
 
-def _render_expire_confirm(trade_log, pos):
+def _render_paper_expire_confirm(trade_log, pos):
     """Confirmation dialog for expiring short worthless."""
     st.markdown("##### 🎉 Short Expired Worthless - Profit!")
     
@@ -4449,7 +4449,7 @@ def _render_expire_confirm(trade_log, pos):
             st.rerun()
 
 
-def _render_delete_confirm(trade_log, pos):
+def _render_paper_delete_confirm(trade_log, pos):
     """Confirmation dialog for deleting a position."""
     st.markdown("##### 🗑️ Delete Position")
     st.warning(f"⚠️ Are you sure you want to delete **{pos.variant_name}** ({pos.position_id})?")
@@ -4457,7 +4457,7 @@ def _render_delete_confirm(trade_log, pos):
     
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("🗑️ Yes, Delete", key=f"delete_confirm_{pos.position_id}", type="primary"):
+        if st.button("🗑️ Yes, Delete", key=f"p_delete_confirm_{pos.position_id}", type="primary"):
             if trade_log.delete_diagonal(pos.position_id):
                 st.success("✅ Position deleted")
                 st.session_state[f"deleting_{pos.position_id}"] = False
@@ -4472,7 +4472,7 @@ def _render_delete_confirm(trade_log, pos):
 
 
 
-def _render_roll_analytics(trade_log):
+def _render_paper_roll_analytics(trade_log):
     """Render roll analytics and statistics."""
     st.subheader("📊 Roll Analytics")
     
@@ -4525,7 +4525,8 @@ def _render_roll_analytics(trade_log):
 
 
 
-def render_trade_log(trade_log=None):
+# ═══ PAPER TRADING FUNCTIONS ═══════════════════════════════════
+def render_paper_trade_log(trade_log=None):
     """Trade Log - View and manage all paper trades."""
     st.title("📒 Trade Log")
     
@@ -4567,7 +4568,7 @@ def render_trade_log(trade_log=None):
     tab1, tab2, tab3, tab_real = st.tabs(["🔄 Diagonal Positions", "📋 Simple Trades", "📊 Roll Analytics", "💵 Real Trades"])
     
     with tab1:
-        _render_diagonal_positions(trade_log)
+        _render_paper_diagonal_positions(trade_log)
 
     with tab_real:
         from real_trade_log import get_real_trade_log
@@ -4594,7 +4595,7 @@ def render_trade_log(trade_log=None):
         render_real_trade_section()
 
     with tab3:
-        _render_roll_analytics(trade_log)
+        _render_paper_roll_analytics(trade_log)
     
     with tab2:
         # Filters for simple trades
@@ -4649,16 +4650,6 @@ def render_trade_log(trade_log=None):
         st.markdown("---")
         
         # SHORT LEG
-        long_only_mode = st.checkbox(
-            "📌 Long Only — short leg not sold yet",
-            value=False,
-            key="rtl_long_only_mode",
-            help="Use when you've bought the LEAP but haven't sold the short call yet"
-        )
-        if long_only_mode:
-            st.info("✅ Long-only position. Add short leg later via '📈 Add Short Leg' button.")
-        if not long_only_mode:
-            st.markdown("##### 📉 Short Leg (Weekly Call)")
         short_col1, short_col2, short_col3 = st.columns(3)
         with short_col1:
             short_strike = st.number_input(
@@ -4787,7 +4778,8 @@ def render_trade_log(trade_log=None):
                 st.markdown(f"**P&L:** <span style='color:{pnl_color}'>${trade.total_pnl:+,.2f}</span>", unsafe_allow_html=True)
 
 
-def render_real_trade_log_page():
+# ═══ REAL TRADING FUNCTIONS ════════════════════════════════════
+def render_real_trade_log():
     """Trade Log Real — mirrors Trade Log page but uses real_trade_log.json."""
     from real_trade_log import get_real_trade_log, reset_real_trade_log_cache
     import pandas as pd
@@ -4942,21 +4934,21 @@ def render_real_trade_log_page():
                         days_fri = (4 - today_dt.weekday()) % 7 or 7
                         next_fri = (today_dt + timedelta(days=days_fri)).date()
 
-                        with st.form(f"rtl_roll_{pid}"):
+                        with st.form(f"r_roll_{pid}"):
                             rc1, rc2, rc3 = st.columns(3)
                             with rc1:
-                                bb_mid  = st.number_input("Buy-back mid",  value=0.10, step=0.01, key=f"rbb_mid_{pid}")
-                                bb_fill = st.number_input("Buy-back fill", value=0.10, step=0.01, key=f"rbb_fill_{pid}")
+                                bb_mid  = st.number_input("Buy-back mid",  value=0.10, step=0.01, key=f"r_bb_mid_{pid}")
+                                bb_fill = st.number_input("Buy-back fill", value=0.10, step=0.01, key=f"r_bb_fill_{pid}")
                             with rc2:
-                                ns = st.number_input("New strike", value=float(short.strike+1), step=1.0, key=f"rns_{pid}")
-                                ne = st.date_input("New expiry", value=next_fri, key=f"rne_{pid}")
+                                ns = st.number_input("New strike", value=float(short.strike+1), step=1.0, key=f"r_ns_{pid}")
+                                ne = st.date_input("New expiry", value=next_fri, key=f"r_ne_{pid}")
                             with rc3:
-                                nc_mid  = st.number_input("New credit mid",  value=1.50, step=0.01, key=f"rnc_mid_{pid}")
-                                nc_fill = st.number_input("New credit fill", value=1.50, step=0.01, key=f"rnc_fill_{pid}")
+                                nc_mid  = st.number_input("New credit mid",  value=1.50, step=0.01, key=f"r_nc_mid_{pid}")
+                                nc_fill = st.number_input("New credit fill", value=1.50, step=0.01, key=f"r_nc_fill_{pid}")
                             reason = st.selectbox("Reason",
                                 ["order_roll","delta_trigger","itm_threat","manual"],
-                                key=f"rreason_{pid}")
-                            notes = st.text_input("Notes", key=f"rnotes_{pid}")
+                                key=f"r_reason_{pid}")
+                            notes = st.text_input("Notes", key=f"r_notes_{pid}")
                             submitted = st.form_submit_button("✅ Execute Roll", type="primary")
 
                         if submitted:
@@ -4993,7 +4985,7 @@ def render_real_trade_log_page():
                     with btn1:
                         if has_active_short:
                             _expire = st.button("🎉 Expire Worthless",
-                                                key=f"rexpire_{pid}",
+                                                key=f"r_expire_{pid}",
                                                 help="Mark short expired at $0")
                         else:
                             _expire = False
@@ -5001,26 +4993,26 @@ def render_real_trade_log_page():
 
                     with btn2:
                         _add_short = st.button("📈 Add Short Leg",
-                                               key=f"radd_short_{pid}",
+                                               key=f"r_add_short_{pid}",
                                                help="Sell new short after expiry")
 
                     with btn3:
                         _refresh = st.button("💰 Refresh Prices",
-                                             key=f"rpx_{pid}")
+                                             key=f"r_px_{pid}")
 
                     with btn4:
                         _edit = st.button("✏️ Edit Long",
-                                          key=f"redit_{pid}",
+                                          key=f"r_edit_{pid}",
                                           help="Update long leg price/strike")
 
                     with btn5:
                         _close_all = st.button("🚪 Close All",
-                                               key=f"rclose_{pid}",
+                                               key=f"r_close_{pid}",
                                                help="Close entire position")
 
                     with btn6:
                         _delete = st.button("🗑️ Delete",
-                                            key=f"rdel_{pid}",
+                                            key=f"r_del_{pid}",
                                             help="Permanently delete position")
 
                     # ── Expire worthless ──
@@ -5035,23 +5027,23 @@ def render_real_trade_log_page():
                             st.error(f"Error: {e}")
 
                     # ── Add new short leg ──
-                    if _add_short or st.session_state.get(f"rshowing_add_short_{pid}"):
-                        st.session_state[f"rshowing_add_short_{pid}"] = True
+                    if _add_short or st.session_state.get(f"r_showing_add_short_{pid}"):
+                        st.session_state[f"r_showing_add_short_{pid}"] = True
                         st.markdown("##### 📈 Add New Short Leg")
                         from datetime import datetime, timedelta
                         today_dt = datetime.now()
                         days_fri = (4 - today_dt.weekday()) % 7 or 7
                         next_fri = (today_dt + timedelta(days=days_fri)).date()
-                        with st.form(f"radd_short_form_{pid}"):
+                        with st.form(f"r_add_short_form_{pid}"):
                             as1, as2, as3 = st.columns(3)
                             with as1:
-                                as_strike = st.number_input("Strike", value=float(short.strike if short else pos.long_strike), step=1.0, key=f"ras_k_{pid}")
+                                as_strike = st.number_input("Strike", value=float(short.strike if short else pos.long_strike), step=1.0, key=f"r_as_k_{pid}")
                             with as2:
-                                as_exp = st.date_input("Expiry", value=next_fri, key=f"ras_exp_{pid}")
+                                as_exp = st.date_input("Expiry", value=next_fri, key=f"r_as_exp_{pid}")
                             with as3:
-                                as_mid  = st.number_input("Mid price", value=1.50, step=0.01, key=f"ras_mid_{pid}")
-                                as_fill = st.number_input("Fill price", value=1.50, step=0.01, key=f"ras_fill_{pid}")
-                                as_comm = st.number_input("Commission", value=0.65, step=0.01, key=f"ras_comm_{pid}")
+                                as_mid  = st.number_input("Mid price", value=1.50, step=0.01, key=f"r_as_mid_{pid}")
+                                as_fill = st.number_input("Fill price", value=1.50, step=0.01, key=f"r_as_fill_{pid}")
+                                as_comm = st.number_input("Commission", value=0.65, step=0.01, key=f"r_as_comm_{pid}")
                             as_sub = st.form_submit_button("✅ Add Short Leg", type="primary")
                         if as_sub:
                             try:
@@ -5062,7 +5054,7 @@ def render_real_trade_log_page():
                                     leg.slippage = round(as_fill - as_mid, 4)
                                     rtl._save()
                                     reset_real_trade_log_cache()
-                                    st.session_state[f"rshowing_add_short_{pid}"] = False
+                                    st.session_state[f"r_showing_add_short_{pid}"] = False
                                     st.success(f"✅ Added short ${as_strike:.0f} exp {as_exp}")
                                     st.rerun()
                             except Exception as e:
@@ -5079,17 +5071,17 @@ def render_real_trade_log_page():
                             st.warning(f"Price fetch: {e}")
 
                     # ── Edit long leg ──
-                    if _edit or st.session_state.get(f"rshowing_edit_{pid}"):
-                        st.session_state[f"rshowing_edit_{pid}"] = True
+                    if _edit or st.session_state.get(f"r_showing_edit_{pid}"):
+                        st.session_state[f"r_showing_edit_{pid}"] = True
                         st.markdown("##### ✏️ Edit Long Leg")
-                        with st.form(f"redit_form_{pid}"):
+                        with st.form(f"r_edit_form_{pid}"):
                             e1, e2 = st.columns(2)
                             with e1:
-                                e_strike = st.number_input("Strike", value=float(pos.long_strike), step=0.5, key=f"re_k_{pid}")
-                                e_exp    = st.date_input("Expiry", value=__import__('datetime').date.fromisoformat(pos.long_expiration), key=f"re_exp_{pid}")
+                                e_strike = st.number_input("Strike", value=float(pos.long_strike), step=0.5, key=f"r_e_k_{pid}")
+                                e_exp    = st.date_input("Expiry", value=__import__('datetime').date.fromisoformat(pos.long_expiration), key=f"r_e_exp_{pid}")
                             with e2:
-                                e_fill    = st.number_input("Fill price", value=float(pos.long_fill_price), step=0.05, key=f"re_fill_{pid}")
-                                e_current = st.number_input("Current price", value=float(pos.long_current_price or 0), step=0.05, key=f"re_cur_{pid}")
+                                e_fill    = st.number_input("Fill price", value=float(pos.long_fill_price), step=0.05, key=f"r_e_fill_{pid}")
+                                e_current = st.number_input("Current price", value=float(pos.long_current_price or 0), step=0.05, key=f"r_e_cur_{pid}")
                             e_sub = st.form_submit_button("💾 Save", type="primary")
                         if e_sub:
                             try:
@@ -5099,24 +5091,24 @@ def render_real_trade_log_page():
                                 pos.long_current_price = e_current
                                 rtl._save()
                                 reset_real_trade_log_cache()
-                                st.session_state[f"rshowing_edit_{pid}"] = False
+                                st.session_state[f"r_showing_edit_{pid}"] = False
                                 st.success("✅ Long leg updated.")
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"Error: {e}")
 
                     # ── Close all ──
-                    if _close_all or st.session_state.get(f"rshowing_close_{pid}"):
-                        st.session_state[f"rshowing_close_{pid}"] = True
+                    if _close_all or st.session_state.get(f"r_showing_close_{pid}"):
+                        st.session_state[f"r_showing_close_{pid}"] = True
                         st.markdown("##### 🚪 Close Entire Position")
-                        with st.form(f"rclose_form_{pid}"):
+                        with st.form(f"r_close_form_{pid}"):
                             cl1, cl2 = st.columns(2)
                             with cl1:
-                                cl_long_exit  = st.number_input("Long exit price", value=float(pos.long_current_price or 0), step=0.05, key=f"rcl_long_{pid}")
+                                cl_long_exit  = st.number_input("Long exit price", value=float(pos.long_current_price or 0), step=0.05, key=f"r_cl_long_{pid}")
                             with cl2:
                                 if short and short.is_open():
-                                    cl_short_exit = st.number_input("Short buy-back price", value=0.05, step=0.01, key=f"rcl_short_{pid}")
-                                cl_reason = st.selectbox("Reason", ["take_profit","stop_loss","manual","long_expiring"], key=f"rcl_reason_{pid}")
+                                    cl_short_exit = st.number_input("Short buy-back price", value=0.05, step=0.01, key=f"r_cl_short_{pid}")
+                                cl_reason = st.selectbox("Reason", ["take_profit","stop_loss","manual","long_expiring"], key=f"r_cl_reason_{pid}")
                             cl_sub = st.form_submit_button("🚪 Confirm Close", type="primary")
                         if cl_sub:
                             try:
@@ -5129,7 +5121,7 @@ def render_real_trade_log_page():
                                 pos.long_current_price = cl_long_exit
                                 rtl._save()
                                 reset_real_trade_log_cache()
-                                st.session_state[f"rshowing_close_{pid}"] = False
+                                st.session_state[f"r_showing_close_{pid}"] = False
                                 st.success(f"✅ Position closed. Final P&L: ${pos.total_pnl:+,.0f}")
                                 st.rerun()
                             except Exception as e:
@@ -5137,21 +5129,21 @@ def render_real_trade_log_page():
 
                     # ── Delete ──
                     if _delete:
-                        st.session_state[f"rconfirm_del_{pid}"] = True
-                    if st.session_state.get(f"rconfirm_del_{pid}"):
+                        st.session_state[f"r_confirm_del_{pid}"] = True
+                    if st.session_state.get(f"r_confirm_del_{pid}"):
                         st.warning(f"⚠️ Delete **{pos.variant_name}** permanently?")
                         dc1, dc2 = st.columns(2)
                         with dc1:
-                            if st.button("✅ Yes, Delete", key=f"rdelconfirm_{pid}"):
+                            if st.button("✅ Yes, Delete", key=f"r_delconfirm_{pid}"):
                                 del rtl.diagonal_positions[pid]
                                 rtl._save()
                                 reset_real_trade_log_cache()
-                                st.session_state.pop(f"rconfirm_del_{pid}", None)
+                                st.session_state.pop(f"r_confirm_del_{pid}", None)
                                 st.success("Deleted.")
                                 st.rerun()
                         with dc2:
-                            if st.button("❌ Cancel", key=f"rdelcancel_{pid}"):
-                                st.session_state.pop(f"rconfirm_del_{pid}", None)
+                            if st.button("❌ Cancel", key=f"r_delcancel_{pid}"):
+                                st.session_state.pop(f"r_confirm_del_{pid}", None)
                                 st.rerun()
 
                     # ── Roll history ──
@@ -5161,10 +5153,10 @@ def render_real_trade_log_page():
                         with rh_col1:
                             st.markdown("**🔄 Roll History**")
                         with rh_col2:
-                            if st.button("✏️ Edit Rolls", key=f"redit_rolls_{pid}"):
-                                st.session_state[f"rediting_rolls_{pid}"] = not st.session_state.get(f"rediting_rolls_{pid}", False)
+                            if st.button("✏️ Edit Rolls", key=f"r_edit_rolls_{pid}"):
+                                st.session_state[f"r_editing_rolls_{pid}"] = not st.session_state.get(f"r_editing_rolls_{pid}", False)
                         with rh_col3:
-                            if st.button("🔄 Recalc", key=f"rrecalc_{pid}"):
+                            if st.button("🔄 Recalc", key=f"r_recalc_{pid}"):
                                 try:
                                     pos.recalc_roll_totals()
                                     rtl._save()
@@ -5211,7 +5203,7 @@ def render_real_trade_log_page():
                         ts4.metric("Total Rolls", len(pos.roll_history))
 
                         # Edit mode
-                        if st.session_state.get(f"rediting_rolls_{pid}"):
+                        if st.session_state.get(f"r_editing_rolls_{pid}"):
                             _render_real_roll_edit_form(rtl, pos)
                     if pos.roll_history:
                         pass  # already handled above
@@ -5366,7 +5358,7 @@ def main():
             f"Slippage: **${real_summary['total_slippage']:+.2f}**")
         # Dispatch with real trade log
         if page == "Trade Log Real":
-            render_real_trade_log_page()
+            render_real_trade_log()
         elif page == "Signal Dashboard":
             render_signal_dashboard(trade_log=rtl)
         elif page == "Active Trades":
@@ -5481,7 +5473,7 @@ def main():
         elif page == "Variant Analytics":
             render_variant_analytics(trade_log=_ptl)
         elif page == "Trade Log":
-            render_trade_log(trade_log=_ptl)
+            render_paper_trade_log(trade_log=_ptl)
         elif page == "System Health":
             render_system_health(trade_log=_ptl)
 

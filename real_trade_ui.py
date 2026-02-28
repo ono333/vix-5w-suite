@@ -85,30 +85,30 @@ def render_real_trade_section():
     ])
 
     with tab1:
-        _render_open_positions(tl, open_pos)
+        _render_real_open_positions(tl, open_pos)
 
     with tab2:
-        _render_new_entry(tl)
+        _render_real_new_entry(tl)
 
     with tab3:
-        _render_history(tl)
+        _render_real_history(tl)
 
 
 # ══════════════════════════════════════════════════════════
 # OPEN POSITIONS
 # ══════════════════════════════════════════════════════════
 
-def _render_open_positions(tl, open_pos: dict):
+def _render_real_open_positions(tl, open_pos: dict):
     if not open_pos:
         st.info("No open real money positions. Use 'New Entry' to add one.")
         return
 
     for pid, pos in sorted(open_pos.items(),
                             key=lambda x: x[1].variant_id):
-        _render_position_card(tl, pid, pos)
+        _render_real_position_card(tl, pid, pos)
 
 
-def _render_position_card(tl, pid: str, pos: RealDiagonalPosition):
+def _render_real_position_card(tl, pid: str, pos: RealDiagonalPosition):
     short    = pos.current_short_leg
     dte      = pos.days_to_expiry()
     pnl      = pos.total_pnl
@@ -280,7 +280,7 @@ def _render_position_card(tl, pid: str, pos: RealDiagonalPosition):
 # NEW ENTRY FORM
 # ══════════════════════════════════════════════════════════
 
-def _render_new_entry(tl):
+def _render_real_new_entry(tl):
     st.markdown("### ➕ Open New Real Money Position")
     st.caption("Enter actual fill prices, not mid prices — for accurate slippage tracking.")
 
@@ -405,7 +405,7 @@ def _render_new_entry(tl):
 # HISTORY & STATS
 # ══════════════════════════════════════════════════════════
 
-def _render_history(tl):
+def _render_real_history(tl):
     all_pos = tl.diagonal_positions
     if not all_pos:
         st.info("No trade history yet.")
