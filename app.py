@@ -3123,14 +3123,24 @@ def _render_paper_diagonal_entry_form(trade_log):
     with lcol3:
         long_price = st.number_input("Long Debit ($)", min_value=0.01, value=4.00, step=0.05, key="diag_long_price")
     
-    st.markdown("##### Short Leg")
-    scol1, scol2, scol3 = st.columns(3)
-    with scol1:
-        short_strike = st.number_input("Short Strike", min_value=1.0, value=38.0, step=0.5, key="diag_short_strike")
-    with scol2:
-        short_exp = st.date_input("Short Expiration", key="diag_short_exp")
-    with scol3:
-        short_credit = st.number_input("Short Credit ($)", min_value=0.01, value=0.80, step=0.05, key="diag_short_credit")
+    long_only_p = st.checkbox(
+        "📌 Long Only — short not sold yet",
+        value=False,
+        key="p_new_entry_long_only",
+        help="Open with just the LEAP, add short leg later")
+    if not long_only_p:
+        st.markdown("##### Short Leg")
+        scol1, scol2, scol3 = st.columns(3)
+        with scol1:
+            short_strike = st.number_input("Short Strike", min_value=1.0, value=38.0, step=0.5, key="diag_short_strike")
+        with scol2:
+            short_exp = st.date_input("Short Expiration", key="diag_short_exp")
+        with scol3:
+            short_credit = st.number_input("Short Credit ($)", min_value=0.01, value=0.80, step=0.05, key="diag_short_credit")
+    else:
+        short_strike = short_credit = 0.0
+        import datetime as _dt
+        short_exp = _dt.date.today()
     
     # Commission settings
     fee_per_contract = st.number_input(
@@ -3147,21 +3157,43 @@ def _render_paper_diagonal_entry_form(trade_log):
     if st.button("✅ Open Diagonal Position", key="diag_entry_submit"):
         try:
             variant_names = {r.value: r.value.replace("_", " ").title() for r in VariantRole}
-            pos = trade_log.open_diagonal(
-                variant_id=variant.upper(),
-                variant_name=variant_names.get(variant, variant),
-                contracts=contracts,
-                long_strike=long_strike,
-                long_expiration=long_exp.isoformat(),
-                long_price=long_price,
-                short_strike=short_strike,
-                short_expiration=short_exp.isoformat(),
-                short_credit=short_credit,
-                entry_regime=entry_regime,
-                entry_vix_level=entry_vix,
-                fee_per_contract=fee_per_contract,
-            )
-            st.success(f"✅ Opened diagonal position: {pos.position_id}")
+            _lo = st.session_state.get("p_new_entry_long_only", False)
+            if _lo:
+                pos = trade_log.open_diagonal(
+                    variant_id=variant.upper(),
+                    variant_name=variant_names.get(variant, variant),
+                    contracts=contracts,
+                    long_strike=long_strike,
+                    long_expiration=long_exp.isoformat(),
+                    long_price=long_price,
+                    short_strike=long_strike,
+                    short_expiration=long_exp.isoformat(),
+                    short_credit=0.0,
+                    entry_regime=entry_regime,
+                    entry_vix_level=entry_vix,
+                    fee_per_contract=fee_per_contract,
+                )
+                # Mark as long-only: close the placeholder short leg
+                if pos.short_legs:
+                    pos.short_legs[0].status = "long_only_placeholder"
+                trade_log._save()
+                st.success(f"✅ Long-only position opened: {pos.position_id}  \n📌 Add short leg when ready.")
+            else:
+                pos = trade_log.open_diagonal(
+                    variant_id=variant.upper(),
+                    variant_name=variant_names.get(variant, variant),
+                    contracts=contracts,
+                    long_strike=long_strike,
+                    long_expiration=long_exp.isoformat(),
+                    long_price=long_price,
+                    short_strike=short_strike,
+                    short_expiration=short_exp.isoformat(),
+                    short_credit=short_credit,
+                    entry_regime=entry_regime,
+                    entry_vix_level=entry_vix,
+                    fee_per_contract=fee_per_contract,
+                )
+                st.success(f"✅ Opened diagonal position: {pos.position_id}")
             st.rerun()
         except Exception as e:
             st.error(f"Error: {e}")
