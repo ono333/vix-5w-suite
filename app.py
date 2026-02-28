@@ -4817,6 +4817,8 @@ def render_real_trade_log():
     from real_trade_log import get_real_trade_log, reset_real_trade_log_cache
     import pandas as pd
 
+    from real_trade_log import reset_real_trade_log_cache
+    reset_real_trade_log_cache()
     rtl = get_real_trade_log()
     # Auto-fetch live prices on page load if any long_current_price is 0
     _needs_px = any(float(p.long_current_price or 0) <= 0
