@@ -321,7 +321,11 @@ def _render_real_new_entry(tl):
             contracts   = st.number_input(
                 "Contracts", min_value=1, max_value=100, value=1)
             broker      = st.selectbox("Broker", BROKERS)
-            account_id  = st.text_input("Account ID (last 6 digits)", "")
+            # Remember account ID across sessions
+            _saved_acct = st.session_state.get("r_last_account_id", "")
+            account_id  = st.text_input("Account ID (last 6 digits)", value=_saved_acct)
+            if account_id:
+                st.session_state["r_last_account_id"] = account_id
             regime      = st.selectbox(
                 "Current Regime",
                 ["CALM", "DECLINING", "RISING", "STRESSED", "EXTREME"])
