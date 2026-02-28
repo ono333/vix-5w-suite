@@ -4821,8 +4821,14 @@ def render_real_trade_log():
     reset_real_trade_log_cache()
     rtl = get_real_trade_log()
     # Auto-fetch live prices on page load if any long_current_price is 0
-    _needs_px = any(float(getattr(p, '_long_current_price', 0) or 0) <= 0
-                    for p in rtl.diagonal_positions.values())
+    try:
+        _needs_px = any(
+            float(p.long_current_price or 0) <= 0
+            for p in rtl.diagonal_positions.values()
+            if p.status == "open"
+        )
+    except Exception:
+        _needs_px = True
     if _needs_px:
         try:
             update_diagonal_live_prices(rtl, symbol="UVXY")
