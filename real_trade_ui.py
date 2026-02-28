@@ -281,6 +281,9 @@ def _render_real_position_card(tl, pid: str, pos: RealDiagonalPosition):
 # ══════════════════════════════════════════════════════════
 
 def _render_real_new_entry(tl):
+    from real_trade_log import get_real_trade_log, reset_real_trade_log_cache
+    reset_real_trade_log_cache()
+    tl = get_real_trade_log()
     st.markdown("### ➕ Open New Real Money Position")
     st.caption("Enter actual fill prices, not mid prices — for accurate slippage tracking.")
 
@@ -312,6 +315,13 @@ def _render_real_new_entry(tl):
 
     st.info(f"Current market: UVXY ${uvxy_price:.2f}  |  VIX ${vix_level:.2f}")
 
+    import json as _json
+    _cfg_path = Path.home() / ".vix_suite/ui_prefs.json"
+    try:
+        _saved_acct = _json.loads(_cfg_path.read_text()).get("last_account_id", "")
+    except Exception:
+        _saved_acct = ""
+
     with st.form("new_real_entry"):
         col1, col2 = st.columns(2)
 
@@ -321,11 +331,9 @@ def _render_real_new_entry(tl):
             contracts   = st.number_input(
                 "Contracts", min_value=1, max_value=100, value=1)
             broker      = st.selectbox("Broker", BROKERS)
-            # Remember account ID across sessions
-            _saved_acct = st.session_state.get("r_last_account_id", "")
-            account_id  = st.text_input("Account ID (last 6 digits)", value=_saved_acct)
-            if account_id:
-                st.session_state["r_last_account_id"] = account_id
+            account_id  = st.text_input(
+                "Account ID (last 6 digits)",
+                value=_saved_acct)
             regime      = st.selectbox(
                 "Current Regime",
                 ["CALM", "DECLINING", "RISING", "STRESSED", "EXTREME"])
@@ -381,6 +389,15 @@ def _render_real_new_entry(tl):
 
         long_slip  = long_fill  - long_mid
         short_slip = short_fill - short_mid
+        # Save account ID on submit
+        if account_id:
+            try:
+                _cfg_path.parent.mkdir(parents=True, exist_ok=True)
+                try: _d = _json.loads(_cfg_path.read_text())
+                except: _d = {}
+                _d["last_account_id"] = account_id
+                _cfg_path.write_text(_json.dumps(_d, indent=2))
+            except Exception: pass
 
         _lo_r = st.session_state.get("r_new_entry_long_only", False)
         if _lo_r:
