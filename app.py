@@ -3192,6 +3192,7 @@ def _render_paper_diagonal_entry_form(trade_log):
                     short_credit=short_credit,
                     entry_regime=entry_regime,
                     entry_vix_level=entry_vix,
+                    entry_percentile=entry_pct / 100,
                     fee_per_contract=fee_per_contract,
                 )
                 st.success(f"✅ Opened diagonal position: {pos.position_id}")
