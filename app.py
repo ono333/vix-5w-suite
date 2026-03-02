@@ -5550,7 +5550,7 @@ def main():
                     from daily_signal import (build_position_aware_email,
                                              build_real_capital_email,
                                              fetch_uvxy_data, classify_regime)
-                    from variant_generator import get_default_batch
+                    from variant_generator import generate_all_variants
                     from trade_log import get_trade_log
                     import tl_module
 
@@ -5560,7 +5560,7 @@ def main():
 
                     uvxy_px, pct, slope = fetch_uvxy_data()
                     regime_state = classify_regime(uvxy_px, pct, slope)
-                    batch = get_default_batch()
+                    batch = generate_all_variants(uvxy_px, pct)
 
                     tl_module._trade_log_instance = None
                     trade_log = get_trade_log()
