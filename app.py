@@ -3279,7 +3279,12 @@ def _render_paper_roll_form(trade_log, pos):
     
     with col2:
         underlying = st.number_input("Current Underlying Price", min_value=1.0, value=current_price, key=f"p_roll_underlying_{pos.position_id}")
-        
+        _pv1, _pv2 = st.columns(2)
+        with _pv1:
+            roll_vix_level = st.number_input("VIX Level at Roll", value=20.0, step=0.1, key=f"p_roll_vix_{pos.position_id}")
+        with _pv2:
+            roll_vix_pct = st.number_input("VIX Percentile (%) at Roll", value=20.0, step=0.1, min_value=0.0, max_value=100.0, key=f"p_roll_vixpct_{pos.position_id}")
+
         if contracts_to_roll < max_contracts:
             st.info(f"⚠️ Partial roll: {contracts_to_roll} of {max_contracts} contracts")
     
@@ -3297,7 +3302,9 @@ def _render_paper_roll_form(trade_log, pos):
                     new_expiration=new_exp.isoformat(),
                     new_credit=new_credit,
                     underlying_price=underlying,
-                    regime="CALM",
+                    regime=pos.entry_regime,
+                    vix_level=roll_vix_level,
+                    vix_percentile=roll_vix_pct / 100,
                     contracts=contracts_to_roll,
                 )
                 if contracts_to_roll < max_contracts:
@@ -5107,6 +5114,11 @@ def render_real_trade_log():
                             with rc3:
                                 nc_mid  = st.number_input("New credit mid",  value=1.50, step=0.01, key=f"r_nc_mid_{pid}")
                                 nc_fill = st.number_input("New credit fill", value=1.50, step=0.01, key=f"r_nc_fill_{pid}")
+                            rv1, rv2 = st.columns(2)
+                            with rv1:
+                                roll_vix = st.number_input("VIX Level at Roll", value=20.0, step=0.1, key=f"r_roll_vix_{pid}")
+                            with rv2:
+                                roll_pct = st.number_input("VIX Percentile (%) at Roll", value=20.0, step=0.1, min_value=0.0, max_value=100.0, key=f"r_roll_pct_{pid}")
                             reason = st.selectbox("Reason",
                                 ["order_roll","delta_trigger","itm_threat","manual"],
                                 key=f"r_reason_{pid}")
@@ -5124,6 +5136,8 @@ def render_real_trade_log():
                                     new_credit       = nc_mid,
                                     new_fill_price   = nc_fill,
                                     underlying_price = uvxy_px,
+                                    vix_level        = roll_vix,
+                                    vix_percentile   = roll_pct / 100,
                                     roll_reason      = reason,
                                     notes            = notes,
                                 )

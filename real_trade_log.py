@@ -542,6 +542,8 @@ class RealRollRecord:
     account_id:       str          = ""
     commission:       float        = 0.0      # total for both legs
     roll_reason:      str          = ""       # "delta_trigger" / "order_roll" / "manual"
+    vix_level:        float        = 0.0
+    vix_percentile:   float        = 0.0
     notes:            str          = ""
 
 
@@ -1430,6 +1432,8 @@ class RealTradeLog:
         new_credit:       float,    # mid at order time
         new_fill_price:   float,    # actual fill on new short
         underlying_price: float,
+        vix_level:        float     = 0.0,
+        vix_percentile:   float     = 0.0,
         regime:           str       = "",
         broker:           str       = "Fidelity",
         account_id:       str       = "",

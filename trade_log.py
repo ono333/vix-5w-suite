@@ -254,10 +254,11 @@ class RollRecord:
     underlying_price: float
     contracts: int = 1
     roll_type: str = "short"  # "short" or "long"
-    regime: str = ""
-    
-    notes: str = ""
-    
+    regime:          str   = ""
+    vix_level:       float = 0.0
+    vix_percentile:  float = 0.0
+    notes:           str   = ""
+
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
     
@@ -662,6 +663,8 @@ class DiagonalPosition:
             underlying_price=underlying_price,
             contracts=self.contracts,
             regime=regime,
+            vix_level=vix_level,
+            vix_percentile=vix_percentile,
             notes=notes,
         )
         self.roll_history.append(roll_record)
@@ -1017,6 +1020,8 @@ class TradeLog:
         new_credit: float,
         underlying_price: float,
         regime: str,
+        vix_level: float = 0.0,
+        vix_percentile: float = 0.0,
         notes: str = "",
         contracts: Optional[int] = None,
     ) -> Tuple[Optional[ShortLeg], Optional[RollRecord]]:
@@ -1032,6 +1037,8 @@ class TradeLog:
             new_credit=new_credit,
             underlying_price=underlying_price,
             regime=regime,
+            vix_level=vix_level,
+            vix_percentile=vix_percentile,
             notes=notes,
             contracts=contracts,
         )
@@ -1085,6 +1092,8 @@ class TradeLog:
             new_entry_price=new_entry_price,
             underlying_price=underlying_price,
             regime=regime,
+            vix_level=vix_level,
+            vix_percentile=vix_percentile,
             notes=notes,
         )
         
