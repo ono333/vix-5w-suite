@@ -5552,7 +5552,7 @@ def main():
                                              fetch_uvxy_data, classify_regime)
                     from variant_generator import generate_all_variants
                     from trade_log import get_trade_log
-                    import tl_module
+                    import trade_log as tl_module
 
                     smtp_user = os.environ.get("SMTP_USER", "")
                     smtp_pass = os.environ.get("SMTP_PASS", "")
