@@ -1813,11 +1813,40 @@ def render_signal_dashboard(trade_log=None):
             if not has_active and not force_send:
                 st.warning("⚠️ No active signal. Check 'Send even if no active signal' to send anyway.")
             else:
+                # Send paper email
                 success, msg = send_signal_email_smtp(batch, regime, recipient)
                 if success:
-                    st.success(f"✅ {msg}")
+                    st.success(f"✅ Paper: {msg}")
                 else:
-                    st.error(f"❌ {msg}")
+                    st.error(f"❌ Paper: {msg}")
+                # Send real capital email separately
+                try:
+                    import os, smtplib
+                    from email.mime.text import MIMEText
+                    from email.mime.multipart import MIMEMultipart
+                    from daily_signal import build_real_capital_email, classify_variants
+                    from real_trade_log import get_real_trade_log, reset_real_trade_log_cache, fetch_real_long_prices
+                    reset_real_trade_log_cache()
+                    _rtl = get_real_trade_log()
+                    fetch_real_long_prices(_rtl)
+                    _vs = classify_variants(batch, trade_log, regime.regime)
+                    _rhtml = build_real_capital_email(batch, _vs)
+                    if _rhtml:
+                        _smtp_user = os.environ.get("SMTP_USER","")
+                        _smtp_pass = os.environ.get("SMTP_PASS","")
+                        _msg = MIMEMultipart("alternative")
+                        _msg["Subject"] = f"[LIVE 💵] {regime.regime.value.upper()} ({regime.vix_percentile:.0%}) — Real Capital Risk Report"
+                        _msg["From"]    = _smtp_user
+                        _msg["To"]      = recipient
+                        _msg.attach(MIMEText(_rhtml, "html"))
+                        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as _srv:
+                            _srv.login(_smtp_user, _smtp_pass)
+                            _srv.sendmail(_smtp_user, recipient, _msg.as_string())
+                        st.success(f"✅ Real capital email sent to {recipient}")
+                    else:
+                        st.info("ℹ️ No open real positions — real email skipped")
+                except Exception as _re:
+                    st.error(f"❌ Real email: {_re}")
         
         # Quick copy button
         if st.button("📋 Copy Signal Summary"):
@@ -5507,7 +5536,76 @@ def main():
     )
     
     st.sidebar.markdown("---")
-    
+
+    # ── Global Send Emails button ──
+    if st.sidebar.button("📧 Send Emails", type="primary", use_container_width=True,
+                         key="global_send_emails",
+                         help="Send both Paper and Real capital emails now"):
+        with st.sidebar:
+            with st.spinner("Sending emails..."):
+                try:
+                    import os, smtplib
+                    from email.mime.text import MIMEText
+                    from email.mime.multipart import MIMEMultipart
+                    from daily_signal import (build_position_aware_email,
+                                             build_real_capital_email,
+                                             fetch_uvxy_data, classify_regime)
+                    from variant_generator import get_default_batch
+                    from trade_log import get_trade_log
+                    import tl_module
+
+                    smtp_user = os.environ.get("SMTP_USER", "")
+                    smtp_pass = os.environ.get("SMTP_PASS", "")
+                    to_addr   = os.environ.get("SMTP_TO", smtp_user)
+
+                    uvxy_px, pct, slope = fetch_uvxy_data()
+                    regime_state = classify_regime(uvxy_px, pct, slope)
+                    batch = get_default_batch()
+
+                    tl_module._trade_log_instance = None
+                    trade_log = get_trade_log()
+                    from daily_signal import classify_variants
+                    variant_states = classify_variants(batch, trade_log, regime_state.regime)
+
+                    def _do_send(html, subject):
+                        msg = MIMEMultipart("alternative")
+                        msg["Subject"] = subject
+                        msg["From"] = smtp_user
+                        msg["To"] = to_addr
+                        msg.attach(MIMEText(html, "html"))
+                        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as srv:
+                            srv.login(smtp_user, smtp_pass)
+                            srv.sendmail(smtp_user, to_addr, msg.as_string())
+
+                    # Paper email
+                    paper_html = build_position_aware_email(batch, variant_states)
+                    paper_subj = (f"[PAPER 📋] {regime_state.regime.value.upper()} "
+                                  f"({pct:.0%}) — Position Report")
+                    _do_send(paper_html, paper_subj)
+                    st.sidebar.success("✅ Paper email sent")
+
+                    # Real email
+                    from real_trade_log import get_real_trade_log, reset_real_trade_log_cache
+                    from real_trade_log import fetch_real_long_prices
+                    reset_real_trade_log_cache()
+                    rtl_live = get_real_trade_log()
+                    fetch_real_long_prices(rtl_live)
+                    real_html = build_real_capital_email(batch, variant_states)
+                    if real_html:
+                        real_subj = (f"[LIVE 💵] {regime_state.regime.value.upper()} "
+                                     f"({pct:.0%}) — Real Capital Risk Report")
+                        _do_send(real_html, real_subj)
+                        st.sidebar.success("✅ Real capital email sent")
+                    else:
+                        st.sidebar.info("ℹ️ No open real positions — real email skipped")
+
+                except Exception as _e:
+                    import traceback
+                    st.sidebar.error(f"❌ Email error: {_e}")
+                    st.sidebar.code(traceback.format_exc())
+
+    st.sidebar.markdown("---")
+
     if "Real Trading" in mode:
         from real_trade_log import get_real_trade_log
         rtl = get_real_trade_log()
