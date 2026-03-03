@@ -5551,8 +5551,8 @@ def main():
                                              build_real_capital_email,
                                              fetch_uvxy_data, classify_regime)
                     from variant_generator import generate_all_variants
-                    from trade_log import get_trade_log
-                    import trade_log as tl_module
+                    import trade_log as _tl_mod
+                    _tl_mod._trade_log_instance = None
 
                     smtp_user = os.environ.get("SMTP_USER", "")
                     smtp_pass = os.environ.get("SMTP_PASS", "")
@@ -5562,8 +5562,7 @@ def main():
                     regime_state = classify_regime(uvxy_px, pct, slope)
                     batch = generate_all_variants(uvxy_px, pct)
 
-                    tl_module._trade_log_instance = None
-                    trade_log = get_trade_log()
+                    trade_log = _tl_mod.get_trade_log()
                     from daily_signal import classify_variants
                     variant_states = classify_variants(batch, trade_log, regime_state.regime)
 
