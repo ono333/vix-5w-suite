@@ -76,9 +76,12 @@ class Position:
     current_pnl_pct: float = 0.0
     
     # Exit details (filled when closed)
-    exit_date: Optional[str] = None
-    exit_price: Optional[float] = None
-    exit_reason: Optional[str] = None  # target_hit, stop_hit, expired, manual, rolled
+    delta_at_entry:       float = 0.0
+    iv_at_entry:          float = 0.0
+    vix_percentile_entry: float = 0.0
+    exit_date:    Optional[str]   = None
+    exit_price:   Optional[float] = None
+    exit_reason:  Optional[str]   = None  # target_hit, stop_hit, expired, manual, rolled
     final_pnl: Optional[float] = None
     
     # Allocation
@@ -283,9 +286,17 @@ class DiagonalPosition:
     
     # Entry context
     entry_date: str = ""
-    entry_regime: str = ""
-    entry_vix_level: float = 0.0
-    entry_percentile: float = 0.0
+    entry_regime:           str   = ""
+    entry_vix_level:        float = 0.0
+    entry_uvxy:             float = 0.0
+    entry_percentile:       float = 0.0
+    entry_iv_ratio:         float = 0.0
+    entry_term_structure:   str   = ""
+    long_delta_entry:       float = 0.0
+    initial_short_delta:    float = 0.0
+    long_fill_price:        float = 0.0
+    broker:                 str   = "Paper"
+    account_id:             str   = "PAPER"
     contracts: int = 1
     
     # Long leg (LEAP)
@@ -355,6 +366,53 @@ class DiagonalPosition:
         base = short.strike if short else self.long_strike
         return base * (1 + self.stop_pct)
     
+    @staticmethod
+    def percentile_to_bucket(pct: float) -> str:
+        p = pct * 100 if pct <= 1.0 else pct
+        if p <= 5:    return "0-5% (Extreme Calm)"
+        elif p <= 20: return "5-20% (Calm)"
+        elif p <= 50: return "20-50% (Neutral)"
+        elif p <= 80: return "50-80% (Elevated)"
+        else:         return "80-100% (Panic)"
+
+    @property
+    def percentile_bucket(self) -> str:
+        return self.percentile_to_bucket(self.entry_percentile)
+
+    @property
+    def lifecycle_summary(self) -> dict:
+        from datetime import date
+        try:
+            entry = date.fromisoformat(str(self.entry_date)[:10])
+            exit_d = date.fromisoformat(str(self.exit_date)[:10]) if self.exit_date else date.today()
+            days = (exit_d - entry).days
+        except Exception:
+            days = 0
+        creds = sum(float(r.new_credit) for r in self.roll_history)
+        if self.short_legs: creds += float(self.short_legs[0].entry_credit)
+        cost = float(self.long_entry_price) * float(self.contracts) * 100
+        rc = len(self.roll_history)
+        arc = (sum(float(r.roll_credit) for r in self.roll_history)/rc if rc else 0.0)
+        cvr = (creds/cost*100) if cost else 0.0
+        cnvx = (float(self.long_delta_entry)/float(self.initial_short_delta)
+                if self.initial_short_delta > 0 else 0.0)
+        teff = (creds/days) if days else 0.0
+        return {
+            "position_id": self.position_id, "strategy": self.variant_id,
+            "account_type": getattr(self,"broker","Paper"), "days_in_trade": days,
+            "total_short_credit": round(creds,2), "total_long_cost": round(cost,2),
+            "net_realized_pnl": round(float(getattr(self,"total_pnl",0)),2),
+            "roll_count": rc, "avg_roll_credit": round(arc,4),
+            "coverage_ratio_pct": round(cvr,1), "convexity_ratio": round(cnvx,3),
+            "time_efficiency": round(teff,4),
+            "entry_percentile": round(float(self.entry_percentile)*100,1),
+            "entry_percentile_bucket": self.percentile_bucket,
+            "entry_regime": self.entry_regime,
+            "entry_iv_ratio": round(float(self.entry_iv_ratio),3),
+            "entry_term_structure": self.entry_term_structure,
+            "exit_reason": getattr(self,"exit_reason",""), "status": self.status,
+        }
+
     @property
     def long_pnl(self) -> float:
         """P&L on long leg."""

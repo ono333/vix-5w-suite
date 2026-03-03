@@ -249,6 +249,57 @@ class RealShortLeg:
     def total_roll_credits(self) -> float:
         return sum(r.roll_credit for r in self.roll_history)
 
+    @staticmethod
+    def percentile_to_bucket(pct: float) -> str:
+        p = pct * 100 if pct <= 1.0 else pct
+        if p <= 5:    return "0-5% (Extreme Calm)"
+        elif p <= 20: return "5-20% (Calm)"
+        elif p <= 50: return "20-50% (Neutral)"
+        elif p <= 80: return "50-80% (Elevated)"
+        else:         return "80-100% (Panic)"
+
+    @property
+    def percentile_bucket(self) -> str:
+        return self.percentile_to_bucket(self.entry_percentile)
+
+    @property
+    def lifecycle_summary(self) -> dict:
+        from datetime import date
+        try:
+            entry = date.fromisoformat(str(self.entry_date)[:10])
+            exit_d = date.fromisoformat(str(self.close_date)[:10]) if self.close_date else date.today()
+            days = (exit_d - entry).days
+        except Exception:
+            days = 0
+        creds  = float(self.net_short_credits)
+        cost   = float(self.long_fill_price) * float(self.contracts) * 100
+        net    = float(self.total_pnl)
+        rc     = len(self.roll_history)
+        arc    = (sum(float(r.roll_credit) for r in self.roll_history)/rc if rc else 0.0)
+        cvr    = (creds/cost*100) if cost else 0.0
+        cnvx   = (float(self.long_delta_entry)/float(self.initial_short_delta)
+                  if self.initial_short_delta > 0 else 0.0)
+        teff   = (creds/days) if days else 0.0
+        tc     = float(self.total_commissions)
+        ts     = float(self.total_slippage)
+        return {
+            "position_id": self.position_id, "strategy": self.variant_id,
+            "account_type": f"Real ({self.broker})", "account_id": self.account_id,
+            "days_in_trade": days, "total_short_credit": round(creds,2),
+            "total_long_cost": round(cost,2), "net_realized_pnl": round(net,2),
+            "total_commissions": round(tc,2), "total_slippage": round(ts,2),
+            "net_after_costs": round(net-tc-ts,2),
+            "roll_count": rc, "avg_roll_credit": round(arc,4),
+            "coverage_ratio_pct": round(cvr,1), "convexity_ratio": round(cnvx,3),
+            "time_efficiency": round(teff,4),
+            "entry_percentile": round(float(self.entry_percentile)*100,1),
+            "entry_percentile_bucket": self.percentile_bucket,
+            "entry_regime": self.entry_regime,
+            "entry_iv_ratio": round(float(self.entry_iv_ratio),3),
+            "entry_term_structure": self.entry_term_structure,
+            "exit_reason": getattr(self,"close_reason",""), "status": self.status,
+        }
+
     @property
     def long_pnl(self) -> float:
         try:
@@ -364,6 +415,57 @@ class RealShortLeg:
     @property
     def short_dte(self) -> int:
         return self.days_to_short_expiry()
+
+    @staticmethod
+    def percentile_to_bucket(pct: float) -> str:
+        p = pct * 100 if pct <= 1.0 else pct
+        if p <= 5:    return "0-5% (Extreme Calm)"
+        elif p <= 20: return "5-20% (Calm)"
+        elif p <= 50: return "20-50% (Neutral)"
+        elif p <= 80: return "50-80% (Elevated)"
+        else:         return "80-100% (Panic)"
+
+    @property
+    def percentile_bucket(self) -> str:
+        return self.percentile_to_bucket(self.entry_percentile)
+
+    @property
+    def lifecycle_summary(self) -> dict:
+        from datetime import date
+        try:
+            entry = date.fromisoformat(str(self.entry_date)[:10])
+            exit_d = date.fromisoformat(str(self.close_date)[:10]) if self.close_date else date.today()
+            days = (exit_d - entry).days
+        except Exception:
+            days = 0
+        creds  = float(self.net_short_credits)
+        cost   = float(self.long_fill_price) * float(self.contracts) * 100
+        net    = float(self.total_pnl)
+        rc     = len(self.roll_history)
+        arc    = (sum(float(r.roll_credit) for r in self.roll_history)/rc if rc else 0.0)
+        cvr    = (creds/cost*100) if cost else 0.0
+        cnvx   = (float(self.long_delta_entry)/float(self.initial_short_delta)
+                  if self.initial_short_delta > 0 else 0.0)
+        teff   = (creds/days) if days else 0.0
+        tc     = float(self.total_commissions)
+        ts     = float(self.total_slippage)
+        return {
+            "position_id": self.position_id, "strategy": self.variant_id,
+            "account_type": f"Real ({self.broker})", "account_id": self.account_id,
+            "days_in_trade": days, "total_short_credit": round(creds,2),
+            "total_long_cost": round(cost,2), "net_realized_pnl": round(net,2),
+            "total_commissions": round(tc,2), "total_slippage": round(ts,2),
+            "net_after_costs": round(net-tc-ts,2),
+            "roll_count": rc, "avg_roll_credit": round(arc,4),
+            "coverage_ratio_pct": round(cvr,1), "convexity_ratio": round(cnvx,3),
+            "time_efficiency": round(teff,4),
+            "entry_percentile": round(float(self.entry_percentile)*100,1),
+            "entry_percentile_bucket": self.percentile_bucket,
+            "entry_regime": self.entry_regime,
+            "entry_iv_ratio": round(float(self.entry_iv_ratio),3),
+            "entry_term_structure": self.entry_term_structure,
+            "exit_reason": getattr(self,"close_reason",""), "status": self.status,
+        }
 
     @property
     def long_pnl(self) -> float:
@@ -608,6 +710,57 @@ class RealRollRecord:
     def total_roll_credits(self) -> float:
         return sum(r.roll_credit for r in self.roll_history)
 
+    @staticmethod
+    def percentile_to_bucket(pct: float) -> str:
+        p = pct * 100 if pct <= 1.0 else pct
+        if p <= 5:    return "0-5% (Extreme Calm)"
+        elif p <= 20: return "5-20% (Calm)"
+        elif p <= 50: return "20-50% (Neutral)"
+        elif p <= 80: return "50-80% (Elevated)"
+        else:         return "80-100% (Panic)"
+
+    @property
+    def percentile_bucket(self) -> str:
+        return self.percentile_to_bucket(self.entry_percentile)
+
+    @property
+    def lifecycle_summary(self) -> dict:
+        from datetime import date
+        try:
+            entry = date.fromisoformat(str(self.entry_date)[:10])
+            exit_d = date.fromisoformat(str(self.close_date)[:10]) if self.close_date else date.today()
+            days = (exit_d - entry).days
+        except Exception:
+            days = 0
+        creds  = float(self.net_short_credits)
+        cost   = float(self.long_fill_price) * float(self.contracts) * 100
+        net    = float(self.total_pnl)
+        rc     = len(self.roll_history)
+        arc    = (sum(float(r.roll_credit) for r in self.roll_history)/rc if rc else 0.0)
+        cvr    = (creds/cost*100) if cost else 0.0
+        cnvx   = (float(self.long_delta_entry)/float(self.initial_short_delta)
+                  if self.initial_short_delta > 0 else 0.0)
+        teff   = (creds/days) if days else 0.0
+        tc     = float(self.total_commissions)
+        ts     = float(self.total_slippage)
+        return {
+            "position_id": self.position_id, "strategy": self.variant_id,
+            "account_type": f"Real ({self.broker})", "account_id": self.account_id,
+            "days_in_trade": days, "total_short_credit": round(creds,2),
+            "total_long_cost": round(cost,2), "net_realized_pnl": round(net,2),
+            "total_commissions": round(tc,2), "total_slippage": round(ts,2),
+            "net_after_costs": round(net-tc-ts,2),
+            "roll_count": rc, "avg_roll_credit": round(arc,4),
+            "coverage_ratio_pct": round(cvr,1), "convexity_ratio": round(cnvx,3),
+            "time_efficiency": round(teff,4),
+            "entry_percentile": round(float(self.entry_percentile)*100,1),
+            "entry_percentile_bucket": self.percentile_bucket,
+            "entry_regime": self.entry_regime,
+            "entry_iv_ratio": round(float(self.entry_iv_ratio),3),
+            "entry_term_structure": self.entry_term_structure,
+            "exit_reason": getattr(self,"close_reason",""), "status": self.status,
+        }
+
     @property
     def long_pnl(self) -> float:
         try:
@@ -718,6 +871,57 @@ class RealRollRecord:
     @property
     def short_dte(self) -> int:
         return self.days_to_short_expiry()
+
+    @staticmethod
+    def percentile_to_bucket(pct: float) -> str:
+        p = pct * 100 if pct <= 1.0 else pct
+        if p <= 5:    return "0-5% (Extreme Calm)"
+        elif p <= 20: return "5-20% (Calm)"
+        elif p <= 50: return "20-50% (Neutral)"
+        elif p <= 80: return "50-80% (Elevated)"
+        else:         return "80-100% (Panic)"
+
+    @property
+    def percentile_bucket(self) -> str:
+        return self.percentile_to_bucket(self.entry_percentile)
+
+    @property
+    def lifecycle_summary(self) -> dict:
+        from datetime import date
+        try:
+            entry = date.fromisoformat(str(self.entry_date)[:10])
+            exit_d = date.fromisoformat(str(self.close_date)[:10]) if self.close_date else date.today()
+            days = (exit_d - entry).days
+        except Exception:
+            days = 0
+        creds  = float(self.net_short_credits)
+        cost   = float(self.long_fill_price) * float(self.contracts) * 100
+        net    = float(self.total_pnl)
+        rc     = len(self.roll_history)
+        arc    = (sum(float(r.roll_credit) for r in self.roll_history)/rc if rc else 0.0)
+        cvr    = (creds/cost*100) if cost else 0.0
+        cnvx   = (float(self.long_delta_entry)/float(self.initial_short_delta)
+                  if self.initial_short_delta > 0 else 0.0)
+        teff   = (creds/days) if days else 0.0
+        tc     = float(self.total_commissions)
+        ts     = float(self.total_slippage)
+        return {
+            "position_id": self.position_id, "strategy": self.variant_id,
+            "account_type": f"Real ({self.broker})", "account_id": self.account_id,
+            "days_in_trade": days, "total_short_credit": round(creds,2),
+            "total_long_cost": round(cost,2), "net_realized_pnl": round(net,2),
+            "total_commissions": round(tc,2), "total_slippage": round(ts,2),
+            "net_after_costs": round(net-tc-ts,2),
+            "roll_count": rc, "avg_roll_credit": round(arc,4),
+            "coverage_ratio_pct": round(cvr,1), "convexity_ratio": round(cnvx,3),
+            "time_efficiency": round(teff,4),
+            "entry_percentile": round(float(self.entry_percentile)*100,1),
+            "entry_percentile_bucket": self.percentile_bucket,
+            "entry_regime": self.entry_regime,
+            "entry_iv_ratio": round(float(self.entry_iv_ratio),3),
+            "entry_term_structure": self.entry_term_structure,
+            "exit_reason": getattr(self,"close_reason",""), "status": self.status,
+        }
 
     @property
     def long_pnl(self) -> float:
@@ -880,9 +1084,14 @@ class RealDiagonalPosition:
     variant_id:        str
     variant_name:      str
     entry_date:        str
-    entry_regime:      str
-    entry_vix_level:   float
-    entry_percentile:  float
+    entry_regime:           str
+    entry_vix_level:        float
+    entry_uvxy:             float = 0.0
+    entry_percentile:       float
+    entry_iv_ratio:         float = 0.0
+    entry_term_structure:   str   = ""
+    long_delta_entry:       float = 0.0
+    initial_short_delta:    float = 0.0
     contracts:         int
     broker:            str         = "Fidelity"
     account_id:        str         = ""
@@ -945,6 +1154,57 @@ class RealDiagonalPosition:
             return float(self.gross_short_credits) - float(self.total_buybacks) - float(self.total_commissions)
         except (TypeError, ValueError):
             return 0.0
+
+    @staticmethod
+    def percentile_to_bucket(pct: float) -> str:
+        p = pct * 100 if pct <= 1.0 else pct
+        if p <= 5:    return "0-5% (Extreme Calm)"
+        elif p <= 20: return "5-20% (Calm)"
+        elif p <= 50: return "20-50% (Neutral)"
+        elif p <= 80: return "50-80% (Elevated)"
+        else:         return "80-100% (Panic)"
+
+    @property
+    def percentile_bucket(self) -> str:
+        return self.percentile_to_bucket(self.entry_percentile)
+
+    @property
+    def lifecycle_summary(self) -> dict:
+        from datetime import date
+        try:
+            entry = date.fromisoformat(str(self.entry_date)[:10])
+            exit_d = date.fromisoformat(str(self.close_date)[:10]) if self.close_date else date.today()
+            days = (exit_d - entry).days
+        except Exception:
+            days = 0
+        creds  = float(self.net_short_credits)
+        cost   = float(self.long_fill_price) * float(self.contracts) * 100
+        net    = float(self.total_pnl)
+        rc     = len(self.roll_history)
+        arc    = (sum(float(r.roll_credit) for r in self.roll_history)/rc if rc else 0.0)
+        cvr    = (creds/cost*100) if cost else 0.0
+        cnvx   = (float(self.long_delta_entry)/float(self.initial_short_delta)
+                  if self.initial_short_delta > 0 else 0.0)
+        teff   = (creds/days) if days else 0.0
+        tc     = float(self.total_commissions)
+        ts     = float(self.total_slippage)
+        return {
+            "position_id": self.position_id, "strategy": self.variant_id,
+            "account_type": f"Real ({self.broker})", "account_id": self.account_id,
+            "days_in_trade": days, "total_short_credit": round(creds,2),
+            "total_long_cost": round(cost,2), "net_realized_pnl": round(net,2),
+            "total_commissions": round(tc,2), "total_slippage": round(ts,2),
+            "net_after_costs": round(net-tc-ts,2),
+            "roll_count": rc, "avg_roll_credit": round(arc,4),
+            "coverage_ratio_pct": round(cvr,1), "convexity_ratio": round(cnvx,3),
+            "time_efficiency": round(teff,4),
+            "entry_percentile": round(float(self.entry_percentile)*100,1),
+            "entry_percentile_bucket": self.percentile_bucket,
+            "entry_regime": self.entry_regime,
+            "entry_iv_ratio": round(float(self.entry_iv_ratio),3),
+            "entry_term_structure": self.entry_term_structure,
+            "exit_reason": getattr(self,"close_reason",""), "status": self.status,
+        }
 
     @property
     def long_pnl(self) -> float:
@@ -1035,6 +1295,57 @@ class RealDiagonalPosition:
     @property
     def total_roll_credits(self) -> float:
         return sum(r.roll_credit for r in self.roll_history)
+
+    @staticmethod
+    def percentile_to_bucket(pct: float) -> str:
+        p = pct * 100 if pct <= 1.0 else pct
+        if p <= 5:    return "0-5% (Extreme Calm)"
+        elif p <= 20: return "5-20% (Calm)"
+        elif p <= 50: return "20-50% (Neutral)"
+        elif p <= 80: return "50-80% (Elevated)"
+        else:         return "80-100% (Panic)"
+
+    @property
+    def percentile_bucket(self) -> str:
+        return self.percentile_to_bucket(self.entry_percentile)
+
+    @property
+    def lifecycle_summary(self) -> dict:
+        from datetime import date
+        try:
+            entry = date.fromisoformat(str(self.entry_date)[:10])
+            exit_d = date.fromisoformat(str(self.close_date)[:10]) if self.close_date else date.today()
+            days = (exit_d - entry).days
+        except Exception:
+            days = 0
+        creds  = float(self.net_short_credits)
+        cost   = float(self.long_fill_price) * float(self.contracts) * 100
+        net    = float(self.total_pnl)
+        rc     = len(self.roll_history)
+        arc    = (sum(float(r.roll_credit) for r in self.roll_history)/rc if rc else 0.0)
+        cvr    = (creds/cost*100) if cost else 0.0
+        cnvx   = (float(self.long_delta_entry)/float(self.initial_short_delta)
+                  if self.initial_short_delta > 0 else 0.0)
+        teff   = (creds/days) if days else 0.0
+        tc     = float(self.total_commissions)
+        ts     = float(self.total_slippage)
+        return {
+            "position_id": self.position_id, "strategy": self.variant_id,
+            "account_type": f"Real ({self.broker})", "account_id": self.account_id,
+            "days_in_trade": days, "total_short_credit": round(creds,2),
+            "total_long_cost": round(cost,2), "net_realized_pnl": round(net,2),
+            "total_commissions": round(tc,2), "total_slippage": round(ts,2),
+            "net_after_costs": round(net-tc-ts,2),
+            "roll_count": rc, "avg_roll_credit": round(arc,4),
+            "coverage_ratio_pct": round(cvr,1), "convexity_ratio": round(cnvx,3),
+            "time_efficiency": round(teff,4),
+            "entry_percentile": round(float(self.entry_percentile)*100,1),
+            "entry_percentile_bucket": self.percentile_bucket,
+            "entry_regime": self.entry_regime,
+            "entry_iv_ratio": round(float(self.entry_iv_ratio),3),
+            "entry_term_structure": self.entry_term_structure,
+            "exit_reason": getattr(self,"close_reason",""), "status": self.status,
+        }
 
     @property
     def long_pnl(self) -> float:
@@ -1146,6 +1457,57 @@ class RealDiagonalPosition:
     @property
     def short_dte(self) -> int:
         return self.days_to_short_expiry()
+
+    @staticmethod
+    def percentile_to_bucket(pct: float) -> str:
+        p = pct * 100 if pct <= 1.0 else pct
+        if p <= 5:    return "0-5% (Extreme Calm)"
+        elif p <= 20: return "5-20% (Calm)"
+        elif p <= 50: return "20-50% (Neutral)"
+        elif p <= 80: return "50-80% (Elevated)"
+        else:         return "80-100% (Panic)"
+
+    @property
+    def percentile_bucket(self) -> str:
+        return self.percentile_to_bucket(self.entry_percentile)
+
+    @property
+    def lifecycle_summary(self) -> dict:
+        from datetime import date
+        try:
+            entry = date.fromisoformat(str(self.entry_date)[:10])
+            exit_d = date.fromisoformat(str(self.close_date)[:10]) if self.close_date else date.today()
+            days = (exit_d - entry).days
+        except Exception:
+            days = 0
+        creds  = float(self.net_short_credits)
+        cost   = float(self.long_fill_price) * float(self.contracts) * 100
+        net    = float(self.total_pnl)
+        rc     = len(self.roll_history)
+        arc    = (sum(float(r.roll_credit) for r in self.roll_history)/rc if rc else 0.0)
+        cvr    = (creds/cost*100) if cost else 0.0
+        cnvx   = (float(self.long_delta_entry)/float(self.initial_short_delta)
+                  if self.initial_short_delta > 0 else 0.0)
+        teff   = (creds/days) if days else 0.0
+        tc     = float(self.total_commissions)
+        ts     = float(self.total_slippage)
+        return {
+            "position_id": self.position_id, "strategy": self.variant_id,
+            "account_type": f"Real ({self.broker})", "account_id": self.account_id,
+            "days_in_trade": days, "total_short_credit": round(creds,2),
+            "total_long_cost": round(cost,2), "net_realized_pnl": round(net,2),
+            "total_commissions": round(tc,2), "total_slippage": round(ts,2),
+            "net_after_costs": round(net-tc-ts,2),
+            "roll_count": rc, "avg_roll_credit": round(arc,4),
+            "coverage_ratio_pct": round(cvr,1), "convexity_ratio": round(cnvx,3),
+            "time_efficiency": round(teff,4),
+            "entry_percentile": round(float(self.entry_percentile)*100,1),
+            "entry_percentile_bucket": self.percentile_bucket,
+            "entry_regime": self.entry_regime,
+            "entry_iv_ratio": round(float(self.entry_iv_ratio),3),
+            "entry_term_structure": self.entry_term_structure,
+            "exit_reason": getattr(self,"close_reason",""), "status": self.status,
+        }
 
     @property
     def long_pnl(self) -> float:

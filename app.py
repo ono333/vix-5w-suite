@@ -5028,9 +5028,9 @@ def render_real_trade_log():
 
     st.divider()
 
-    tab_open, tab_new, tab_history, tab_analytics = st.tabs([
+    tab_open, tab_new, tab_history, tab_analytics, tab_lifecycle = st.tabs([
         "📋 Open Positions", "➕ New Entry",
-        "📊 History", "📈 Analytics"
+        "📊 History", "📈 Analytics", "🔬 Lifecycle"
     ])
 
     # ══ OPEN POSITIONS ══════════════════════════════════════
@@ -5447,6 +5447,41 @@ def render_real_trade_log():
         except Exception as _rtu_e:
             st.error(f"New Entry form error: {_rtu_e}")
             import traceback; st.code(traceback.format_exc())
+
+    with tab_lifecycle:
+        st.markdown("### 🔬 Lifecycle Analytics")
+        st.caption("Auto-computed: convexity ratio, coverage ratio, time efficiency per ChatGPT spec.")
+        import pandas as pd
+        summaries = []
+        for pos in rtl.diagonal_positions.values():
+            try: summaries.append(pos.lifecycle_summary)
+            except Exception: pass
+        if summaries:
+            df_lc = pd.DataFrame(summaries)
+            st.dataframe(df_lc, use_container_width=True, hide_index=True)
+            if "entry_percentile_bucket" in df_lc.columns and len(df_lc) > 1:
+                st.markdown("#### 📊 By Percentile Bucket")
+                grp = df_lc.groupby("entry_percentile_bucket").agg(
+                    count=("position_id","count"),
+                    avg_pnl=("net_realized_pnl","mean"),
+                    avg_coverage=("coverage_ratio_pct","mean"),
+                ).reset_index()
+                st.dataframe(grp, use_container_width=True, hide_index=True)
+        else:
+            st.info("Lifecycle data populates as positions close.")
+        st.markdown("---")
+        st.markdown("#### 📸 Regime Snapshot History")
+        try:
+            from regime_tracker import get_regime_tracker
+            snaps = get_regime_tracker().recent(30)
+            if snaps:
+                sdf = pd.DataFrame([s.to_dict() for s in snaps])
+                sdf["pct"] = (sdf["vix_percentile_1y"]*100).round(1).astype(str)+"%"
+                st.dataframe(sdf[["date","uvxy","vix","pct","iv_ratio","term_structure",
+                                   "regime_label","percentile_bucket"]],
+                             use_container_width=True, hide_index=True)
+            else: st.info("Regime snapshots captured on each daily signal run.")
+        except Exception as _e: st.warning(f"Regime tracker: {_e}")
 
     # ══ HISTORY ══════════════════════════════════════════════
     with tab_history:
