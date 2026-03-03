@@ -1087,14 +1087,14 @@ class RealDiagonalPosition:
     entry_regime:           str
     entry_vix_level:        float
     entry_percentile:       float
+    contracts:              int
     entry_uvxy:             float = 0.0
     entry_iv_ratio:         float = 0.0
     entry_term_structure:   str   = ""
     long_delta_entry:       float = 0.0
     initial_short_delta:    float = 0.0
-    contracts:         int
-    broker:            str         = "Fidelity"
-    account_id:        str         = ""
+    broker:                 str   = "Fidelity"
+    account_id:             str   = ""
 
     # Long leg
     long_strike:       float       = 0.0
@@ -1689,10 +1689,11 @@ class RealTradeLog:
         try:
             data = json.loads(self.path.read_text())
             for pid, pd in data.get("diagonal_positions", {}).items():
-                short_legs = [RealShortLeg(**l) for l in pd.pop("short_legs", [])]
-                roll_history = [RealRollRecord(**r) for r in pd.pop("roll_history", [])]
+                short_legs = [RealShortLeg(**{k:v for k,v in l.items() if k in RealShortLeg.__dataclass_fields__}) for l in pd.pop("short_legs", [])]
+                roll_history = [RealRollRecord(**{k:v for k,v in r.items() if k in RealRollRecord.__dataclass_fields__}) for r in pd.pop("roll_history", [])]
+                _valid_pd = {k:v for k,v in pd.items() if k in RealDiagonalPosition.__dataclass_fields__}
                 self.diagonal_positions[pid] = RealDiagonalPosition(
-                    **pd, short_legs=short_legs, roll_history=roll_history)
+                    **_valid_pd, short_legs=short_legs, roll_history=roll_history)
             self.history    = data.get("history", [])
             self.updated_at = data.get("updated_at", self.updated_at)
         except Exception as e:
