@@ -1086,8 +1086,8 @@ class RealDiagonalPosition:
     entry_date:        str
     entry_regime:           str
     entry_vix_level:        float
-    entry_uvxy:             float = 0.0
     entry_percentile:       float
+    entry_uvxy:             float = 0.0
     entry_iv_ratio:         float = 0.0
     entry_term_structure:   str   = ""
     long_delta_entry:       float = 0.0
