@@ -195,8 +195,14 @@ def classify_variants(
         
         # Add management info if has position
         if has_position and position:
-            state.current_pnl = position.current_pnl
-            state.current_pnl_pct = position.current_pnl_pct
+            # Support both paper (current_pnl) and real (total_pnl)
+            if hasattr(position, 'current_pnl'):
+                state.current_pnl = position.current_pnl
+                state.current_pnl_pct = position.current_pnl_pct
+            elif hasattr(position, 'total_pnl'):
+                state.current_pnl = float(position.total_pnl)
+                long_cost = float(getattr(position, 'long_fill_price', 0)) * float(getattr(position, 'contracts', 1)) * 100
+                state.current_pnl_pct = (state.current_pnl / long_cost) if long_cost else 0.0
             state.dte_remaining = position.days_to_expiry()
             
             # Get actual diagonal position for short leg analysis
