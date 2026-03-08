@@ -1333,8 +1333,45 @@ def build_real_capital_email(
 """
         html += "    </table>\n  </div>\n"
 
-    # Footer
+    # ── Entry Signals Section ──────────────────────────────────────────────
+    entry_candidates = [s for s in variant_states
+                        if s.is_recommended and not s.has_position]
+    observe_only     = [s for s in variant_states
+                        if not s.is_recommended and not s.has_position]
+
+    cand_rows = ""
+    for s in entry_candidates:
+        v = s.variant
+        band = _short_strike_band(vix_level)
+        cand_rows += f"""
+    <div style="border:1px solid #804000;border-left:3px solid #ff6600;
+                border-radius:4px;padding:8px;margin-bottom:6px;background:#261000;">
+      <div style="font-weight:700;color:#ffcc88;font-size:12px;">{v.name}</div>
+      <div style="font-size:11px;color:#ffaa66;margin-top:3px;">
+        Target OTM: {band} &nbsp;|&nbsp;
+        Long DTE: {v.long_dte_target}w &nbsp;|&nbsp; Short DTE: {v.short_dte_target}d<br>
+        <span style="color:#ff9944;font-weight:600;">→ Open long first, sell short same day</span>
+      </div>
+    </div>"""
+
+    obs_names = ", ".join(s.variant.name for s in observe_only) if observe_only else "None"
+    no_cand_msg = "" if entry_candidates else """
+    <div style="color:#ff9944;font-size:11px;padding:6px;">
+      No new entries recommended — manage existing positions only.
+    </div>"""
+
     html += f"""
+  <div style="background:#1a0800;border:1px solid #5a2800;border-radius:6px;
+              padding:14px;margin-bottom:12px;">
+    <div style="font-weight:700;font-size:13px;color:#ff9944;margin-bottom:8px;">
+      📡 ENTRY SIGNALS — Regime: {regime_name}
+    </div>
+    {no_cand_msg}{cand_rows}
+    <div style="font-size:11px;color:#664422;margin-top:6px;">
+      ⬜ Observe only: {obs_names}
+    </div>
+  </div>
+
   <div style="text-align:center;padding:16px;background:#0f0500;
               color:#664422;font-size:11px;border-top:1px solid #3a1800;">
     🔴 VIX 5% Weekly Suite — LIVE CAPITAL MODE<br>
