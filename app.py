@@ -5594,13 +5594,27 @@ def main():
                     smtp_pass = os.environ.get("SMTP_PASS", "")
                     to_addr   = os.environ.get("SMTP_TO", smtp_user)
 
-                    uvxy_px, pct, slope = fetch_uvxy_data()
-                    regime_state = classify_regime(uvxy_px, pct, slope)
-                    batch = generate_all_variants(uvxy_px, pct)
+                    # Use frozen batch as single source of truth
+                    from app import load_signal_batch, save_signal_batch
+                    batch = load_signal_batch()
+                    if not batch:
+                        uvxy_px, pct, slope = fetch_uvxy_data()
+                        regime_state = classify_regime(uvxy_px, pct, slope)
+                        batch = generate_all_variants(uvxy_px, pct)
+                        batch.frozen = True
+                        save_signal_batch(batch)
+                    regime_state = batch.regime_state
 
+                    # Paper variant states (using paper trade log)
                     trade_log = _tl_mod.get_trade_log()
                     from daily_signal import classify_variants
                     variant_states = classify_variants(batch, trade_log, regime_state.regime)
+
+                    # Real variant states (using real trade log)
+                    from real_trade_log import get_real_trade_log, reset_real_trade_log_cache, fetch_real_long_prices
+                    reset_real_trade_log_cache()
+                    rtl_live = get_real_trade_log()
+                    real_variant_states = classify_variants(batch, rtl_live, regime_state.regime)
 
                     def _do_send(html, subject):
                         msg = MIMEMultipart("alternative")
@@ -5625,7 +5639,7 @@ def main():
                     reset_real_trade_log_cache()
                     rtl_live = get_real_trade_log()
                     fetch_real_long_prices(rtl_live)
-                    real_html = build_real_capital_email(batch, variant_states)
+                    real_html = build_real_capital_email(batch, real_variant_states)
                     if real_html:
                         real_subj = (f"[LIVE 💵] {regime_state.regime.value.upper()} "
                                      f"({pct:.0%}) — Real Capital Risk Report")
