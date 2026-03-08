@@ -158,7 +158,14 @@ def classify_variants(
         variant_id = variant.role.value if hasattr(variant.role, 'value') else str(variant.role)
         
         # Check for open position
-        position = trade_log.get_open_position(variant_id)
+        # Support both TradeLog (get_open_position) and RealTradeLog (open_positions)
+        position = None
+        if hasattr(trade_log, 'get_open_position'):
+            position = trade_log.get_open_position(variant_id)
+        elif hasattr(trade_log, 'open_positions'):
+            _open = trade_log.open_positions()
+            position = next((p for p in _open.values()
+                            if p.variant_id.upper() == variant_id.upper()), None)
         has_position = position is not None
         
         # Is this variant recommended for current regime?

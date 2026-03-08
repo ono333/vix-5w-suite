@@ -230,7 +230,8 @@ class ShortLeg:
         # Remove computed fields if present
         data.pop("pnl", None)
         data.pop("dte", None)
-        return cls(**data)
+        valid = {k: v for k, v in data.items() if k in cls.__dataclass_fields__}
+        return cls(**valid)
 
 
 @dataclass
