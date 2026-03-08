@@ -1315,8 +1315,9 @@ def render_signal_dashboard(trade_log=None):
                 elif not hasattr(batch, 'batch_id'):
                     st.error(f"Invalid batch: {type(batch)}")
                 else:
+                    batch.frozen = True  # Auto-freeze — single source of truth
                     save_signal_batch(batch)
-                    st.success(f"✅ Generated batch: {batch.batch_id}")
+                    st.success(f"✅ Generated & frozen batch: {batch.batch_id}")
                     st.balloons()
                     st.rerun()
         except Exception as e:

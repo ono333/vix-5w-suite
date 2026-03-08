@@ -1610,22 +1610,25 @@ def main():
     # 3. Load frozen batch if exists and still valid — else regenerate
     batch = load_signal_batch()
     if batch and batch.frozen:
-        # Validate batch is still current week
         from datetime import timezone
         now_utc = datetime.now(timezone.utc)
         batch_valid = (hasattr(batch, 'valid_until') and
                        batch.valid_until.replace(tzinfo=timezone.utc) > now_utc)
         if batch_valid:
             print(f"\n📋 Using frozen batch: {batch.batch_id} (valid until {batch.valid_until})")
+            # Use batch's own regime — not re-derived from live data
+            regime_state = batch.regime_state
         else:
-            print(f"\n📋 Frozen batch expired — regenerating")
+            print(f"\n📋 Frozen batch expired — regenerating from live data")
             batch = generate_all_variants(regime_state)
+            batch.frozen = True
             save_signal_batch(batch)
     else:
-        print(f"\n📋 No frozen batch — generating fresh")
+        print(f"\n📋 No frozen batch — generating fresh from live data")
         batch = generate_all_variants(regime_state)
+        batch.frozen = True
         save_signal_batch(batch)
-    print(f"   Batch: {batch.batch_id}  Frozen: {batch.frozen}")
+    print(f"   Batch: {batch.batch_id}  Regime: {regime_state.regime.value}  Frozen: {batch.frozen}")
 
     # 4. Load trade log and classify variants
     trade_log = get_trade_log()
