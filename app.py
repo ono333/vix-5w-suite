@@ -5566,7 +5566,7 @@ def main():
     
     mode = st.sidebar.radio(
         "Mode",
-        ["📊 Research", "📈 Paper Trading", "💵 Real Trading"],
+        ["💵 Real Trading", "📈 Paper Trading", "📊 Research"],
         index=0,
         key="app_mode",
     )
@@ -5661,9 +5661,9 @@ def main():
         page = st.sidebar.radio(
             "Real Trading Pages",
             [
-                "Trade Log Real",
                 "Signal Dashboard",
                 "Active Trades",
+                "Trade Log Real",
                 "Post-Mortem Review",
                 "Variant Analytics",
                 "System Health",
@@ -5684,12 +5684,12 @@ def main():
         st.sidebar.markdown(
             f"Slippage: **${real_summary['total_slippage']:+.2f}**")
         # Dispatch with real trade log
-        if page == "Trade Log Real":
-            render_real_trade_log()
-        elif page == "Signal Dashboard":
+        if page == "Signal Dashboard":
             render_signal_dashboard(trade_log=rtl)
         elif page == "Active Trades":
             render_active_trades(trade_log=rtl)
+        elif page == "Trade Log Real":
+            render_real_trade_log()
         elif page == "Post-Mortem Review":
             render_post_mortem(trade_log=rtl)
         elif page == "Variant Analytics":
