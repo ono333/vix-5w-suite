@@ -1349,14 +1349,27 @@ def build_real_capital_email(
     for s in entry_candidates:
         v = s.variant
         band = _short_strike_band(vix_level)
+        long_k  = f"${v.long_strike:.0f}"  if v.long_strike  else "—"
+        short_k = f"${v.short_strike:.0f}" if v.short_strike else "—"
+        from datetime import date as _date, timedelta
+        long_exp  = (_date.today() + timedelta(weeks=v.long_dte_weeks)).strftime("%b %d")
+        short_exp = (_date.today() + timedelta(weeks=v.short_dte_weeks)).strftime("%b %d")
         cand_rows += f"""
     <div style="border:1px solid #804000;border-left:3px solid #ff6600;
-                border-radius:4px;padding:8px;margin-bottom:6px;background:#261000;">
-      <div style="font-weight:700;color:#ffcc88;font-size:12px;">{v.name}</div>
-      <div style="font-size:11px;color:#ffaa66;margin-top:3px;">
-        Target OTM: {band} &nbsp;|&nbsp;
-        Long DTE: {v.long_dte_weeks}w &nbsp;|&nbsp; Short DTE: {v.short_dte_weeks}d<br>
-        <span style="color:#ff9944;font-weight:600;">→ Open long first, sell short same day</span>
+                border-radius:4px;padding:10px;margin-bottom:6px;background:#261000;">
+      <div style="font-weight:700;color:#ffcc88;font-size:13px;margin-bottom:6px;">{v.name}</div>
+      <table style="width:100%;font-size:11px;color:#ffaa66;border-collapse:collapse;">
+        <tr>
+          <td style="padding:2px 8px 2px 0;"><b>Long Strike:</b> {long_k} exp ~{long_exp} ({v.long_dte_weeks}w)</td>
+          <td style="padding:2px 8px 2px 0;"><b>Short Strike:</b> {short_k} exp ~{short_exp} ({v.short_dte_weeks}w)</td>
+        </tr>
+        <tr>
+          <td style="padding:2px 8px 2px 0;"><b>Long offset:</b> +{v.long_strike_offset:.0f} pts OTM</td>
+          <td style="padding:2px 8px 2px 0;"><b>Short offset:</b> +{v.short_strike_offset:.0f} pts OTM</td>
+        </tr>
+      </table>
+      <div style="margin-top:5px;color:#ff9944;font-weight:600;font-size:11px;">
+        → Open long first, sell short same day &nbsp;|&nbsp; Target OTM: {band}
       </div>
     </div>"""
 
