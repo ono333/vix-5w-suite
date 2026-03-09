@@ -371,11 +371,16 @@ def _fetch_iv_term_structure() -> dict:
 
 
 def _short_strike_band(vix_level: float) -> str:
-    """Dynamic short strike OTM band from ChatGPT spec."""
-    if vix_level < 17:   return "9–11% OTM"
-    if vix_level <= 22:  return "6–8% OTM"
-    if vix_level <= 25:  return "4–6% OTM"
-    return "PAUSE — VIX > 25"
+    """Dynamic short strike OTM band based on VIX regime.
+    Higher VIX → sell wider OTM to avoid gamma risk.
+    Never pause — adjust strike width instead.
+    """
+    if vix_level < 17:   return "9–11% OTM (Calm)"
+    if vix_level <= 22:  return "6–8% OTM (Low)"
+    if vix_level <= 25:  return "4–6% OTM (Neutral)"
+    if vix_level <= 35:  return "6–9% OTM (Elevated)"
+    if vix_level <= 50:  return "8–12% OTM (Crisis)"
+    return "10–15% OTM (Panic)"
 
 
 def _estimate_roll_debit(uvxy_price: float, current_strike: float,
