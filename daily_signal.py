@@ -382,26 +382,46 @@ def _estimate_roll_debit(uvxy_price: float, current_strike: float,
 
 def _stress_test(positions: list, uvxy_scenarios: list,
                  uvxy_current: float) -> list:
-    """Simple linear stress test — estimates P&L at each UVXY level."""
+    """Realistic diagonal spread stress test using intrinsic value model."""
+    import math
     results = []
     for target in uvxy_scenarios:
-        move_pct = (target - uvxy_current) / uvxy_current
+        move = target - uvxy_current
         total_impact = 0.0
         for pos in positions:
             try:
-                # Long delta gain
-                long_delta = _bs_delta(uvxy_current, pos.long_strike,
-                                       pos.days_to_long_expiry() / 365)
-                long_gain = long_delta * move_pct * uvxy_current * pos.contracts * 100
-                # Short delta loss
+                n  = float(pos.contracts)
+                lk = float(pos.long_strike)
+                # Long leg: deep ITM LEAP moves ~0.85-0.95 with UVXY (high delta)
+                long_dte = pos.days_to_long_expiry()
+                long_itm = uvxy_current - lk
+                if long_itm > 5:          # deep ITM
+                    long_delta_eff = 0.90
+                elif long_itm > 0:        # slightly ITM
+                    long_delta_eff = 0.75
+                else:                     # OTM
+                    long_delta_eff = 0.55
+                long_impact = long_delta_eff * move * n * 100
+
+                # Short leg: weekly call
                 short = pos.current_short_leg
                 if short:
-                    short_delta = _bs_delta(uvxy_current, short.strike,
-                                            pos.days_to_expiry() / 365)
-                    short_loss = -short_delta * move_pct * uvxy_current * pos.contracts * 100
+                    sk = float(short.strike)
+                    short_dte = pos.days_to_expiry()
+                    short_itm = uvxy_current - sk
+                    if short_itm > 5:     # deep ITM short — high delta
+                        short_delta_eff = 0.92
+                    elif short_itm > 0:   # slightly ITM
+                        short_delta_eff = 0.75
+                    elif sk - uvxy_current < 3:  # near ATM
+                        short_delta_eff = 0.50
+                    else:                 # OTM
+                        short_delta_eff = 0.30
+                    short_impact = -short_delta_eff * move * n * 100
                 else:
-                    short_loss = 0
-                total_impact += long_gain + short_loss
+                    short_impact = 0.0
+
+                total_impact += long_impact + short_impact
             except Exception:
                 pass
         results.append({"uvxy": target, "impact": round(total_impact, 0)})
@@ -1349,11 +1369,17 @@ def build_real_capital_email(
     for s in entry_candidates:
         v = s.variant
         band = _short_strike_band(vix_level)
-        long_k  = f"${v.long_strike:.0f}"  if v.long_strike  else "—"
-        short_k = f"${v.short_strike:.0f}" if v.short_strike else "—"
         from datetime import date as _date, timedelta
+        # Use computed strike if available, else derive from UVXY + offset
+        long_k_val  = v.long_strike  if v.long_strike  > 0 else (vix_level + v.long_strike_offset)
+        short_k_val = v.short_strike if v.short_strike > 0 else (vix_level + v.short_strike_offset)
+        long_k  = f"${long_k_val:.0f}"
+        short_k = f"${short_k_val:.0f}"
         long_exp  = (_date.today() + timedelta(weeks=v.long_dte_weeks)).strftime("%b %d")
         short_exp = (_date.today() + timedelta(weeks=v.short_dte_weeks)).strftime("%b %d")
+        # OTM band — use actual % even in elevated VIX
+        otm_pct = round((short_k_val - vix_level) / vix_level * 100, 1)
+        band_actual = f"{otm_pct:.1f}% OTM (${short_k_val:.0f})"
         cand_rows += f"""
     <div style="border:1px solid #804000;border-left:3px solid #ff6600;
                 border-radius:4px;padding:10px;margin-bottom:6px;background:#261000;">
@@ -1369,7 +1395,7 @@ def build_real_capital_email(
         </tr>
       </table>
       <div style="margin-top:5px;color:#ff9944;font-weight:600;font-size:11px;">
-        → Open long first, sell short same day &nbsp;|&nbsp; Target OTM: {band}
+        → Open long first, sell short same day &nbsp;|&nbsp; Target: {band_actual}
       </div>
     </div>"""
 
