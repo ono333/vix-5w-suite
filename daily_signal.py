@@ -99,22 +99,35 @@ def fetch_uvxy_data(lookback_days: int = 365) -> Tuple[float, float, float]:
     print(f"   ✅ Got {len(prices)} days of data")
     
     current_price = float(prices.iloc[-1])
-    
-    # 52-week percentile
-    window = min(252, len(prices))
-    rolling_min = prices.rolling(window=window).min()
-    rolling_max = prices.rolling(window=window).max()
-    
-    percentile = (current_price - rolling_min.iloc[-1]) / (rolling_max.iloc[-1] - rolling_min.iloc[-1] + 1e-10)
-    percentile = max(0, min(1, percentile))
-    
-    # 5-day slope (simple linear regression approximation)
+
+    # ── VIX rank-based percentile (correct method) ──────────────────────
+    # Use ^VIX for percentile — UVXY min/max normalization is misleading
+    try:
+        vix_df = yf.download("^VIX", start=start, end=end, progress=False)
+        if isinstance(vix_df.columns, pd.MultiIndex):
+            vix_df.columns = vix_df.columns.get_level_values(0)
+        vix_prices = vix_df["Close"].dropna()
+        vix_today  = float(vix_prices.iloc[-1])
+        window     = min(252, len(vix_prices))
+        vix_window = vix_prices.iloc[-window:]
+        percentile = float((vix_window < vix_today).sum()) / len(vix_window)
+        print(f"   VIX: ${vix_today:.2f}  Percentile (52w rank): {percentile:.1%}")
+    except Exception as e:
+        print(f"   ⚠️ VIX percentile fallback: {e}")
+        # Fallback: UVXY rank
+        window     = min(252, len(prices))
+        px_window  = prices.iloc[-window:]
+        percentile = float((px_window < current_price).sum()) / len(px_window)
+
+    percentile = max(0.0, min(1.0, percentile))
+
+    # 5-day slope
     if len(prices) >= 5:
         recent = prices.iloc[-5:].values
-        slope = (recent[-1] - recent[0]) / recent[0]
+        slope  = (recent[-1] - recent[0]) / recent[0]
     else:
         slope = 0.0
-    
+
     return current_price, percentile, slope
 
 
