@@ -5605,6 +5605,9 @@ def main():
                         save_signal_batch(batch)
                     regime_state = batch.regime_state
                     pct = regime_state.vix_percentile
+                    if not batch.frozen:
+                        batch.frozen = True
+                        save_signal_batch(batch)
 
                     # Paper variant states (using paper trade log)
                     trade_log = _tl_mod.get_trade_log()

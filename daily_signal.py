@@ -1355,7 +1355,7 @@ def build_real_capital_email(
       <div style="font-weight:700;color:#ffcc88;font-size:12px;">{v.name}</div>
       <div style="font-size:11px;color:#ffaa66;margin-top:3px;">
         Target OTM: {band} &nbsp;|&nbsp;
-        Long DTE: {v.long_dte_target}w &nbsp;|&nbsp; Short DTE: {v.short_dte_target}d<br>
+        Long DTE: {v.long_dte_weeks}w &nbsp;|&nbsp; Short DTE: {v.short_dte_weeks}d<br>
         <span style="color:#ff9944;font-weight:600;">→ Open long first, sell short same day</span>
       </div>
     </div>"""
