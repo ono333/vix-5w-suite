@@ -304,24 +304,32 @@ def classify_variants(
 # EMAIL HELPERS — Risk computations
 # ─────────────────────────────────────────────────────────────────────
 
+def _norm_cdf(x: float) -> float:
+    """Pure Python normal CDF (Abramowitz & Stegun approximation, error < 1.5e-7)."""
+    import math
+    if x < 0:
+        return 1.0 - _norm_cdf(-x)
+    k = 1.0 / (1.0 + 0.2316419 * x)
+    p = k * (0.319381530
+           + k * (-0.356563782
+           + k * (1.781477937
+           + k * (-1.821255978
+           + k * 1.330274429))))
+    return 1.0 - (1.0 / math.sqrt(2 * math.pi)) * math.exp(-0.5 * x * x) * p
+
+
 def _bs_delta(S: float, K: float, T: float, sigma: float = 0.85,
               r: float = 0.0, option_type: str = "call") -> float:
-    """Synthetic Black-Scholes delta for short leg monitoring."""
+    """Black-Scholes delta — pure Python, no scipy required."""
     import math
     if T <= 0 or S <= 0 or K <= 0:
         return 1.0 if S > K else 0.0
     try:
         d1 = (math.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * math.sqrt(T))
-        from scipy.stats import norm
-        return float(norm.cdf(d1)) if option_type == "call" else float(norm.cdf(d1) - 1)
+        delta = _norm_cdf(d1)
+        return delta if option_type == "call" else delta - 1.0
     except Exception:
-        # Fallback: moneyness approximation
-        moneyness = K / S - 1.0
-        if moneyness > 0.12: return 0.15
-        if moneyness > 0.08: return 0.25
-        if moneyness > 0.04: return 0.35
-        if moneyness > 0.00: return 0.45
-        return 0.60
+        return 1.0 if S > K else 0.0
 
 
 def _fetch_iv_term_structure() -> dict:
