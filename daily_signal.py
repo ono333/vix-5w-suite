@@ -1100,6 +1100,13 @@ def build_real_capital_email(
     ts_data    = _fetch_iv_term_structure()
     stale_warn = _data_age_warning(fetch_time)
 
+    # Vol Triangle snapshot
+    try:
+        from vol_triangle import get_latest_snapshot
+        _vsnap = get_latest_snapshot()
+    except Exception:
+        _vsnap = None
+
     regime_colors = {
         "CALM": "#e65100", "DECLINING": "#bf360c",
         "RISING": "#b71c1c", "STRESSED": "#7f0000", "EXTREME": "#4a0000"
@@ -1723,6 +1730,13 @@ def main():
             print(f"   {line}")
     
     # 3. Load frozen batch if exists and still valid — else regenerate
+    # Capture daily vol triangle snapshot (builds proprietary dataset)
+    try:
+        from vol_triangle import capture_snapshot as _cap_snap
+        _cap_snap(force=False)
+    except Exception as _e:
+        print(f"   ⚠️ Vol snapshot: {_e}")
+
     batch = load_signal_batch()
     if batch and batch.frozen:
         from datetime import timezone
