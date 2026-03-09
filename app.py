@@ -5600,7 +5600,8 @@ def main():
                     uvxy_px, pct, slope = fetch_uvxy_data()
                     # pct from fetch_uvxy_data is already ^VIX rank-based
                     regime_state = classify_regime(uvxy_px, vix_percentile=pct)
-                    batch = generate_all_variants(uvxy_px, pct)
+                    # Pass regime_state directly so generate_all_variants uses correct regime+pct
+                    batch = generate_all_variants(regime_state)
                     batch.frozen = True
                     save_signal_batch(batch)
                     pct = regime_state.vix_percentile

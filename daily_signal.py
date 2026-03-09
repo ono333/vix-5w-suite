@@ -1225,6 +1225,62 @@ def build_real_capital_email(
 """
 
     # Open positions — real money cards
+    # ── Volatility Triangle Radar ──────────────────────────────────────────
+    try:
+        from vol_triangle import get_latest_snapshot
+        _vsnap = get_latest_snapshot()
+    except Exception:
+        _vsnap = None
+
+    if _vsnap:
+        sv = _vsnap
+        spike_color = ("#4CAF50" if sv.spike_score < 40 else
+                       "#FF9800" if sv.spike_score < 60 else
+                       "#f44336" if sv.spike_score < 80 else "#9C27B0")
+        badges = ""
+        if sv.collapse_flag:
+            badges += '<span style="background:#2196F3;color:white;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:700;margin-right:4px;">COLLAPSE WATCH</span>'
+        if sv.crisis_harvest:
+            badges += '<span style="background:#b71c1c;color:white;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:700;margin-right:4px;">CRISIS HARVEST MODE</span>'
+        if sv.vvix_leads:
+            badges += '<span style="background:#7b1fa2;color:white;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:700;">VVIX LEADS — SPIKE COMING</span>'
+
+        html += f"""
+  <div style="background:#1a0800;border:1px solid #5a2800;border-radius:6px;
+              padding:14px;margin:0 20px 12px;">
+    <div style="font-weight:700;font-size:13px;color:#ff9944;margin-bottom:8px;">
+      🔺 VOLATILITY TRIANGLE &nbsp; {badges}
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px;">
+      <tr>
+        <td style="padding:3px 8px;color:#ffaa66;width:25%;"><b>VIX</b></td>
+        <td style="padding:3px 8px;color:#fff;">${sv.vix:.2f} &nbsp;<span style="color:#aaa;">({sv.vix_pct:.0%})</span></td>
+        <td style="padding:3px 8px;color:#ffaa66;width:25%;"><b>VVIX</b></td>
+        <td style="padding:3px 8px;color:#fff;">{sv.vvix:.1f} &nbsp;<span style="color:#aaa;">({sv.vvix_pct:.0%})</span></td>
+      </tr>
+      <tr style="background:#261000;">
+        <td style="padding:3px 8px;color:#ffaa66;"><b>VIX3M</b></td>
+        <td style="padding:3px 8px;color:#fff;">${sv.vix3m:.2f}</td>
+        <td style="padding:3px 8px;color:#ffaa66;"><b>Term Structure</b></td>
+        <td style="padding:3px 8px;color:#fff;">{sv.term_structure}</td>
+      </tr>
+      <tr>
+        <td style="padding:3px 8px;color:#ffaa66;"><b>VIX 5d</b></td>
+        <td style="padding:3px 8px;color:#fff;">{sv.vix_slope_5d:+.1%}</td>
+        <td style="padding:3px 8px;color:#ffaa66;"><b>Regime</b></td>
+        <td style="padding:3px 8px;color:#fff;">{sv.regime}</td>
+      </tr>
+    </table>
+    <div style="margin-top:8px;padding:6px 8px;background:#0f0500;border-radius:4px;">
+      <span style="color:#ffaa66;font-size:11px;font-weight:700;">SPIKE SCORE: </span>
+      <span style="color:{spike_color};font-size:15px;font-weight:700;">{sv.spike_score:.0f}/100</span>
+      <span style="color:{spike_color};font-size:11px;"> — {sv.spike_label}</span>
+      <div style="background:#333;border-radius:3px;height:6px;margin-top:5px;">
+        <div style="background:{spike_color};width:{sv.spike_score:.0f}%;height:6px;border-radius:3px;"></div>
+      </div>
+    </div>
+  </div>"""
+
     html += """
   <!-- REAL POSITIONS -->
   <div style="padding:14px 20px 0;">
