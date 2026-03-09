@@ -5585,7 +5585,8 @@ def main():
                     from email.mime.multipart import MIMEMultipart
                     from daily_signal import (build_position_aware_email,
                                              build_real_capital_email,
-                                             fetch_uvxy_data, classify_regime)
+                                             fetch_uvxy_data)
+                    from regime_detector import classify_regime as classify_regime
                     from variant_generator import generate_all_variants
                     import trade_log as _tl_mod
                     _tl_mod._trade_log_instance = None
@@ -5597,7 +5598,8 @@ def main():
                     # Always regenerate fresh batch on Send Emails — then freeze
                     from app import save_signal_batch
                     uvxy_px, pct, slope = fetch_uvxy_data()
-                    regime_state = classify_regime(uvxy_px, pct, slope)
+                    # pct from fetch_uvxy_data is already ^VIX rank-based
+                    regime_state = classify_regime(uvxy_px, vix_percentile=pct)
                     batch = generate_all_variants(uvxy_px, pct)
                     batch.frozen = True
                     save_signal_batch(batch)
