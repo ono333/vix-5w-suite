@@ -5594,20 +5594,14 @@ def main():
                     smtp_pass = os.environ.get("SMTP_PASS", "")
                     to_addr   = os.environ.get("SMTP_TO", smtp_user)
 
-                    # Use frozen batch as single source of truth
-                    from app import load_signal_batch, save_signal_batch
-                    batch = load_signal_batch()
-                    if not batch:
-                        uvxy_px, pct, slope = fetch_uvxy_data()
-                        regime_state = classify_regime(uvxy_px, pct, slope)
-                        batch = generate_all_variants(uvxy_px, pct)
-                        batch.frozen = True
-                        save_signal_batch(batch)
-                    regime_state = batch.regime_state
+                    # Always regenerate fresh batch on Send Emails — then freeze
+                    from app import save_signal_batch
+                    uvxy_px, pct, slope = fetch_uvxy_data()
+                    regime_state = classify_regime(uvxy_px, pct, slope)
+                    batch = generate_all_variants(uvxy_px, pct)
+                    batch.frozen = True
+                    save_signal_batch(batch)
                     pct = regime_state.vix_percentile
-                    if not batch.frozen:
-                        batch.frozen = True
-                        save_signal_batch(batch)
 
                     # Paper variant states (using paper trade log)
                     trade_log = _tl_mod.get_trade_log()
