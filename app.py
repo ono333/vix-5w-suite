@@ -5624,14 +5624,7 @@ def main():
                             srv.login(smtp_user, smtp_pass)
                             srv.sendmail(smtp_user, to_addr, msg.as_string())
 
-                    # Paper email
-                    paper_html = build_position_aware_email(batch, variant_states)
-                    paper_subj = (f"[PAPER 📋] {regime_state.regime.value.upper()} "
-                                  f"({pct:.0%}) — Position Report")
-                    _do_send(paper_html, paper_subj)
-                    st.sidebar.success("✅ Paper email sent")
-
-                    # Real email
+                    # Real email first
                     from real_trade_log import get_real_trade_log, reset_real_trade_log_cache
                     from real_trade_log import fetch_real_long_prices
                     reset_real_trade_log_cache()
@@ -5645,6 +5638,13 @@ def main():
                         st.sidebar.success("✅ Real capital email sent")
                     else:
                         st.sidebar.info("ℹ️ No open real positions — real email skipped")
+
+                    # Paper email second
+                    paper_html = build_position_aware_email(batch, variant_states)
+                    paper_subj = (f"[PAPER 📋] {regime_state.regime.value.upper()} "
+                                  f"({pct:.0%}) — Position Report")
+                    _do_send(paper_html, paper_subj)
+                    st.sidebar.success("✅ Paper email sent")
 
                 except Exception as _e:
                     import traceback
