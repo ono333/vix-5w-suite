@@ -1292,7 +1292,60 @@ def render_signal_dashboard(trade_log=None):
         st.metric("Confidence", f"{regime.confidence:.0%}")
     
     st.markdown(f"*{get_regime_description(regime.regime)}*")
-    
+
+    # ── Volatility Triangle Panel ────────────────────────────────────────
+    st.markdown("---")
+    st.subheader("🔺 Volatility Triangle")
+    try:
+        from vol_triangle import capture_snapshot, get_latest_snapshot
+        snap = get_latest_snapshot()
+        # Auto-capture if no snapshot today
+        from datetime import date
+        if not snap or snap.date != date.today().strftime("%Y-%m-%d"):
+            with st.spinner("Capturing vol snapshot..."):
+                snap = capture_snapshot(force=True)
+
+        if snap:
+            spike_color = ("#4CAF50" if snap.spike_score < 40 else
+                           "#FF9800" if snap.spike_score < 60 else
+                           "#f44336" if snap.spike_score < 80 else "#9C27B0")
+
+            # Top metrics row
+            c1, c2, c3, c4, c5 = st.columns(5)
+            c1.metric("VIX", f"${snap.vix:.2f}", f"{snap.vix_pct:.0%} rank")
+            c2.metric("VVIX", f"{snap.vvix:.1f}", f"{snap.vvix_pct:.0%} rank")
+            c3.metric("VIX3M", f"${snap.vix3m:.2f}")
+            c4.metric("Term Structure", snap.term_structure)
+            c5.metric("VIX 5d Slope", f"{snap.vix_slope_5d:+.1%}")
+
+            # Spike Score gauge
+            st.markdown("**Spike Exhaustion Score**")
+            st.markdown(
+                f"<div style='background:#f0f0f0;border-radius:6px;height:24px;'>"
+                f"<div style='background:{spike_color};width:{snap.spike_score:.0f}%;"
+                f"height:24px;border-radius:6px;display:flex;align-items:center;"
+                f"padding-left:8px;'>"
+                f"<span style='color:white;font-weight:700;font-size:13px;'>"
+                f"{snap.spike_score:.0f}/100 — {snap.spike_label}</span></div></div>",
+                unsafe_allow_html=True
+            )
+
+            # Alert badges
+            badges = []
+            if snap.vvix_leads:
+                badges.append("🟣 **VVIX Leads VIX** — spike may precede price action")
+            if snap.crisis_harvest:
+                badges.append("🔴 **CRISIS HARVEST MODE** — VIX > 35, sell premium only")
+            if snap.collapse_flag:
+                badges.append("🔵 **COLLAPSE WATCH** — VIX falling 3 consecutive days")
+            if badges:
+                for b in badges:
+                    st.warning(b)
+            else:
+                st.caption(f"No active alerts · Captured: {snap.captured_at[:16]}")
+    except Exception as _e:
+        st.warning(f"Vol Triangle unavailable: {_e}")
+
     # Generate signals
     st.markdown("---")
     st.subheader("Generate Signals")
