@@ -1413,11 +1413,14 @@ Score = 0.30×VIX_pct + 0.25×VVIX_pct + 0.20×UVXY_momentum
                 c1, c2, c3 = st.columns([2, 4, 1])
                 c1.markdown(f"**{label}**")
                 c2.markdown(
-                    f"<div style='background:#eee;border-radius:4px;height:18px;'>"
-                    f"<div style='background:{color};width:{val:.0f}%;height:18px;"
-                    f"border-radius:4px;'></div></div>",
+                    f"<div style='background:#333;border-radius:4px;height:20px;width:100%;'>"
+                    f"<div style='background:{color};width:{val:.0f}%;height:20px;"
+                    f"border-radius:4px;display:flex;align-items:center;padding-left:6px;'>"
+                    f"<span style='color:white;font-size:11px;font-weight:700;'>{val:.0f}</span>"
+                    f"</div></div>",
                     unsafe_allow_html=True)
-                c3.markdown(f"<small>{note}</small>", unsafe_allow_html=True)
+                c3.markdown(f"<small style='color:#aaa;'>{note}</small>",
+                            unsafe_allow_html=True)
         else:
             st.info("Capture a vol snapshot first")
     except Exception as _e:
@@ -1474,6 +1477,38 @@ Score = 0.30×VIX_pct + 0.25×VVIX_pct + 0.20×UVXY_momentum
             st.markdown(f"**Spike Age:** {_snap.vix_slope_5d:+.1%} VIX 5d slope &nbsp;|&nbsp; "
                        f"Score: **{_snap.spike_score:.0f}/100** &nbsp;|&nbsp; "
                        f"VVIX leads: **{'Yes ⚠️' if _snap.vvix_leads else 'No'}**")
+
+            # Action box
+            action_map = {
+                "🟢 Compression": ("✅ Entry Open",   "#e8f5e9", "#2e7d32",
+                    "Sell premium aggressively. V1 Income Harvester is primary. "
+                    "Target 6–9% OTM shorts. Add contracts if delta < 0.30."),
+                "🟡 Expansion":   ("⚠️ Caution",      "#fff8e1", "#f57f17",
+                    "V3 Shock Absorber active. Widen strikes to 8–12% OTM. "
+                    "Do not add new long legs. Roll shorts proactively if delta > 0.40."),
+                "🟠 Late Spike":  ("🚫 No New Entries","#fce4ec", "#c62828",
+                    "Hold existing wide shorts. V3+V5 manage only. "
+                    "Roll any short with delta > 0.45 immediately. No new positions."),
+                "🔴 Spike Peak":  ("⚠️ V4 Entry Only", "#fff3e0", "#e65100",
+                    "Premium at maximum. V4 Tail Hunter entry window if percentile ≤ 90%. "
+                    "V5 Regime Allocator — manage existing. Harvest premium, "
+                    "sell wide strikes 10–15% OTM. Expect mean reversion soon."),
+                "🔵 Collapse":    ("✅ Re-Entry",      "#e3f2fd", "#1565c0",
+                    "VIX collapsing — lock short leg profits. "
+                    "Prepare V1 + V2 re-entry as volatility normalizes. "
+                    "Watch for contango return in term structure."),
+            }
+            for phase_key, (badge, bg, fg, desc) in action_map.items():
+                if phase_key in _phase:
+                    st.markdown(
+                        f"<div style='background:{bg};border-left:5px solid {fg};"
+                        f"border-radius:4px;padding:12px 16px;margin-top:8px;'>"
+                        f"<div style='font-weight:700;color:{fg};font-size:14px;"
+                        f"margin-bottom:4px;'>{_phase} — {badge}</div>"
+                        f"<div style='color:#333;font-size:13px;'>{desc}</div>"
+                        f"</div>",
+                        unsafe_allow_html=True)
+                    break
     except Exception as _e:
         st.warning(f"Activation map unavailable: {_e}")
 
