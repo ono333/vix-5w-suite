@@ -1493,21 +1493,31 @@ def build_real_capital_email(
       </div>
     </div>"""
 
-    obs_names = ", ".join(s.variant.name for s in observe_only) if observe_only else "None"
+    obs_names   = ", ".join(s.variant.name for s in observe_only)   if observe_only   else "None"
+    wait_names  = ", ".join(
+        f"{s.variant.name} (enter ≤{s.variant.entry_percentile:.0%})"
+        for s in wait_for_entry) if wait_for_entry else ""
     no_cand_msg = "" if entry_candidates else """
     <div style="color:#ff9944;font-size:11px;padding:6px;">
-      No new entries recommended — manage existing positions only.
+      No new entries recommended in current conditions — manage existing positions only.
     </div>"""
+    wait_msg = f"""
+    <div style="font-size:11px;color:#cc6600;padding:6px 8px;margin-bottom:6px;
+                background:#2a1500;border-left:3px solid #ff8800;border-radius:3px;">
+      ⏳ <b>Wait for better entry</b> (active in regime but percentile {_cur_pct:.0%} too high):<br>
+      {wait_names}
+    </div>""" if wait_for_entry else ""
 
     html += f"""
-  <div style="background:#1a0800;border:1px solid #5a2800;border-radius:6px;
+  <div style="background:#fff8f0;border:2px solid #ff8c00;border-radius:6px;
               padding:14px;margin-bottom:12px;">
-    <div style="font-weight:700;font-size:13px;color:#ff9944;margin-bottom:8px;">
-      📡 ENTRY SIGNALS — Regime: {regime_name}
+    <div style="font-weight:700;font-size:13px;color:#cc4400;margin-bottom:8px;">
+      📡 ENTRY SIGNALS — Regime: {regime_name} &nbsp;
+      <span style="font-size:11px;color:#884400;">VIX Percentile: {_cur_pct:.0%}</span>
     </div>
-    {no_cand_msg}{cand_rows}
-    <div style="font-size:11px;color:#664422;margin-top:6px;">
-      ⬜ Observe only: {obs_names}
+    {no_cand_msg}{wait_msg}{cand_rows}
+    <div style="font-size:11px;color:#884400;margin-top:6px;">
+      ⬜ Inactive in {regime_name}: {obs_names}
     </div>
   </div>
 
