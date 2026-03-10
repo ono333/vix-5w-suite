@@ -1449,8 +1449,13 @@ def build_real_capital_email(
         html += "    </table>\n  </div>\n"
 
     # ── Entry Signals Section ──────────────────────────────────────────────
+    _cur_pct = batch.regime_state.vix_percentile if batch else 0.5
     entry_candidates = [s for s in variant_states
-                        if s.is_recommended and not s.has_position]
+                        if s.is_recommended and not s.has_position
+                        and _cur_pct <= s.variant.entry_percentile]
+    wait_for_entry   = [s for s in variant_states
+                        if s.is_recommended and not s.has_position
+                        and _cur_pct > s.variant.entry_percentile]
     observe_only     = [s for s in variant_states
                         if not s.is_recommended and not s.has_position]
 
