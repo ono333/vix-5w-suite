@@ -9,3 +9,10 @@ streamlit run 01_vix_5w_suite/app.py
 
 streamlit run app_paper_trading.py
 
+Ubuntsu
+
+ssh shin@192.168.100.142
+
+cd ~/vix_suite
+source ~/.bashrc
+python3 daily_signal.py
