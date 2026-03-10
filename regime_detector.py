@@ -76,7 +76,7 @@ def classify_regime(
     elif pct <= 0.75:
         regime = VolatilityRegime.STRESSED   # 55–75%: defensive
     elif pct <= 0.90:
-        regime = VolatilityRegime.DECLINING  # 75–90%: expansion/crisis
+        regime = VolatilityRegime.EXTREME    # 75–90%: crisis/expansion
     else:
         regime = VolatilityRegime.EXTREME    # 90–100%: panic/tail
 
