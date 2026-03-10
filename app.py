@@ -1393,6 +1393,90 @@ Score = 0.30×VIX_pct + 0.25×VVIX_pct + 0.20×UVXY_momentum
     except Exception as _e:
         st.warning(f"Vol Triangle unavailable: {_e}")
 
+    # ── Signal Priority Hierarchy ─────────────────────────────────────────
+    st.markdown("---")
+    st.subheader("📊 Signal Priority Hierarchy")
+    try:
+        from vol_triangle import get_latest_snapshot
+        _snap = get_latest_snapshot()
+        if _snap:
+            signals = [
+                ("🥇 Spike Exhaustion",  _snap.spike_score,        100, _snap.spike_label),
+                ("🥈 VIX Percentile",    _snap.vix_pct * 100,      100, f"{_snap.vix_pct:.0%} rank"),
+                ("🥉 Term Structure",    (1 - (_snap.iv_ratio - 0.85) / 0.30) * 100 if _snap.iv_ratio > 0.85 else 100, 100, _snap.term_structure),
+                ("4️⃣  VVIX Level",        _snap.vvix_pct * 100,     100, f"{_snap.vvix_pct:.0%} rank"),
+                ("5️⃣  VIX Momentum",      min(100, abs(_snap.vix_slope_5d) * 300), 100, f"{_snap.vix_slope_5d:+.1%} 5d"),
+            ]
+            for label, val, mx, note in signals:
+                val = max(0, min(100, val))
+                color = "#4CAF50" if val < 40 else "#FF9800" if val < 70 else "#f44336"
+                c1, c2, c3 = st.columns([2, 4, 1])
+                c1.markdown(f"**{label}**")
+                c2.markdown(
+                    f"<div style='background:#eee;border-radius:4px;height:18px;'>"
+                    f"<div style='background:{color};width:{val:.0f}%;height:18px;"
+                    f"border-radius:4px;'></div></div>",
+                    unsafe_allow_html=True)
+                c3.markdown(f"<small>{note}</small>", unsafe_allow_html=True)
+        else:
+            st.info("Capture a vol snapshot first")
+    except Exception as _e:
+        st.warning(f"Signal hierarchy unavailable: {_e}")
+
+    # ── Variant Activation Map ────────────────────────────────────────────
+    st.markdown("---")
+    st.subheader("🗺️ Variant Activation Map")
+    try:
+        from vol_triangle import get_latest_snapshot
+        _snap = get_latest_snapshot()
+
+        _phase = "Unknown"
+        _phase_desc = ""
+        if _snap:
+            if _snap.spike_score >= 80:
+                _phase = "🔴 Spike Peak"
+                _phase_desc = "Volatility near exhaustion — premium elevated, V4/V5 favored"
+            elif _snap.spike_score >= 60:
+                _phase = "🟠 Late Spike"
+                _phase_desc = "Spike maturing — hold shorts wide, watch for collapse"
+            elif _snap.spike_score >= 40:
+                _phase = "🟡 Expansion"
+                _phase_desc = "Volatility rising — V3 Shock Absorber optimal"
+            elif _snap.collapse_flag:
+                _phase = "🔵 Collapse"
+                _phase_desc = "VIX falling — lock profits, V1/V2 re-entry soon"
+            else:
+                _phase = "🟢 Compression"
+                _phase_desc = "Low vol — ideal for V1 income harvesting"
+
+        st.markdown(f"**Current Phase: {_phase}**")
+        st.caption(_phase_desc)
+
+        import pandas as pd
+        map_data = {
+            "Phase":        ["🟢 Compression", "🟡 Expansion", "🟠 Late Spike", "🔴 Spike Peak", "🔵 Collapse"],
+            "Best Variants":["V1 Income",      "V3 Shock Absorber", "V3 + V5",  "V4 + V5",       "V1 + V2"],
+            "Action":       ["Sell premium",   "Widen strikes",     "Hold wide","Harvest peak",   "Re-enter income"],
+            "Entry?":       ["✅ Yes",          "⚠️ Caution",        "🚫 No new","⚠️ V4 only",     "✅ Yes"],
+        }
+        df_map = pd.DataFrame(map_data)
+
+        # Highlight current phase row
+        def _highlight(row):
+            if _phase and row["Phase"] in _phase:
+                return ["background-color: #fff3cd; font-weight: bold"] * len(row)
+            return [""] * len(row)
+
+        st.dataframe(df_map.style.apply(_highlight, axis=1),
+                     use_container_width=True, hide_index=True)
+
+        if _snap:
+            st.markdown(f"**Spike Age:** {_snap.vix_slope_5d:+.1%} VIX 5d slope &nbsp;|&nbsp; "
+                       f"Score: **{_snap.spike_score:.0f}/100** &nbsp;|&nbsp; "
+                       f"VVIX leads: **{'Yes ⚠️' if _snap.vvix_leads else 'No'}**")
+    except Exception as _e:
+        st.warning(f"Activation map unavailable: {_e}")
+
     # Generate signals
     st.markdown("---")
     st.subheader("Generate Signals")

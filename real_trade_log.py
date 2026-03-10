@@ -1091,6 +1091,11 @@ class RealDiagonalPosition:
     entry_uvxy:             float = 0.0
     entry_iv_ratio:         float = 0.0
     entry_term_structure:   str   = ""
+    entry_vvix:             float = 0.0
+    entry_vvix_pct:         float = 0.0
+    entry_spike_score:      float = 0.0
+    entry_spike_label:      str   = ""
+    entry_days_since_spike: int   = 0
     long_delta_entry:       float = 0.0
     initial_short_delta:    float = 0.0
     broker:                 str   = "Fidelity"
