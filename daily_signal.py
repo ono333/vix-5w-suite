@@ -1498,14 +1498,14 @@ def build_real_capital_email(
         f"{s.variant.name} (enter ≤{s.variant.entry_percentile:.0%})"
         for s in wait_for_entry) if wait_for_entry else ""
     no_cand_msg = "" if entry_candidates else """
-    <div style="color:#ff9944;font-size:11px;padding:6px;">
+    <div style="color:#884400;font-size:13px;padding:8px 10px;margin-bottom:8px;">
       No new entries recommended in current conditions — manage existing positions only.
     </div>"""
     wait_msg = f"""
-    <div style="font-size:11px;color:#cc6600;padding:6px 8px;margin-bottom:6px;
-                background:#2a1500;border-left:3px solid #ff8800;border-radius:3px;">
-      ⏳ <b>Wait for better entry</b> (active in regime but percentile {_cur_pct:.0%} too high):<br>
-      {wait_names}
+    <div style="font-size:13px;color:#884400;padding:8px 10px;margin-bottom:8px;
+                background:#fff0d0;border-left:4px solid #ff8800;border-radius:3px;">
+      ⏳ <b>Wait for better entry</b> — active in regime but percentile {_cur_pct:.0%} too high:<br>
+      <span style="color:#cc4400;">{wait_names}</span>
     </div>""" if wait_for_entry else ""
 
     html += f"""
@@ -1516,7 +1516,7 @@ def build_real_capital_email(
       <span style="font-size:11px;color:#884400;">VIX Percentile: {_cur_pct:.0%}</span>
     </div>
     {no_cand_msg}{wait_msg}{cand_rows}
-    <div style="font-size:11px;color:#884400;margin-top:6px;">
+    <div style="font-size:13px;color:#884400;margin-top:8px;">
       ⬜ Inactive in {regime_name}: {obs_names}
     </div>
   </div>
