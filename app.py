@@ -1343,6 +1343,53 @@ def render_signal_dashboard(trade_log=None):
                     st.warning(b)
             else:
                 st.caption(f"No active alerts · Captured: {snap.captured_at[:16]}")
+
+            # ── Reading Guide (collapsible) ──────────────────────────
+            with st.expander("📖 How to read the Volatility Triangle"):
+                st.markdown("""
+**VIX — Market Stress Level**
+The fear index. The percentile rank tells you where today sits vs the past year.
+- < 35% → Calm: ideal for income harvesting (sell premium)
+- 35–55% → Rising: balanced positioning
+- 55–75% → Stressed: defensive harvesting only
+- 75–90% → Extreme: crisis mode, wider strikes
+- > 90% → Panic: spike exhaustion likely near
+
+**VVIX — Volatility of Volatility**
+Measures how much VIX itself is moving. High VVIX = expensive VIX options.
+- VVIX often **peaks before VIX** — a leading indicator
+- If VVIX percentile > VIX percentile by 15%+ → "VVIX Leads" alert fires → spike may be coming
+- Falling VVIX while VIX stays high = exhaustion, mean reversion likely
+
+**Term Structure (VIX / VIX3M ratio)**
+- **Contango** (VIX < VIX3M): normal market, volatility expected to fade → good for shorts
+- **Flat**: transitional, watch closely
+- **Backwardation** (VIX > VIX3M): crisis deepening, near-term fear exceeds long-term → widen strikes
+
+**VIX 5d Slope**
+5-day momentum of VIX.
+- Strongly positive (+15%+): spike in progress, be cautious adding
+- Near zero: consolidation
+- Negative: volatility collapsing → lock profits, prepare for regime reset
+
+**Spike Exhaustion Score (0–100)**
+Composite of all signals above using weighted formula:
+```
+Score = 0.30×VIX_pct + 0.25×VVIX_pct + 0.20×UVXY_momentum
+      + 0.15×term_structure + 0.10×VIX_slope
+```
+| Score | Label | Action |
+|-------|-------|--------|
+| < 40 | Calm | Add positions freely |
+| 40–60 | Expansion | Enter with caution |
+| 60–80 | Possible Peak | Hold, no new entries |
+| > 80 | **Spike Exhaustion** | Spike near peak → mean reversion setup |
+
+**Alert Badges**
+- 🟣 **VVIX Leads**: VVIX rising faster than VIX — spike warning
+- 🔴 **Crisis Harvest Mode**: VIX > 35 — stop adding longs, sell premium only
+- 🔵 **Collapse Watch**: VIX falling 3 consecutive days — reduce shorts, lock profits
+                """)
     except Exception as _e:
         st.warning(f"Vol Triangle unavailable: {_e}")
 
