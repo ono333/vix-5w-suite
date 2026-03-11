@@ -5910,7 +5910,9 @@ def main():
                     _batch  = generate_all_variants(_regime)
                     if _batch and hasattr(_batch, "batch_id"):
                         _batch.frozen = True
-                        save_signal_batch(_batch)
+                        import json as _json
+                        with open(SIGNAL_BATCH_FILE, "w") as _f:
+                            _json.dump(_batch.to_dict(), _f, indent=2)
                         st.success(f"✅ {_batch.batch_id}")
                     else:
                         st.error("Generation failed")
