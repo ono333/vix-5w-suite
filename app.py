@@ -5901,7 +5901,6 @@ def main():
                     from daily_signal import fetch_uvxy_data
                     from regime_detector import classify_regime, _fetch_vix_percentile_252
                     from variant_generator import generate_all_variants
-                    from signal_store import save_signal_batch
                     _px, _pct, _sl = fetch_uvxy_data()
                     try:
                         _vix_pct = _fetch_vix_percentile_252()
