@@ -1393,6 +1393,105 @@ Score = 0.30×VIX_pct + 0.25×VVIX_pct + 0.20×UVXY_momentum
     except Exception as _e:
         st.warning(f"Vol Triangle unavailable: {_e}")
 
+    # ── V4 Fade Confirmation Panel ───────────────────────────────────────
+    st.markdown("---")
+    st.subheader("⚡ Volatility Fade Confirmation (V4)")
+    try:
+        from vol_triangle import get_latest_snapshot, get_snapshot_store
+        _s = get_latest_snapshot()
+        if _s:
+            # ── 3 confirmation checks ──
+            vvix_falling   = _s.vvix_1d_change < 0
+            vix_cooling    = _s.vix_1d_change  < 0
+            term_normal    = _s.iv_ratio        < 1.00   # contango = normalizing
+
+            confirmations  = sum([vvix_falling, vix_cooling, term_normal])
+
+            # Aftershock blocker
+            aftershock_blocks = _s.aftershock_risk == "HIGH"
+
+            if aftershock_blocks:
+                v4_status  = "🔴 V4 BLOCKED"
+                v4_color   = "#c62828"
+                v4_bg      = "#ffebee"
+                v4_msg     = f"Aftershock risk HIGH ({_s.aftershock_pct:.0f}%) — wait for risk to clear"
+            elif confirmations >= 2:
+                v4_status  = "🟢 V4 READY"
+                v4_color   = "#2e7d32"
+                v4_bg      = "#e8f5e9"
+                v4_msg     = "2+ confirmations met — entry window open if percentile ≤ 90%"
+            elif confirmations == 1:
+                v4_status  = "🟡 V4 WATCH"
+                v4_color   = "#e65100"
+                v4_bg      = "#fff8e1"
+                v4_msg     = "Only 1 confirmation — wait for 2nd signal"
+            else:
+                v4_status  = "🔴 V4 BLOCKED"
+                v4_color   = "#c62828"
+                v4_bg      = "#ffebee"
+                v4_msg     = "No confirmations — spike still active"
+
+            # Status badge
+            st.markdown(
+                f"<div style='background:{v4_bg};border-left:5px solid {v4_color};"
+                f"border-radius:4px;padding:10px 16px;margin-bottom:12px;'>"
+                f"<span style='font-size:16px;font-weight:700;color:{v4_color};'>{v4_status}</span>"
+                f"<br><span style='font-size:12px;color:#555;'>{v4_msg}</span></div>",
+                unsafe_allow_html=True)
+
+            # 3 confirmation rows
+            checks = [
+                ("1️⃣  VVIX Rollover",
+                 vvix_falling,
+                 f"VVIX 1d: {_s.vvix_1d_change:+.2%}",
+                 "Falling ✅" if vvix_falling else "Rising ⚠️"),
+                ("2️⃣  VIX Momentum Stall",
+                 vix_cooling,
+                 f"VIX 1d: {_s.vix_1d_change:+.2%}",
+                 "Cooling ✅" if vix_cooling else "Still Rising ⚠️"),
+                ("3️⃣  Term Structure",
+                 term_normal,
+                 f"IV Ratio: {_s.iv_ratio:.3f}",
+                 "Normalizing ✅" if term_normal else "Stress ⚠️"),
+            ]
+            for label, passed, detail, status_txt in checks:
+                c1, c2, c3 = st.columns([3, 2, 2])
+                c1.markdown(f"**{label}**")
+                c2.markdown(f"<span style='color:#888;font-size:12px;'>{detail}</span>",
+                           unsafe_allow_html=True)
+                color = "#2e7d32" if passed else "#c62828"
+                c3.markdown(f"<span style='color:{color};font-weight:700;'>{status_txt}</span>",
+                           unsafe_allow_html=True)
+
+            st.markdown(f"**Confirmations: {confirmations} / 3**")
+
+            # Aftershock + decay row
+            ac = "#c62828" if _s.aftershock_risk=="HIGH" else "#e65100" if _s.aftershock_risk=="MEDIUM" else "#2e7d32"
+            dc = "#c62828" if _s.uvxy_decay_pressure=="HIGH" else "#e65100" if _s.uvxy_decay_pressure=="MEDIUM" else "#2e7d32"
+            col1, col2 = st.columns(2)
+            col1.markdown(
+                f"<div style='padding:8px;background:#f5f5f5;border-radius:4px;'>"
+                f"<b>Aftershock Risk:</b> "
+                f"<span style='color:{ac};font-weight:700;'>{_s.aftershock_risk} ({_s.aftershock_pct:.0f}%)</span>"
+                f"</div>", unsafe_allow_html=True)
+            col2.markdown(
+                f"<div style='padding:8px;background:#f5f5f5;border-radius:4px;'>"
+                f"<b>UVXY Decay Pressure:</b> "
+                f"<span style='color:{dc};font-weight:700;'>{_s.uvxy_decay_pressure} ({_s.uvxy_decay_score:.0f}/100)</span>"
+                f"</div>", unsafe_allow_html=True)
+
+            # VVIX regime filter
+            vvix_regime = ("🔴 Crisis Hedging" if _s.vvix > 115 else
+                          "🟡 Unstable"       if _s.vvix > 95  else
+                          "🟢 Normal")
+            st.caption(f"VVIX Regime: {vvix_regime} ({_s.vvix:.1f}) &nbsp;|&nbsp; "
+                      f"Decay favors: {'V1 Income' if _s.uvxy_decay_pressure=='HIGH' else 'V4 Hedges'}")
+        else:
+            st.info("No vol snapshot — click Refresh Snapshot below")
+    except Exception as _e:
+        import traceback
+        st.warning(f"V4 confirmation unavailable: {_e}")
+
     # ── Signal Priority Hierarchy ─────────────────────────────────────────
     st.markdown("---")
     st.subheader("📊 Signal Priority Hierarchy")

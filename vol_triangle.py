@@ -51,6 +51,18 @@ class VolSnapshot:
     vix_slope_5d:     float   # % change
     vvix_slope_5d:    float
 
+    # 1-day changes (for confirmation logic)
+    vix_1d_change:    float = 0.0   # VIX % change today vs yesterday
+    vvix_1d_change:   float = 0.0   # VVIX % change today vs yesterday
+
+    # Aftershock risk
+    aftershock_risk:  str   = "LOW"   # LOW / MEDIUM / HIGH
+    aftershock_pct:   float = 0.0     # 0-100 probability
+
+    # UVXY decay pressure
+    uvxy_decay_pressure: str  = "MEDIUM"  # LOW / MEDIUM / HIGH
+    uvxy_decay_score:    float = 0.0      # 0-100
+
 
 # ── Snapshot store ────────────────────────────────────────────────────────────
 
@@ -198,6 +210,54 @@ def _collapse_flag(vix_series) -> bool:
 
 # ── Main capture ──────────────────────────────────────────────────────────────
 
+def _aftershock_risk(vix_pct: float, vvix_pct: float,
+                     spike_score: float, vix_slope: float) -> tuple[str, float]:
+    """
+    Aftershock probability — secondary spike risk after initial peak.
+    Triggered when volatility peaked but conditions still unstable.
+    """
+    score = 0.0
+    if vix_pct > 0.90:   score += 30
+    elif vix_pct > 0.80: score += 15
+    if vvix_pct > 0.90:  score += 25
+    elif vvix_pct > 0.80:score += 12
+    if spike_score > 80: score += 25
+    elif spike_score > 70: score += 12
+    if vix_slope > 0.15: score += 20   # still rising fast
+    elif vix_slope > 0.05: score += 10
+
+    score = min(100, score)
+    if score >= 65:   risk = "HIGH"
+    elif score >= 35: risk = "MEDIUM"
+    else:             risk = "LOW"
+    return risk, round(score, 1)
+
+
+def _uvxy_decay_pressure(iv_ratio: float, vix_slope: float,
+                          vix_pct: float) -> tuple[str, float]:
+    """
+    UVXY structural decay pressure from contango bleed + roll yield.
+    HIGH decay = UVXY likely to fall even if VIX stays flat.
+    """
+    score = 0.0
+    # Contango: iv_ratio < 1.0 means VIX < VIX3M → futures in contango → decay pressure
+    if iv_ratio < 0.90:   score += 40   # strong contango → high decay
+    elif iv_ratio < 0.95: score += 25
+    elif iv_ratio < 1.00: score += 10
+    # VIX falling momentum adds to decay
+    if vix_slope < -0.05: score += 30
+    elif vix_slope < 0:   score += 15
+    # Very high percentile = extended, mean reversion likely
+    if vix_pct > 0.90:    score += 20
+    elif vix_pct > 0.80:  score += 10
+
+    score = min(100, score)
+    if score >= 60:   pressure = "HIGH"
+    elif score >= 30: pressure = "MEDIUM"
+    else:             pressure = "LOW"
+    return pressure, round(score, 1)
+
+
 def capture_snapshot(force: bool = False) -> VolSnapshot:
     """
     Fetch live data and store today's snapshot.
@@ -246,6 +306,14 @@ def capture_snapshot(force: bool = False) -> VolSnapshot:
     collapse      = _collapse_flag(vix_s)
     vvix_leads    = (vvix_pct - vix_pct) > 0.15
 
+    # 1-day changes
+    vix_1d  = round((float(vix_s.iloc[-1]) - float(vix_s.iloc[-2])) / float(vix_s.iloc[-2]), 4) if vix_s is not None and len(vix_s) >= 2 else 0.0
+    vvix_1d = round((float(vvix_s.iloc[-1]) - float(vvix_s.iloc[-2])) / float(vvix_s.iloc[-2]), 4) if vvix_s is not None and len(vvix_s) >= 2 else 0.0
+
+    # Aftershock + decay
+    aftershock_risk, aftershock_pct = _aftershock_risk(vix_pct, vvix_pct, score, vix_slope)
+    decay_pressure, decay_score     = _uvxy_decay_pressure(iv_ratio, vix_slope, vix_pct)
+
     snap = VolSnapshot(
         date           = datetime.now().strftime("%Y-%m-%d"),
         captured_at    = datetime.now().isoformat(),
@@ -259,6 +327,12 @@ def capture_snapshot(force: bool = False) -> VolSnapshot:
         vvix_leads=vvix_leads,
         vix_slope_5d=vix_slope,
         vvix_slope_5d=vvix_slope,
+        vix_1d_change=vix_1d,
+        vvix_1d_change=vvix_1d,
+        aftershock_risk=aftershock_risk,
+        aftershock_pct=aftershock_pct,
+        uvxy_decay_pressure=decay_pressure,
+        uvxy_decay_score=decay_score,
     )
 
     store.add(snap)
