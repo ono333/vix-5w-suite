@@ -1459,6 +1459,67 @@ def build_real_capital_email(
     observe_only     = [s for s in variant_states
                         if not s.is_recommended and not s.has_position]
 
+    # ── V4 Fade Confirmation ──────────────────────────────────────────────
+    try:
+        from vol_triangle import get_latest_snapshot as _get_snap
+        _vsnap = _get_snap()
+    except Exception:
+        _vsnap = None
+
+    _v4_confirmations = 0
+    _v4_status = "🔴 BLOCKED"
+    _v4_details = []
+    _aftershock_blocks = False
+    if _vsnap:
+        _vvix_falling  = _vsnap.vvix_1d_change < 0
+        _vix_cooling   = _vsnap.vix_1d_change  < 0
+        _term_normal   = _vsnap.iv_ratio        < 1.00
+        _v4_confirmations = sum([_vvix_falling, _vix_cooling, _term_normal])
+        _aftershock_blocks = _vsnap.aftershock_risk == "HIGH"
+        _v4_details = [
+            ("VVIX Rollover",      _vvix_falling, f"{_vsnap.vvix_1d_change:+.2%}"),
+            ("VIX Momentum Stall", _vix_cooling,  f"{_vsnap.vix_1d_change:+.2%}"),
+            ("Term Structure",     _term_normal,   _vsnap.term_structure),
+        ]
+        if _aftershock_blocks:
+            _v4_status = f"🔴 BLOCKED — Aftershock HIGH ({_vsnap.aftershock_pct:.0f}%)"
+        elif _v4_confirmations >= 2:
+            _v4_status = f"🟢 READY ({_v4_confirmations}/3 confirmed)"
+        elif _v4_confirmations == 1:
+            _v4_status = f"🟡 WATCH ({_v4_confirmations}/3 confirmed)"
+        else:
+            _v4_status = "🔴 BLOCKED (0/3 confirmed)"
+
+    # V4 confirmation HTML block
+    v4_conf_html = ""
+    if _vsnap:
+        conf_rows = ""
+        for label, passed, detail in _v4_details:
+            icon = "✅" if passed else "⚠️"
+            color = "#2e7d32" if passed else "#c62828"
+            conf_rows += (f"<tr>"
+                         f"<td style='padding:3px 8px;color:#555;font-size:12px;'>{label}</td>"
+                         f"<td style='padding:3px 8px;font-size:12px;color:{color};font-weight:700;'>{icon}</td>"
+                         f"<td style='padding:3px 8px;color:#777;font-size:11px;'>{detail}</td>"
+                         f"</tr>")
+        v4_bg    = "#e8f5e9" if _v4_confirmations>=2 and not _aftershock_blocks else "#fff8e1" if _v4_confirmations==1 else "#ffebee"
+        v4_bord  = "#2e7d32" if _v4_confirmations>=2 and not _aftershock_blocks else "#e65100" if _v4_confirmations==1 else "#c62828"
+        v4_conf_html = f"""
+    <div style="background:{v4_bg};border-left:4px solid {v4_bord};
+                border-radius:4px;padding:10px 12px;margin-bottom:10px;">
+      <div style="font-weight:700;font-size:13px;color:{v4_bord};margin-bottom:6px;">
+        ⚡ V4 FADE CONFIRMATION — {_v4_status}
+      </div>
+      <table style="border-collapse:collapse;">
+        {conf_rows}
+      </table>
+      <div style="font-size:11px;color:#666;margin-top:6px;">
+        Aftershock Risk: <b>{_vsnap.aftershock_risk} ({_vsnap.aftershock_pct:.0f}%)</b>
+        &nbsp;|&nbsp; UVXY Decay: <b>{_vsnap.uvxy_decay_pressure}</b>
+        &nbsp;|&nbsp; VVIX Regime: <b>{"Crisis Hedging" if _vsnap.vvix>115 else "Unstable" if _vsnap.vvix>95 else "Normal"}</b>
+      </div>
+    </div>"""
+
     cand_rows = ""
     for s in entry_candidates:
         v = s.variant
@@ -1515,7 +1576,7 @@ def build_real_capital_email(
       📡 ENTRY SIGNALS — Regime: {regime_name} &nbsp;
       <span style="font-size:11px;color:#884400;">VIX Percentile: {_cur_pct:.0%}</span>
     </div>
-    {no_cand_msg}{wait_msg}{cand_rows}
+    {v4_conf_html}{no_cand_msg}{wait_msg}{cand_rows}
     <div style="font-size:13px;color:#884400;margin-top:8px;">
       ⬜ Inactive in {regime_name}: {obs_names}
     </div>
