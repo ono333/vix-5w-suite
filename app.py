@@ -5891,6 +5891,33 @@ def main():
     
     st.sidebar.markdown("---")
 
+    # ── Global Generate Signal Batch button ──
+    if st.sidebar.button("🔄 Generate Signal Batch", use_container_width=True,
+                         key="sidebar_generate_batch",
+                         help="Regenerate signals from live market data and freeze"):
+        with st.sidebar:
+            with st.spinner("Generating signals..."):
+                try:
+                    from daily_signal import fetch_uvxy_data
+                    from regime_detector import classify_regime, _fetch_vix_percentile_252
+                    from variant_generator import generate_all_variants
+                    from signal_store import save_signal_batch
+                    _px, _pct, _sl = fetch_uvxy_data()
+                    try:
+                        _vix_pct = _fetch_vix_percentile_252()
+                    except Exception:
+                        _vix_pct = _pct
+                    _regime = classify_regime(_px, vix_percentile=_vix_pct)
+                    _batch  = generate_all_variants(_regime)
+                    if _batch and hasattr(_batch, "batch_id"):
+                        _batch.frozen = True
+                        save_signal_batch(_batch)
+                        st.success(f"✅ {_batch.batch_id}")
+                    else:
+                        st.error("Generation failed")
+                except Exception as _e:
+                    st.error(f"❌ {_e}")
+
     # ── Global Send Emails button ──
     if st.sidebar.button("📧 Send Emails", type="primary", use_container_width=True,
                          key="global_send_emails",
