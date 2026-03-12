@@ -6134,7 +6134,7 @@ def render_command_dashboard(trade_log=None):
                         gr_color   = "#c62828" if gamma_risk=="HIGH" else "#e65100" if gamma_risk=="MEDIUM" else "#2e7d32"
                         roll_alert = dte <= 3 or gamma_risk == "HIGH"
                         c1,c2,c3,c4,c5 = st.columns(5)
-                        c1.markdown(f"**{pos.variant}**")
+                        c1.markdown(f"**{pos.variant_name}**")
                         c2.metric("DTE", f"{dte}d", delta=None)
                         c3.metric("Distance to Strike", f"{dist_pct:+.1f}%")
                         c4.markdown(
@@ -6206,9 +6206,9 @@ def render_command_dashboard(trade_log=None):
                     dte = (pd.Timestamp(leg.expiration_date) - pd.Timestamp.now()).days
                     dist = (leg.strike - snap.uvxy) / snap.uvxy * 100
                     if dte <= 3:
-                        actions.append(f"🚨 {pos.variant} short ${leg.strike:.0f} DTE={dte} — ROLL TODAY")
+                        actions.append(f"🚨 {pos.variant_name} short ${leg.strike:.0f} DTE={dte} — ROLL TODAY")
                     elif dist < 5:
-                        actions.append(f"⚠️  {pos.variant} short ${leg.strike:.0f} only {dist:.1f}% OTM — monitor")
+                        actions.append(f"⚠️  {pos.variant_name} short ${leg.strike:.0f} only {dist:.1f}% OTM — monitor")
         except Exception:
             pass
 
