@@ -75,7 +75,11 @@ class VolSnapshotStore:
         if SNAPSHOT_FILE.exists():
             try:
                 raw = json.loads(SNAPSHOT_FILE.read_text())
-                self.snapshots = [VolSnapshot(**r) for r in raw]
+                _fields = {f.name for f in __import__('dataclasses').fields(VolSnapshot)}
+                self.snapshots = [
+                    VolSnapshot(**{k: v for k, v in r.items() if k in _fields})
+                    for r in raw
+                ]
             except Exception as e:
                 print(f"VolSnapshotStore load error: {e}")
                 self.snapshots = []
