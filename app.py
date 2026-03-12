@@ -1297,14 +1297,8 @@ def render_signal_dashboard(trade_log=None):
     st.markdown("---")
     st.subheader("🔺 Volatility Triangle")
     try:
-        from vol_triangle import capture_snapshot, get_latest_snapshot
-        snap = get_latest_snapshot()
-        # Auto-capture if no snapshot today or missing new fields
-        from datetime import date
-        if (not snap or snap.date != date.today().strftime("%Y-%m-%d")
-                or not hasattr(snap, "vvix_1d_change")):
-            with st.spinner("Capturing vol snapshot..."):
-                snap = capture_snapshot(force=True)
+        from vol_triangle import capture_snapshot
+        snap = capture_snapshot(force=False)
 
         if snap:
             spike_color = ("#4CAF50" if snap.spike_score < 40 else
@@ -1398,11 +1392,8 @@ Score = 0.30×VIX_pct + 0.25×VVIX_pct + 0.20×UVXY_momentum
     st.markdown("---")
     st.subheader("⚡ Volatility Fade Confirmation (V4)")
     try:
-        from vol_triangle import get_latest_snapshot, capture_snapshot
-        _s = get_latest_snapshot()
-        # Recapture if missing new fields (schema upgrade)
-        if _s and not hasattr(_s, "vvix_1d_change"):
-            _s = capture_snapshot(force=True)
+        from vol_triangle import capture_snapshot
+        _s = capture_snapshot(force=False)
         if _s:
             # ── 3 confirmation checks ──
             vvix_falling   = _s.vvix_1d_change < 0
