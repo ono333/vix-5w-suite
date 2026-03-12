@@ -1298,7 +1298,7 @@ def render_signal_dashboard(trade_log=None):
     st.subheader("🔺 Volatility Triangle")
     try:
         from vol_triangle import capture_snapshot
-        snap = capture_snapshot(force=False)
+        snap = capture_snapshot(force=True)
 
         if snap:
             spike_color = ("#4CAF50" if snap.spike_score < 40 else
@@ -1393,7 +1393,7 @@ Score = 0.30×VIX_pct + 0.25×VVIX_pct + 0.20×UVXY_momentum
     st.subheader("⚡ Volatility Fade Confirmation (V4)")
     try:
         from vol_triangle import capture_snapshot
-        _s = capture_snapshot(force=False)
+        _s = capture_snapshot(force=True)
         if _s:
             # ── 3 confirmation checks ──
             vvix_falling   = _s.vvix_1d_change < 0
