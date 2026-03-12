@@ -6125,7 +6125,9 @@ def render_command_dashboard(trade_log=None):
             if positions:
                 for pos in positions:
                     short_legs = pos.short_legs if hasattr(pos, "short_legs") else []
-                    active_shorts = [s for s in short_legs if s.status == "open"]
+                    active_shorts = [s for s in short_legs
+                                     if s.status == "open"
+                                     and pd.Timestamp(s.expiration_date) >= pd.Timestamp.now()]
                     for leg in active_shorts:
                         dte = (pd.Timestamp(leg.expiration_date) - pd.Timestamp.now()).days
                         dist_pct = (leg.strike - snap.uvxy) / snap.uvxy * 100
@@ -6202,7 +6204,9 @@ def render_command_dashboard(trade_log=None):
         try:
             _rp = trade_log.open_positions() if hasattr(trade_log,"open_positions") else {}
             for pos in (list(_rp.values()) if isinstance(_rp, dict) else (_rp or [])):
-                for leg in (s for s in getattr(pos,"short_legs",[]) if s.status == "open"):
+                for leg in (s for s in getattr(pos,"short_legs",[])
+                            if s.status == "open"
+                            and pd.Timestamp(s.expiration_date) >= pd.Timestamp.now()):
                     dte = (pd.Timestamp(leg.expiration_date) - pd.Timestamp.now()).days
                     dist = (leg.strike - snap.uvxy) / snap.uvxy * 100
                     if dte <= 3:
