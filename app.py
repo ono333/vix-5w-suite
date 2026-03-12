@@ -6120,7 +6120,8 @@ def render_command_dashboard(trade_log=None):
     st.markdown("### 🛡️ Position Risk Panel")
     if trade_log:
         try:
-            positions = trade_log.open_positions() if hasattr(trade_log, "open_positions") else []
+            _raw = trade_log.open_positions() if hasattr(trade_log, "open_positions") else {}
+            positions = list(_raw.values()) if isinstance(_raw, dict) else (_raw or [])
             if positions:
                 for pos in positions:
                     short_legs = pos.short_legs if hasattr(pos, "short_legs") else []
@@ -6199,7 +6200,8 @@ def render_command_dashboard(trade_log=None):
     # Position-specific
     if trade_log:
         try:
-            for pos in (trade_log.open_positions() if hasattr(trade_log,"open_positions") else []):
+            _rp = trade_log.open_positions() if hasattr(trade_log,"open_positions") else {}
+            for pos in (list(_rp.values()) if isinstance(_rp, dict) else (_rp or [])):
                 for leg in (s for s in getattr(pos,"short_legs",[]) if not s.closed):
                     dte = (pd.Timestamp(leg.expiry) - pd.Timestamp.now()).days
                     dist = (leg.strike - snap.uvxy) / snap.uvxy * 100
