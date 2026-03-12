@@ -6005,6 +6005,7 @@ def main():
         page = st.sidebar.radio(
             "Real Trading Pages",
             [
+                "🎯 Command Dashboard",
                 "Signal Dashboard",
                 "Active Trades",
                 "Trade Log Real",
@@ -6028,7 +6029,9 @@ def main():
         st.sidebar.markdown(
             f"Slippage: **${real_summary['total_slippage']:+.2f}**")
         # Dispatch with real trade log
-        if page == "Signal Dashboard":
+        if page == "🎯 Command Dashboard":
+            render_command_dashboard(trade_log=rtl)
+        elif page == "Signal Dashboard":
             render_signal_dashboard(trade_log=rtl)
         elif page == "Active Trades":
             render_active_trades(trade_log=rtl)
@@ -6150,4 +6153,366 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main()# ============================================================
+# VOLATILITY COMMAND DASHBOARD
+# ============================================================
+def render_command_dashboard(trade_log=None):
+    """Volatility Command Dashboard — decision engine for UVXY/VIX strategy."""
+    import pandas as pd
+    from datetime import date
+
+    st.title("🎯 Volatility Command Dashboard")
+    st.caption("Market State → Volatility Phase → Strategy Status → Action")
+
+    # ── Load snapshot ─────────────────────────────────────────────────────
+    try:
+        from vol_triangle import capture_snapshot
+        snap = capture_snapshot(force=True)
+    except Exception as _e:
+        st.error(f"Cannot load vol data: {_e}")
+        return
+
+    # ── Derive phase ──────────────────────────────────────────────────────
+    def _get_phase(snap):
+        s = snap.spike_score
+        vix_1d = snap.vix_1d_change
+        vvix_1d = snap.vvix_1d_change
+        collapse = snap.collapse_flag
+        if collapse or (s > 70 and vix_1d < -0.03 and vvix_1d < -0.03):
+            return "COLLAPSE",   4, "#1565c0", "#e3f2fd"
+        elif s >= 75 and (vix_1d < 0 or vvix_1d < 0):
+            return "EXHAUSTION", 3, "#6a1b9a", "#f3e5f5"
+        elif s >= 55 or snap.vix_pct >= 0.85:
+            return "PANIC",      2, "#c62828", "#ffebee"
+        else:
+            return "EXPANSION",  1, "#e65100", "#fff8e1"
+
+    phase_name, phase_idx, phase_color, phase_bg = _get_phase(snap)
+    phases = ["EXPANSION", "PANIC", "EXHAUSTION", "COLLAPSE"]
+    phase_colors = ["#e65100", "#c62828", "#6a1b9a", "#1565c0"]
+
+    # ── 1. VOLATILITY PHASE MAP ───────────────────────────────────────────
+    st.markdown("### 🌊 Volatility Phase")
+    phase_html = "<div style='display:flex;gap:4px;margin-bottom:8px;'>"
+    for i, (ph, pc) in enumerate(zip(phases, phase_colors)):
+        is_cur = (ph == phase_name)
+        bg   = pc if is_cur else "#2a2a2a"
+        fw   = "900" if is_cur else "400"
+        bord = f"3px solid {pc}" if is_cur else "1px solid #444"
+        dot  = " ●" if is_cur else ""
+        phase_html += (f"<div style='flex:1;text-align:center;padding:10px 4px;"
+                      f"background:{bg};border:{bord};border-radius:6px;"
+                      f"font-weight:{fw};font-size:13px;color:white;'>"
+                      f"{ph}{dot}</div>")
+    phase_html += "</div>"
+    st.markdown(phase_html, unsafe_allow_html=True)
+
+    # Confidence
+    conf = min(100, int(snap.spike_score * 1.1 if phase_name=="PANIC" else
+                        snap.spike_score if phase_name=="EXHAUSTION" else
+                        (1-snap.vix_pct)*100+20))
+    st.markdown(
+        f"<div style='background:{phase_bg};border-left:4px solid {phase_color};"
+        f"border-radius:4px;padding:8px 14px;margin-bottom:4px;'>"
+        f"<b style='color:{phase_color};font-size:15px;'>{phase_name}</b>"
+        f"<span style='color:#555;font-size:12px;margin-left:12px;'>"
+        f"Confidence: {conf}% &nbsp;|&nbsp; "
+        f"Spike Score: {snap.spike_score:.0f}/100 &nbsp;|&nbsp; "
+        f"VIX: ${snap.vix:.2f} ({snap.vix_pct:.0%}) &nbsp;|&nbsp; "
+        f"VVIX: {snap.vvix:.1f} ({snap.vvix_pct:.0%})"
+        f"</span></div>",
+        unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # ── 2. SPIKE INTELLIGENCE ─────────────────────────────────────────────
+    st.markdown("### 🔬 Spike Intelligence")
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("**Volatility Triangle**")
+        rows = [
+            ("VIX",            f"${snap.vix:.2f}",    f"{snap.vix_pct:.0%} rank"),
+            ("VVIX",           f"{snap.vvix:.1f}",    f"{snap.vvix_pct:.0%} rank"),
+            ("VIX3M",          f"${snap.vix3m:.2f}",  ""),
+            ("Term Structure", snap.term_structure,    f"IV {snap.iv_ratio:.3f}"),
+            ("VIX 5d Slope",   f"{snap.vix_slope_5d:+.1%}", "momentum"),
+            ("VIX 1d Change",  f"{snap.vix_1d_change:+.2%}", "today"),
+            ("VVIX 1d Change", f"{snap.vvix_1d_change:+.2%}", "today"),
+        ]
+        for label, val, note in rows:
+            c1, c2, c3 = st.columns([2,1.5,1.5])
+            c1.markdown(f"<small style='color:#aaa;'>{label}</small>", unsafe_allow_html=True)
+            c2.markdown(f"**{val}**")
+            c3.markdown(f"<small style='color:#888;'>{note}</small>", unsafe_allow_html=True)
+
+    with col2:
+        st.markdown("**VIX–VVIX Regime Matrix**")
+        vix_high  = snap.vix_pct >= 0.70
+        vvix_high = snap.vvix_pct >= 0.70
+        matrix_phase = ("🔴 PANIC"     if vix_high and vvix_high  else
+                        "🔵 COLLAPSE"  if vix_high and not vvix_high else
+                        "🟡 STRESS"   if not vix_high and vvix_high else
+                        "🟢 CALM")
+        def _mcell(label, active):
+            bg = "#c62828" if "PANIC" in label and active else \
+                 "#1565c0" if "COLLAPSE" in label and active else \
+                 "#f57f17" if "STRESS" in label and active else \
+                 "#2e7d32" if "CALM" in label and active else "#1e1e1e"
+            border = "2px solid white" if active else "1px solid #444"
+            return (f"<div style='background:{bg};border:{border};border-radius:4px;"
+                   f"padding:12px;text-align:center;font-size:12px;font-weight:"
+                   f"{'700' if active else '400'};color:white;'>{label}"
+                   f"{'  ◀' if active else ''}</div>")
+        st.markdown(
+            f"<table style='width:100%;border-collapse:separate;border-spacing:4px;'>"
+            f"<tr><td style='color:#888;font-size:11px;'></td>"
+            f"<td style='color:#888;font-size:11px;text-align:center;'>VVIX Low</td>"
+            f"<td style='color:#888;font-size:11px;text-align:center;'>VVIX High</td></tr>"
+            f"<tr><td style='color:#888;font-size:11px;'>VIX Low</td>"
+            f"<td>{_mcell('🟢 CALM', matrix_phase=='🟢 CALM')}</td>"
+            f"<td>{_mcell('🟡 STRESS', matrix_phase=='🟡 STRESS')}</td></tr>"
+            f"<tr><td style='color:#888;font-size:11px;'>VIX High</td>"
+            f"<td>{_mcell('🔵 COLLAPSE', matrix_phase=='🔵 COLLAPSE')}</td>"
+            f"<td>{_mcell('🔴 PANIC', matrix_phase=='🔴 PANIC')}</td></tr>"
+            f"</table><div style='margin-top:6px;font-size:13px;'>"
+            f"Current: <b>{matrix_phase}</b></div>",
+            unsafe_allow_html=True)
+
+        st.markdown("**Spike Monitor**")
+        sc1, sc2 = st.columns(2)
+        sc1.metric("Exhaustion Score", f"{snap.spike_score:.0f}/100", snap.spike_label)
+        sc2.metric("Aftershock Risk",  snap.aftershock_risk, f"{snap.aftershock_pct:.0f}%")
+        sc3, sc4 = st.columns(2)
+        sc3.metric("UVXY Decay",      snap.uvxy_decay_pressure, f"{snap.uvxy_decay_score:.0f}/100")
+        sc4.metric("VVIX Regime",     "Crisis" if snap.vvix>115 else "Unstable" if snap.vvix>95 else "Normal")
+
+    st.markdown("---")
+
+    # ── 3. UVXY RISK GAUGE ────────────────────────────────────────────────
+    st.markdown("### 📊 UVXY Risk Gauge")
+    uvxy = snap.uvxy
+    gauge_pct = min(100, max(0, (uvxy - 20) / (80 - 20) * 100))
+    zone = "🟢 SAFE" if uvxy < 40 else "🟡 TRANSITION" if uvxy < 55 else "🔴 DANGER"
+    zone_color = "#2e7d32" if uvxy < 40 else "#e65100" if uvxy < 55 else "#c62828"
+    # Marker position
+    marker_left = max(2, min(97, gauge_pct))
+    st.markdown(
+        f"<div style='position:relative;height:36px;border-radius:6px;overflow:visible;"
+        f"background:linear-gradient(to right,#2e7d32 0%,#2e7d32 40%,#e65100 40%,"
+        f"#e65100 55%,#c62828 55%,#c62828 100%);margin:8px 0;'>"
+        f"<div style='position:absolute;left:{marker_left}%;top:-4px;"
+        f"transform:translateX(-50%);font-size:20px;'>▼</div>"
+        f"<div style='position:absolute;left:{marker_left}%;bottom:-20px;"
+        f"transform:translateX(-50%);font-size:12px;font-weight:700;"
+        f"color:{zone_color};'>${uvxy:.2f}</div>"
+        f"</div><div style='height:24px;'></div>"
+        f"<div style='display:flex;justify-content:space-between;font-size:11px;color:#aaa;'>"
+        f"<span>$20 — Safe</span><span>$40</span><span>$55</span><span>$80 — Crisis</span>"
+        f"</div>",
+        unsafe_allow_html=True)
+    st.markdown(f"**Zone: {zone}** &nbsp;|&nbsp; UVXY ${uvxy:.2f} &nbsp;|&nbsp; "
+               f"Decay pressure: **{snap.uvxy_decay_pressure}**")
+
+    st.markdown("---")
+
+    # ── 4. STRATEGY ENGINE ────────────────────────────────────────────────
+    st.markdown("### ⚙️ Strategy Engine")
+
+    # V4 confirmations
+    vvix_falling = snap.vvix_1d_change < 0
+    vix_cooling  = snap.vix_1d_change  < 0
+    term_normal  = snap.iv_ratio       < 1.00
+    v4_conf      = sum([vvix_falling, vix_cooling, term_normal])
+    aftershock_blocks = snap.aftershock_risk == "HIGH"
+
+    # Variant status logic
+    def _variant_status(name, phase_name, v4_conf, aftershock_blocks, snap):
+        pct = snap.vix_pct
+        if name == "V1 Income Harvester":
+            if phase_name in ("COLLAPSE","EXHAUSTION") and pct < 0.80:
+                return "ACTIVE",   "#2e7d32", "#e8f5e9"
+            elif phase_name == "EXPANSION":
+                return "ACTIVE",   "#2e7d32", "#e8f5e9"
+            elif snap.crisis_harvest:
+                return "DISABLED", "#c62828", "#ffebee"
+            else:
+                return "WATCH",    "#e65100", "#fff8e1"
+        elif name == "V2 Mean Reversion":
+            if phase_name == "COLLAPSE":
+                return "PREPARE",  "#1565c0", "#e3f2fd"
+            elif phase_name in ("EXPANSION",):
+                return "ACTIVE",   "#2e7d32", "#e8f5e9"
+            else:
+                return "WATCH",    "#e65100", "#fff8e1"
+        elif name == "V3 Shock Absorber":
+            if phase_name in ("PANIC","EXHAUSTION"):
+                return "ACTIVE",   "#2e7d32", "#e8f5e9"
+            elif phase_name == "EXPANSION":
+                return "PREPARE",  "#1565c0", "#e3f2fd"
+            else:
+                return "WATCH",    "#e65100", "#fff8e1"
+        elif name == "V4 Tail Hunter":
+            if aftershock_blocks:
+                return "DISABLED", "#c62828", "#ffebee"
+            elif v4_conf >= 2 and pct <= 0.90:
+                return "ACTIVE",   "#2e7d32", "#e8f5e9"
+            elif v4_conf >= 1:
+                return "WATCH",    "#e65100", "#fff8e1"
+            else:
+                return "DISABLED", "#9e9e9e", "#f5f5f5"
+        elif name == "V5 Regime Allocator":
+            if phase_name in ("PANIC","EXHAUSTION"):
+                return "ACTIVE",   "#2e7d32", "#e8f5e9"
+            else:
+                return "WATCH",    "#e65100", "#fff8e1"
+        return "WATCH", "#e65100", "#fff8e1"
+
+    variants = ["V1 Income Harvester","V2 Mean Reversion",
+                "V3 Shock Absorber","V4 Tail Hunter","V5 Regime Allocator"]
+    cols = st.columns(len(variants))
+    for col, name in zip(cols, variants):
+        vstatus, vc, vbg = _variant_status(name, phase_name, v4_conf, aftershock_blocks, snap)
+        short = name.split()[0]+" "+name.split()[1]
+        col.markdown(
+            f"<div style='background:{vbg};border:2px solid {vc};"
+            f"border-radius:6px;padding:10px 6px;text-align:center;'>"
+            f"<div style='font-size:11px;color:#555;'>{short}</div>"
+            f"<div style='font-size:14px;font-weight:700;color:{vc};'>{vstatus}</div>"
+            f"</div>", unsafe_allow_html=True)
+
+    # V4 confirmation detail
+    st.markdown("**⚡ V4 Entry Confirmations**")
+    cc1, cc2, cc3, cc4 = st.columns(4)
+    for col, label, passed, detail in [
+        (cc1, "VVIX Rollover",  vvix_falling, f"{snap.vvix_1d_change:+.2%}"),
+        (cc2, "VIX Stall",      vix_cooling,  f"{snap.vix_1d_change:+.2%}"),
+        (cc3, "Term Normal",    term_normal,   f"IV {snap.iv_ratio:.3f}"),
+        (cc4, f"Total {v4_conf}/3", v4_conf>=2, "READY" if v4_conf>=2 else "WAIT"),
+    ]:
+        icon  = "✅" if passed else "⚠️"
+        color = "#2e7d32" if passed else "#c62828"
+        col.markdown(
+            f"<div style='text-align:center;padding:6px;background:#1e1e1e;"
+            f"border-radius:4px;'>"
+            f"<div style='font-size:11px;color:#aaa;'>{label}</div>"
+            f"<div style='font-size:16px;'>{icon}</div>"
+            f"<div style='font-size:11px;color:{color};'>{detail}</div>"
+            f"</div>", unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # ── 5. POSITION RISK PANEL ────────────────────────────────────────────
+    st.markdown("### 🛡️ Position Risk Panel")
+    if trade_log:
+        try:
+            positions = trade_log.open_positions() if hasattr(trade_log, "open_positions") else []
+            if positions:
+                for pos in positions:
+                    short_legs = pos.short_legs if hasattr(pos, "short_legs") else []
+                    active_shorts = [s for s in short_legs if not s.closed]
+                    for leg in active_shorts:
+                        dte = (pd.Timestamp(leg.expiry) - pd.Timestamp.now()).days
+                        dist_pct = (leg.strike - snap.uvxy) / snap.uvxy * 100
+                        gamma_risk = ("HIGH"   if dte <= 3 and abs(dist_pct) < 5 else
+                                     "MEDIUM" if dte <= 7 or abs(dist_pct) < 8 else "LOW")
+                        gr_color   = "#c62828" if gamma_risk=="HIGH" else "#e65100" if gamma_risk=="MEDIUM" else "#2e7d32"
+                        roll_alert = dte <= 3 or gamma_risk == "HIGH"
+                        c1,c2,c3,c4,c5 = st.columns(5)
+                        c1.markdown(f"**{pos.variant}**")
+                        c2.metric("DTE", f"{dte}d", delta=None)
+                        c3.metric("Distance to Strike", f"{dist_pct:+.1f}%")
+                        c4.markdown(
+                            f"<div style='padding:4px;text-align:center;"
+                            f"background:#1e1e1e;border-radius:4px;'>"
+                            f"<small>Gamma Risk</small><br>"
+                            f"<b style='color:{gr_color};'>{gamma_risk}</b></div>",
+                            unsafe_allow_html=True)
+                        if roll_alert:
+                            c5.warning("⚠️ Roll Window")
+                        else:
+                            c5.success("✅ On Track")
+            else:
+                st.info("No open positions")
+        except Exception as _e:
+            st.warning(f"Position data unavailable: {_e}")
+    else:
+        st.info("Connect trade log to see position risk")
+
+    st.markdown("---")
+
+    # ── 6. UVXY DECAY FORECAST ────────────────────────────────────────────
+    st.markdown("### 📉 UVXY Decay Forecast (5-day)")
+    decay_map = {"HIGH": (0.12, 0.18), "MEDIUM": (0.05, 0.12), "LOW": (0.01, 0.05)}
+    lo_decay, hi_decay = decay_map.get(snap.uvxy_decay_pressure, (0.05, 0.12))
+    uvxy_lo = round(snap.uvxy * (1 - hi_decay), 2)
+    uvxy_hi = round(snap.uvxy * (1 - lo_decay), 2)
+    prem_compress = round((hi_decay + lo_decay) / 2 * 100, 1)
+    fc1, fc2, fc3 = st.columns(3)
+    fc1.metric("Current UVXY",           f"${snap.uvxy:.2f}")
+    fc2.metric("Expected 5d Range",      f"${uvxy_lo}–${uvxy_hi}")
+    fc3.metric("Premium Compression Est",f"~{prem_compress:.1f}%")
+    st.caption(f"Based on decay pressure: {snap.uvxy_decay_pressure} | "
+              f"Contango IV ratio: {snap.iv_ratio:.3f} | "
+              f"VIX slope: {snap.vix_slope_5d:+.1%}")
+
+    st.markdown("---")
+
+    # ── 7. ACTION SUMMARY ─────────────────────────────────────────────────
+    st.markdown("### 🎯 Recommended Actions")
+
+    actions = []
+    # Phase-based actions
+    if phase_name == "PANIC":
+        actions.append("🔴 Spike active — do NOT add new short positions")
+        actions.append("🔴 Widen all strike distances to 10–15% OTM")
+        actions.append("⚠️  Monitor V3/V5 for emergency roll triggers")
+    elif phase_name == "EXHAUSTION":
+        actions.append("🟡 Spike near peak — prepare for mean reversion")
+        actions.append("🟡 V4 entry window approaching — watch confirmations")
+        if v4_conf >= 2 and not aftershock_blocks:
+            actions.append("✅ V4 READY — entry conditions met")
+        else:
+            actions.append(f"⏳ V4 needs {2-v4_conf} more confirmation(s)")
+    elif phase_name == "COLLAPSE":
+        actions.append("✅ Volatility collapsing — lock short leg profits")
+        actions.append("✅ Prepare V1 + V2 re-entry as VIX normalizes")
+        actions.append("📊 Watch term structure return to contango")
+    else:  # EXPANSION
+        actions.append("✅ V1 Income Harvester — sell premium, 6–9% OTM")
+        actions.append("📊 Monitor for spike expansion signals")
+
+    # Position-specific
+    if trade_log:
+        try:
+            for pos in (trade_log.open_positions() if hasattr(trade_log,"open_positions") else []):
+                for leg in (s for s in getattr(pos,"short_legs",[]) if not s.closed):
+                    dte = (pd.Timestamp(leg.expiry) - pd.Timestamp.now()).days
+                    dist = (leg.strike - snap.uvxy) / snap.uvxy * 100
+                    if dte <= 3:
+                        actions.append(f"🚨 {pos.variant} short ${leg.strike:.0f} DTE={dte} — ROLL TODAY")
+                    elif dist < 5:
+                        actions.append(f"⚠️  {pos.variant} short ${leg.strike:.0f} only {dist:.1f}% OTM — monitor")
+        except Exception:
+            pass
+
+    # Aftershock warning
+    if snap.aftershock_risk == "HIGH":
+        actions.append(f"🔴 Aftershock risk HIGH ({snap.aftershock_pct:.0f}%) — block new V4 entries")
+    elif snap.aftershock_risk == "MEDIUM":
+        actions.append(f"⚠️  Aftershock risk MEDIUM ({snap.aftershock_pct:.0f}%) — reduce short size")
+
+    # Decay
+    if snap.uvxy_decay_pressure == "HIGH":
+        actions.append("✅ High UVXY decay pressure — favor V1 income harvesting")
+
+    action_html = f"<div style='background:{phase_bg};border-left:5px solid {phase_color};border-radius:6px;padding:16px;'>"
+    action_html += f"<div style='font-weight:700;font-size:15px;color:{phase_color};margin-bottom:10px;'>Market Phase: {phase_name} &nbsp;|&nbsp; Regime: {matrix_phase} &nbsp;|&nbsp; Score: {snap.spike_score:.0f}</div>"
+    for a in actions:
+        action_html += f"<div style='font-size:13px;padding:4px 0;color:#333;'>{a}</div>"
+    action_html += "</div>"
+    st.markdown(action_html, unsafe_allow_html=True)
+
+# ============================================================
+# VOLATILITY COMMAND DASHBOARD
+# ============================================================
