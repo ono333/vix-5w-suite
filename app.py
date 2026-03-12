@@ -5866,294 +5866,8 @@ def render_real_trade_log():
                          use_container_width=True, hide_index=True)
 
 
-def main():
-    st.set_page_config(
-        page_title="VIX 5% Weekly Suite",
-        page_icon="📊",
-        layout="wide",
-        initial_sidebar_state="expanded",
-    )
-    
-    # Mode selector
-    st.sidebar.title("VIX 5% Weekly Suite")
-    
-    mode = st.sidebar.radio(
-        "Mode",
-        ["💵 Real Trading", "📈 Paper Trading", "📊 Research"],
-        index=0,
-        key="app_mode",
-    )
-    
-    st.sidebar.markdown("---")
 
-    # ── Global Generate Signal Batch button ──
-    if st.sidebar.button("🔄 Generate Signal Batch", use_container_width=True,
-                         key="sidebar_generate_batch",
-                         help="Regenerate signals from live market data and freeze"):
-        with st.sidebar:
-            with st.spinner("Generating signals..."):
-                try:
-                    from daily_signal import fetch_uvxy_data
-                    from regime_detector import classify_regime, _fetch_vix_percentile_252
-                    from variant_generator import generate_all_variants
-                    _px, _pct, _sl = fetch_uvxy_data()
-                    try:
-                        _vix_pct = _fetch_vix_percentile_252()
-                    except Exception:
-                        _vix_pct = _pct
-                    _regime = classify_regime(_px, vix_percentile=_vix_pct)
-                    _batch  = generate_all_variants(_regime)
-                    if _batch and hasattr(_batch, "batch_id"):
-                        _batch.frozen = True
-                        import json as _json
-                        with open(SIGNAL_BATCH_FILE, "w") as _f:
-                            _json.dump(_batch.to_dict(), _f, indent=2)
-                        st.success(f"✅ {_batch.batch_id}")
-                    else:
-                        st.error("Generation failed")
-                except Exception as _e:
-                    st.error(f"❌ {_e}")
-
-    # ── Global Send Emails button ──
-    if st.sidebar.button("📧 Send Emails", type="primary", use_container_width=True,
-                         key="global_send_emails",
-                         help="Send both Paper and Real capital emails now"):
-        with st.sidebar:
-            with st.spinner("Sending emails..."):
-                try:
-                    import os, smtplib
-                    from email.mime.text import MIMEText
-                    from email.mime.multipart import MIMEMultipart
-                    from daily_signal import (build_position_aware_email,
-                                             build_real_capital_email,
-                                             fetch_uvxy_data)
-                    from regime_detector import classify_regime as classify_regime
-                    from variant_generator import generate_all_variants
-                    import trade_log as _tl_mod
-                    _tl_mod._trade_log_instance = None
-
-                    smtp_user = os.environ.get("SMTP_USER", "")
-                    smtp_pass = os.environ.get("SMTP_PASS", "")
-                    to_addr   = os.environ.get("SMTP_TO", smtp_user)
-
-                    # Always regenerate fresh batch on Send Emails — then freeze
-                    from app import save_signal_batch
-                    uvxy_px, pct, slope = fetch_uvxy_data()
-                    # pct from fetch_uvxy_data is already ^VIX rank-based
-                    regime_state = classify_regime(uvxy_px, vix_percentile=pct)
-                    # Pass regime_state directly so generate_all_variants uses correct regime+pct
-                    batch = generate_all_variants(regime_state)
-                    batch.frozen = True
-                    save_signal_batch(batch)
-                    pct = regime_state.vix_percentile
-
-                    # Paper variant states (using paper trade log)
-                    trade_log = _tl_mod.get_trade_log()
-                    from daily_signal import classify_variants
-                    variant_states = classify_variants(batch, trade_log, regime_state.regime)
-
-                    # Real variant states (using real trade log)
-                    from real_trade_log import get_real_trade_log, reset_real_trade_log_cache, fetch_real_long_prices
-                    reset_real_trade_log_cache()
-                    rtl_live = get_real_trade_log()
-                    real_variant_states = classify_variants(batch, rtl_live, regime_state.regime)
-
-                    def _do_send(html, subject):
-                        msg = MIMEMultipart("alternative")
-                        msg["Subject"] = subject
-                        msg["From"] = smtp_user
-                        msg["To"] = to_addr
-                        msg.attach(MIMEText(html, "html"))
-                        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as srv:
-                            srv.login(smtp_user, smtp_pass)
-                            srv.sendmail(smtp_user, to_addr, msg.as_string())
-
-                    # Real email first
-                    from real_trade_log import get_real_trade_log, reset_real_trade_log_cache
-                    from real_trade_log import fetch_real_long_prices
-                    reset_real_trade_log_cache()
-                    rtl_live = get_real_trade_log()
-                    fetch_real_long_prices(rtl_live)
-                    real_html = build_real_capital_email(batch, real_variant_states)
-                    if real_html:
-                        real_subj = (f"[LIVE 💵] {regime_state.regime.value.upper()} "
-                                     f"({pct:.0%}) — Real Capital Risk Report")
-                        _do_send(real_html, real_subj)
-                        st.sidebar.success("✅ Real capital email sent")
-                    else:
-                        st.sidebar.info("ℹ️ No open real positions — real email skipped")
-
-                    # Paper email second
-                    paper_html = build_position_aware_email(batch, variant_states)
-                    paper_subj = (f"[PAPER 📋] {regime_state.regime.value.upper()} "
-                                  f"({pct:.0%}) — Position Report")
-                    _do_send(paper_html, paper_subj)
-                    st.sidebar.success("✅ Paper email sent")
-
-                except Exception as _e:
-                    import traceback
-                    st.sidebar.error(f"❌ Email error: {_e}")
-                    st.sidebar.code(traceback.format_exc())
-
-    st.sidebar.markdown("---")
-
-    if "Real Trading" in mode:
-        from real_trade_log import get_real_trade_log
-        rtl = get_real_trade_log()
-        # ── Real Trading sidebar
-        st.sidebar.markdown("## 💵 Real Trading")
-        page = st.sidebar.radio(
-            "Real Trading Pages",
-            [
-                "🎯 Command Dashboard",
-                "Signal Dashboard",
-                "Active Trades",
-                "Trade Log Real",
-                "Post-Mortem Review",
-                "Variant Analytics",
-                "System Health",
-            ],
-            index=0,
-            key="real_page",
-        )
-        st.sidebar.markdown("---")
-        # Real Trading context (bottom sidebar)
-        real_summary = rtl.summary()
-        st.sidebar.markdown("**Real Trading**")
-        st.sidebar.markdown(f"Open Positions: **{real_summary['open_count']}**")
-        st.sidebar.markdown(
-            f"Total P&L: **{'$+' if real_summary['total_pnl'] >= 0 else '$'}"
-            f"{real_summary['total_pnl']:,.0f}**")
-        st.sidebar.markdown(
-            f"Commissions: **${real_summary['total_commissions']:.2f}**")
-        st.sidebar.markdown(
-            f"Slippage: **${real_summary['total_slippage']:+.2f}**")
-        # Dispatch with real trade log
-        if page == "🎯 Command Dashboard":
-            render_command_dashboard(trade_log=rtl)
-        elif page == "Signal Dashboard":
-            render_signal_dashboard(trade_log=rtl)
-        elif page == "Active Trades":
-            render_active_trades(trade_log=rtl)
-        elif page == "Trade Log Real":
-            render_real_trade_log()
-        elif page == "Post-Mortem Review":
-            render_post_mortem(trade_log=rtl)
-        elif page == "Variant Analytics":
-            render_variant_analytics(trade_log=rtl)
-        elif page == "System Health":
-            render_system_health(trade_log=rtl)
-
-    elif "Research" in mode:
-        # Research mode navigation
-        page = st.sidebar.radio(
-            "Research Pages",
-            ["Dashboard", "Backtester", "Trade Explorer"],
-            index=0,
-            key="research_page",
-        )
-        
-        # Build sidebar params
-        params = render_research_sidebar()
-        
-        # Load data
-        data = load_underlying_data(
-            params["underlying_symbol"],
-            params["start_date"],
-            params["end_date"]
-        )
-        
-        if data.empty:
-            st.error(f"No data available for {params['underlying_symbol']}")
-            return
-        
-        # Run backtest
-        bt = None
-        if BACKTEST_AVAILABLE:
-            pricing_source = params.get("pricing_source", "Synthetic (BS)")
-            
-            if pricing_source == "Massive historical":
-                progress_text = st.empty()
-                progress_bar = st.progress(0.0)
-                
-                def _progress_cb(step: int, total: int):
-                    if total <= 0:
-                        return
-                    frac = min(max(step / float(total), 0.0), 1.0)
-                    progress_bar.progress(frac)
-                    progress_text.text(f"Massive backtest: {step}/{total} weeks")
-                
-                bt = run_backtest_massive(
-                    data,
-                    params,
-                    symbol=params["underlying_symbol"],
-                    progress_cb=_progress_cb,
-                )
-                progress_bar.empty()
-                progress_text.empty()
-            else:
-                bt = run_backtest(data, params)
-        else:
-            # Fallback with empty results
-            bt = {
-                "equity": np.array([params["initial_capital"]]),
-                "weekly_returns": np.array([0.0]),
-                "realized_weekly": np.array([0.0]),
-                "unrealized_weekly": np.array([0.0]),
-                "trades": 0,
-                "win_rate": 0.0,
-                "avg_trade_dur": 0.0,
-                "trade_log": [],
-            }
-        
-        # Render page
-        if page == "Dashboard":
-            render_dashboard(params, data, bt)
-        elif page == "Backtester":
-            render_backtester(params, data, bt)
-        elif page == "Trade Explorer":
-            render_trade_explorer(params, data, bt)
-    
-    else:
-        # Paper trading mode navigation
-        page = st.sidebar.radio(
-            "Paper Trading Pages",
-            [
-                "Signal Dashboard",
-                "Execution Window", 
-                "Active Trades",
-                "Trade Log",
-                "Post-Mortem Review",
-                "Variant Analytics",
-                "System Health",
-            ],
-            index=0,
-            key="paper_page",
-        )
-        
-        # Build sidebar
-        render_paper_sidebar()
-        
-        # Render page
-        _ptl = get_trade_log()
-        if page == "Signal Dashboard":
-            render_signal_dashboard(trade_log=_ptl)
-        elif page == "Execution Window":
-            render_execution_window(trade_log=_ptl)
-        elif page == "Active Trades":
-            render_active_trades(trade_log=_ptl)
-        elif page == "Post-Mortem Review":
-            render_post_mortem(trade_log=_ptl)
-        elif page == "Variant Analytics":
-            render_variant_analytics(trade_log=_ptl)
-        elif page == "Trade Log":
-            render_paper_trade_log(trade_log=_ptl)
-        elif page == "System Health":
-            render_system_health(trade_log=_ptl)
-
-
-if __name__ == "__main__":
-    main()# ============================================================
+# ============================================================
 # VOLATILITY COMMAND DASHBOARD
 # ============================================================
 def render_command_dashboard(trade_log=None):
@@ -6516,3 +6230,292 @@ def render_command_dashboard(trade_log=None):
 # ============================================================
 # VOLATILITY COMMAND DASHBOARD
 # ============================================================
+
+def main():
+    st.set_page_config(
+        page_title="VIX 5% Weekly Suite",
+        page_icon="📊",
+        layout="wide",
+        initial_sidebar_state="expanded",
+    )
+    
+    # Mode selector
+    st.sidebar.title("VIX 5% Weekly Suite")
+    
+    mode = st.sidebar.radio(
+        "Mode",
+        ["💵 Real Trading", "📈 Paper Trading", "📊 Research"],
+        index=0,
+        key="app_mode",
+    )
+    
+    st.sidebar.markdown("---")
+
+    # ── Global Generate Signal Batch button ──
+    if st.sidebar.button("🔄 Generate Signal Batch", use_container_width=True,
+                         key="sidebar_generate_batch",
+                         help="Regenerate signals from live market data and freeze"):
+        with st.sidebar:
+            with st.spinner("Generating signals..."):
+                try:
+                    from daily_signal import fetch_uvxy_data
+                    from regime_detector import classify_regime, _fetch_vix_percentile_252
+                    from variant_generator import generate_all_variants
+                    _px, _pct, _sl = fetch_uvxy_data()
+                    try:
+                        _vix_pct = _fetch_vix_percentile_252()
+                    except Exception:
+                        _vix_pct = _pct
+                    _regime = classify_regime(_px, vix_percentile=_vix_pct)
+                    _batch  = generate_all_variants(_regime)
+                    if _batch and hasattr(_batch, "batch_id"):
+                        _batch.frozen = True
+                        import json as _json
+                        with open(SIGNAL_BATCH_FILE, "w") as _f:
+                            _json.dump(_batch.to_dict(), _f, indent=2)
+                        st.success(f"✅ {_batch.batch_id}")
+                    else:
+                        st.error("Generation failed")
+                except Exception as _e:
+                    st.error(f"❌ {_e}")
+
+    # ── Global Send Emails button ──
+    if st.sidebar.button("📧 Send Emails", type="primary", use_container_width=True,
+                         key="global_send_emails",
+                         help="Send both Paper and Real capital emails now"):
+        with st.sidebar:
+            with st.spinner("Sending emails..."):
+                try:
+                    import os, smtplib
+                    from email.mime.text import MIMEText
+                    from email.mime.multipart import MIMEMultipart
+                    from daily_signal import (build_position_aware_email,
+                                             build_real_capital_email,
+                                             fetch_uvxy_data)
+                    from regime_detector import classify_regime as classify_regime
+                    from variant_generator import generate_all_variants
+                    import trade_log as _tl_mod
+                    _tl_mod._trade_log_instance = None
+
+                    smtp_user = os.environ.get("SMTP_USER", "")
+                    smtp_pass = os.environ.get("SMTP_PASS", "")
+                    to_addr   = os.environ.get("SMTP_TO", smtp_user)
+
+                    # Always regenerate fresh batch on Send Emails — then freeze
+                    from app import save_signal_batch
+                    uvxy_px, pct, slope = fetch_uvxy_data()
+                    # pct from fetch_uvxy_data is already ^VIX rank-based
+                    regime_state = classify_regime(uvxy_px, vix_percentile=pct)
+                    # Pass regime_state directly so generate_all_variants uses correct regime+pct
+                    batch = generate_all_variants(regime_state)
+                    batch.frozen = True
+                    save_signal_batch(batch)
+                    pct = regime_state.vix_percentile
+
+                    # Paper variant states (using paper trade log)
+                    trade_log = _tl_mod.get_trade_log()
+                    from daily_signal import classify_variants
+                    variant_states = classify_variants(batch, trade_log, regime_state.regime)
+
+                    # Real variant states (using real trade log)
+                    from real_trade_log import get_real_trade_log, reset_real_trade_log_cache, fetch_real_long_prices
+                    reset_real_trade_log_cache()
+                    rtl_live = get_real_trade_log()
+                    real_variant_states = classify_variants(batch, rtl_live, regime_state.regime)
+
+                    def _do_send(html, subject):
+                        msg = MIMEMultipart("alternative")
+                        msg["Subject"] = subject
+                        msg["From"] = smtp_user
+                        msg["To"] = to_addr
+                        msg.attach(MIMEText(html, "html"))
+                        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as srv:
+                            srv.login(smtp_user, smtp_pass)
+                            srv.sendmail(smtp_user, to_addr, msg.as_string())
+
+                    # Real email first
+                    from real_trade_log import get_real_trade_log, reset_real_trade_log_cache
+                    from real_trade_log import fetch_real_long_prices
+                    reset_real_trade_log_cache()
+                    rtl_live = get_real_trade_log()
+                    fetch_real_long_prices(rtl_live)
+                    real_html = build_real_capital_email(batch, real_variant_states)
+                    if real_html:
+                        real_subj = (f"[LIVE 💵] {regime_state.regime.value.upper()} "
+                                     f"({pct:.0%}) — Real Capital Risk Report")
+                        _do_send(real_html, real_subj)
+                        st.sidebar.success("✅ Real capital email sent")
+                    else:
+                        st.sidebar.info("ℹ️ No open real positions — real email skipped")
+
+                    # Paper email second
+                    paper_html = build_position_aware_email(batch, variant_states)
+                    paper_subj = (f"[PAPER 📋] {regime_state.regime.value.upper()} "
+                                  f"({pct:.0%}) — Position Report")
+                    _do_send(paper_html, paper_subj)
+                    st.sidebar.success("✅ Paper email sent")
+
+                except Exception as _e:
+                    import traceback
+                    st.sidebar.error(f"❌ Email error: {_e}")
+                    st.sidebar.code(traceback.format_exc())
+
+    st.sidebar.markdown("---")
+
+    if "Real Trading" in mode:
+        from real_trade_log import get_real_trade_log
+        rtl = get_real_trade_log()
+        # ── Real Trading sidebar
+        st.sidebar.markdown("## 💵 Real Trading")
+        page = st.sidebar.radio(
+            "Real Trading Pages",
+            [
+                "🎯 Command Dashboard",
+                "Signal Dashboard",
+                "Active Trades",
+                "Trade Log Real",
+                "Post-Mortem Review",
+                "Variant Analytics",
+                "System Health",
+            ],
+            index=0,
+            key="real_page",
+        )
+        st.sidebar.markdown("---")
+        # Real Trading context (bottom sidebar)
+        real_summary = rtl.summary()
+        st.sidebar.markdown("**Real Trading**")
+        st.sidebar.markdown(f"Open Positions: **{real_summary['open_count']}**")
+        st.sidebar.markdown(
+            f"Total P&L: **{'$+' if real_summary['total_pnl'] >= 0 else '$'}"
+            f"{real_summary['total_pnl']:,.0f}**")
+        st.sidebar.markdown(
+            f"Commissions: **${real_summary['total_commissions']:.2f}**")
+        st.sidebar.markdown(
+            f"Slippage: **${real_summary['total_slippage']:+.2f}**")
+        # Dispatch with real trade log
+        if page == "🎯 Command Dashboard":
+            render_command_dashboard(trade_log=rtl)
+        elif page == "Signal Dashboard":
+            render_signal_dashboard(trade_log=rtl)
+        elif page == "Active Trades":
+            render_active_trades(trade_log=rtl)
+        elif page == "Trade Log Real":
+            render_real_trade_log()
+        elif page == "Post-Mortem Review":
+            render_post_mortem(trade_log=rtl)
+        elif page == "Variant Analytics":
+            render_variant_analytics(trade_log=rtl)
+        elif page == "System Health":
+            render_system_health(trade_log=rtl)
+
+    elif "Research" in mode:
+        # Research mode navigation
+        page = st.sidebar.radio(
+            "Research Pages",
+            ["Dashboard", "Backtester", "Trade Explorer"],
+            index=0,
+            key="research_page",
+        )
+        
+        # Build sidebar params
+        params = render_research_sidebar()
+        
+        # Load data
+        data = load_underlying_data(
+            params["underlying_symbol"],
+            params["start_date"],
+            params["end_date"]
+        )
+        
+        if data.empty:
+            st.error(f"No data available for {params['underlying_symbol']}")
+            return
+        
+        # Run backtest
+        bt = None
+        if BACKTEST_AVAILABLE:
+            pricing_source = params.get("pricing_source", "Synthetic (BS)")
+            
+            if pricing_source == "Massive historical":
+                progress_text = st.empty()
+                progress_bar = st.progress(0.0)
+                
+                def _progress_cb(step: int, total: int):
+                    if total <= 0:
+                        return
+                    frac = min(max(step / float(total), 0.0), 1.0)
+                    progress_bar.progress(frac)
+                    progress_text.text(f"Massive backtest: {step}/{total} weeks")
+                
+                bt = run_backtest_massive(
+                    data,
+                    params,
+                    symbol=params["underlying_symbol"],
+                    progress_cb=_progress_cb,
+                )
+                progress_bar.empty()
+                progress_text.empty()
+            else:
+                bt = run_backtest(data, params)
+        else:
+            # Fallback with empty results
+            bt = {
+                "equity": np.array([params["initial_capital"]]),
+                "weekly_returns": np.array([0.0]),
+                "realized_weekly": np.array([0.0]),
+                "unrealized_weekly": np.array([0.0]),
+                "trades": 0,
+                "win_rate": 0.0,
+                "avg_trade_dur": 0.0,
+                "trade_log": [],
+            }
+        
+        # Render page
+        if page == "Dashboard":
+            render_dashboard(params, data, bt)
+        elif page == "Backtester":
+            render_backtester(params, data, bt)
+        elif page == "Trade Explorer":
+            render_trade_explorer(params, data, bt)
+    
+    else:
+        # Paper trading mode navigation
+        page = st.sidebar.radio(
+            "Paper Trading Pages",
+            [
+                "Signal Dashboard",
+                "Execution Window", 
+                "Active Trades",
+                "Trade Log",
+                "Post-Mortem Review",
+                "Variant Analytics",
+                "System Health",
+            ],
+            index=0,
+            key="paper_page",
+        )
+        
+        # Build sidebar
+        render_paper_sidebar()
+        
+        # Render page
+        _ptl = get_trade_log()
+        if page == "Signal Dashboard":
+            render_signal_dashboard(trade_log=_ptl)
+        elif page == "Execution Window":
+            render_execution_window(trade_log=_ptl)
+        elif page == "Active Trades":
+            render_active_trades(trade_log=_ptl)
+        elif page == "Post-Mortem Review":
+            render_post_mortem(trade_log=_ptl)
+        elif page == "Variant Analytics":
+            render_variant_analytics(trade_log=_ptl)
+        elif page == "Trade Log":
+            render_paper_trade_log(trade_log=_ptl)
+        elif page == "System Health":
+            render_system_health(trade_log=_ptl)
+
+
+if __name__ == "__main__":
+    main()
