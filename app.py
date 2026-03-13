@@ -6499,6 +6499,43 @@ def render_command_dashboard(trade_log=None):
             else:
                 st.info("No put suggestion in current regime")
 
+        # ── Strangle Risk Warning ─────────────────────────────────────────
+        if (plan.call_suggestion and plan.put_suggestion
+                and plan.position_type == "SHORT_SHARES"):
+            st.markdown(
+                "<div style='background:#fff3e0;border-left:5px solid #e65100;"
+                "border-radius:4px;padding:12px 16px;margin-top:8px;'>"
+                "<div style='font-weight:700;color:#e65100;font-size:14px;'>"
+                "⚠️ Strangle Risk Warning — Short Shares + Both Sides</div>"
+                "<div style='color:#333;font-size:13px;margin-top:6px;'>"
+                "Selling both calls AND puts against short UVXY = "
+                "<b>triple short volatility</b>. "
+                "If UVXY spikes, all three legs lose simultaneously.<br><br>"
+                "<b>Recommended approach:</b><br>"
+                "✅ <b>Sell the calls</b> — overlays short shares, earns credit, "
+                "wide cushion<br>"
+                "❌ <b>Skip the puts</b> — short shares already act like puts; "
+                "adding puts stacks redundant downside exposure<br><br>"
+                "<b>Only sell puts when:</b> short shares are closed/trimmed, "
+                "or as a standalone mean-reversion trade with no share position"
+                "</div></div>",
+                unsafe_allow_html=True)
+        elif (plan.call_suggestion and plan.put_suggestion
+                and plan.position_type == "LONG_SHARES"):
+            st.markdown(
+                "<div style='background:#e8f5e9;border-left:5px solid #2e7d32;"
+                "border-radius:4px;padding:12px 16px;margin-top:8px;'>"
+                "<div style='font-weight:700;color:#2e7d32;font-size:14px;'>"
+                "✅ Covered Strangle — Long Shares</div>"
+                "<div style='color:#333;font-size:13px;margin-top:6px;'>"
+                "Long shares + sell calls = covered call ✅<br>"
+                "Long shares + sell puts = cash-secured put ✅<br>"
+                "Both sides together = covered strangle — "
+                "acceptable if put strike is well below current price "
+                "and you are willing to add shares at that level."
+                "</div></div>",
+                unsafe_allow_html=True)
+
         if _long_call_strike:
             st.caption(f"🛡️ Long call hedge detected: ${_long_call_strike:.0f} "
                       f"({_long_call_contracts} contracts) — call sales are protected")
