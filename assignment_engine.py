@@ -463,3 +463,96 @@ def position_risk_check(
         "scenarios":       scenarios,
         "account_pct":     exposure_pct,
     }
+
+
+# ── Worst Case Scenario Engine ────────────────────────────────────────────────
+
+def worst_case_scenarios(
+    shares: int,
+    entry_price: float,
+    current_price: float,
+    account_size: float,
+    account_type: str = "MARGIN",   # MARGIN / CASH
+) -> dict:
+    """
+    Worst case scenario analysis for assigned short/long positions.
+    Models historical UVXY spike patterns.
+    """
+    is_short   = shares < 0
+    abs_shares = abs(shares)
+
+    # Historical spike scenarios
+    spikes = {
+        "Mild Spike (+20%)":      1.20,
+        "Moderate Spike (+40%)":  1.40,
+        "Nov-Dec 2024 (+100%)":   2.00,
+        "Aug 2024 (+150%)":       2.50,
+        "COVID 2020 (+300%)":     4.00,
+    }
+
+    scenarios = {}
+    for label, mult in spikes.items():
+        target = round(current_price * mult, 2)
+        if is_short:
+            pnl = round((entry_price - target) * abs_shares, 2)
+        else:
+            pnl = round((target - entry_price) * abs_shares, 2)
+
+        pnl_pct = round(abs(pnl) / account_size * 100, 1)
+
+        # Margin call threshold (30% of account)
+        margin_call = pnl_pct > 30 and account_type == "MARGIN"
+        force_close  = account_type == "CASH"  # cash always force-closes
+
+        if pnl_pct > 30:   status = "💀 ACCOUNT DESTROYING"
+        elif pnl_pct > 20: status = "🔴 CRITICAL"
+        elif pnl_pct > 10: status = "🟡 SERIOUS"
+        elif pnl_pct > 5:  status = "🟠 SIGNIFICANT"
+        else:              status = "🟢 MANAGEABLE"
+
+        scenarios[label] = {
+            "target_price": target,
+            "pnl":          pnl,
+            "pnl_pct":      pnl_pct,
+            "status":       status,
+            "margin_call":  margin_call,
+            "force_close":  force_close,
+        }
+
+    # Break-even and max safe price
+    if is_short:
+        breakeven   = entry_price
+        max_safe    = round(entry_price + (account_size * 0.10) / abs_shares, 2)
+        margin_wipe = round(entry_price + (account_size * 0.30) / abs_shares, 2)
+    else:
+        breakeven   = entry_price
+        max_safe    = round(entry_price - (account_size * 0.10) / abs_shares, 2)
+        margin_wipe = round(entry_price - (account_size * 0.30) / abs_shares, 2)
+
+    # Days to margin call estimate (based on current daily move)
+    daily_move = abs(current_price - entry_price) / max(1, 1)  # rough
+    if daily_move > 0 and is_short and current_price > entry_price:
+        days_to_wipe = max(1, int((margin_wipe - current_price) /
+                                   max(0.01, (current_price - entry_price))))
+    else:
+        days_to_wipe = 999
+
+    # Cash account warning
+    cash_warning = ""
+    if account_type == "CASH":
+        cash_warning = ("Cash account — IB will force-close immediately "
+                       "if position moves against you. No margin buffer. "
+                       "Loss is realized at IB's discretion, not yours.")
+
+    return {
+        "scenarios":      scenarios,
+        "breakeven":      breakeven,
+        "max_safe":       max_safe,       # 10% account loss threshold
+        "margin_wipe":    margin_wipe,    # 30% account loss threshold
+        "days_to_wipe":   days_to_wipe,
+        "account_type":   account_type,
+        "cash_warning":   cash_warning,
+        "current_loss":   round((entry_price - current_price) * abs_shares, 2)
+                         if is_short else
+                         round((current_price - entry_price) * abs_shares, 2),
+    }

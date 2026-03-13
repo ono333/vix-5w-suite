@@ -6328,6 +6328,93 @@ def render_command_dashboard(trade_log=None):
                 except Exception as _re:
                     st.warning(f"Risk check unavailable: {_re}")
 
+                # ── Worst Case Scenario Panel ────────────────────────
+                st.markdown("---")
+                st.markdown("**💀 Worst Case Scenario Analysis**")
+                try:
+                    from assignment_engine import worst_case_scenarios
+                    _acct_type = st.session_state.get("account_type", "MARGIN")
+                    _acct_size = st.session_state.get("account_size", 250000.0)
+                    wc = worst_case_scenarios(
+                        evt.shares, evt.entry_price, snap.uvxy,
+                        _acct_size, _acct_type)
+
+                    # Cash account critical warning
+                    if _acct_type == "CASH":
+                        st.error(
+                            f"🚨 **CASH ACCOUNT — NO MARGIN BUFFER**
+
+"
+                            f"{wc['cash_warning']}")
+
+                    # Key thresholds
+                    th1, th2, th3 = st.columns(3)
+                    th1.metric("Breakeven",    f"${wc['breakeven']:.2f}")
+                    th2.metric("10% Loss Level", f"${wc['max_safe']:.2f}",
+                               "Reduce here")
+                    th3.metric("30% Loss Level", f"${wc['margin_wipe']:.2f}",
+                               "Margin call / force close")
+
+                    # Current loss
+                    cl = wc['current_loss']
+                    cl_color = "#c62828" if cl < 0 else "#2e7d32"
+                    cl_pct   = round(abs(cl) / _acct_size * 100, 1)
+                    st.markdown(
+                        f"<div style='padding:8px 12px;background:#1e1e1e;"
+                        f"border-radius:4px;margin:6px 0;'>"
+                        f"Current P&L: <b style='color:{cl_color};'>"
+                        f"${cl:+,.0f} ({cl_pct:.1f}% of account)</b>"
+                        f"</div>", unsafe_allow_html=True)
+
+                    # Scenario table
+                    st.markdown("**Historical spike scenarios:**")
+                    for label, s in wc['scenarios'].items():
+                        sc = ("#c62828" if "DESTROYING" in s['status'] or
+                              "CRITICAL" in s['status'] else
+                              "#e65100" if "SERIOUS" in s['status'] or
+                              "SIGNIFICANT" in s['status'] else "#2e7d32")
+                        mc_tag = ""
+                        if s['force_close']:
+                            mc_tag = " 🚨 IB FORCE CLOSE"
+                        elif s['margin_call']:
+                            mc_tag = " ⚠️ MARGIN CALL"
+                        st.markdown(
+                            f"<div style='display:flex;justify-content:"
+                            f"space-between;align-items:center;"
+                            f"padding:6px 10px;border-left:4px solid {sc};"
+                            f"background:#1a1a1a;margin:3px 0;border-radius:2px;'>"
+                            f"<span style='font-size:12px;color:#ccc;'>"
+                            f"{label} → ${s['target_price']}</span>"
+                            f"<span style='font-size:12px;font-weight:700;"
+                            f"color:{sc};'>${s['pnl']:+,.0f} "
+                            f"({s['pnl_pct']:.1f}%){mc_tag}</span>"
+                            f"<span style='font-size:11px;'>{s['status']}</span>"
+                            f"</div>",
+                            unsafe_allow_html=True)
+
+                    # Action recommendation
+                    st.markdown("**📋 Recommended Actions:**")
+                    if _acct_type == "CASH":
+                        st.error(
+                            "🚨 **IB Cash Account — Close position NOW**
+
+"
+                            "Cash accounts have no margin buffer. "
+                            "IB will force-close at the worst moment. "
+                            "Take controlled loss now rather than forced loss later.")
+                    elif wc['current_loss'] < -(_acct_size * 0.05):
+                        st.warning(
+                            "⚠️ Loss exceeds 5% of account — consider trimming 50% "
+                            "to reduce exposure before spike continues")
+                    else:
+                        st.info(
+                            "Position within tolerable range. "
+                            f"Set hard stop at ${wc['max_safe']:.2f}. "
+                            "Review if UVXY approaches that level.")
+
+                except Exception as _we:
+                    st.warning(f"Worst case analysis unavailable: {_we}")
+
                 if st.button(f"✅ Mark Closed — {evt.assignment_id}",
                             key=f"close_assign_{evt.assignment_id}"):
                     a_store.update(evt.assignment_id, status="closed")
@@ -6655,6 +6742,17 @@ def main():
         step=10000.0, min_value=10000.0,
         key="global_account_size",
         help="Used for position sizing and margin stress calculations")
+
+    if "account_type" not in st.session_state:
+        st.session_state["account_type"] = "MARGIN"
+    st.session_state["account_type"] = st.sidebar.selectbox(
+        "🏦 Account Type",
+        ["MARGIN", "CASH"],
+        index=0 if st.session_state["account_type"] == "MARGIN" else 1,
+        key="global_account_type",
+        help="MARGIN = Fidelity Live | CASH = IB Paper")
+    st.sidebar.caption(
+        "💵 Fidelity = MARGIN | 📋 IB Paper = CASH")
 
     # ── Global Generate Signal Batch button ──
     if st.sidebar.button("🔄 Generate Signal Batch", use_container_width=True,
