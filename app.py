@@ -6298,6 +6298,140 @@ def render_command_dashboard(trade_log=None):
         with st.expander("Error"):
             st.code(traceback.format_exc())
 
+    # ── 5c. PREMIUM HARVEST ENGINE ───────────────────────────────────────
+    st.markdown("---")
+    st.markdown("### 🌾 Premium Harvest Engine")
+    try:
+        from premium_harvest_engine import generate_harvest_plan, StrikeSuggestion
+        from assignment_engine import get_assignment_store
+
+        # Get assigned shares
+        _a_store = get_assignment_store()
+        _open_assigns = _a_store.open_assignments()
+        _total_shares = sum(e.shares for e in _open_assigns)
+        _long_call_strike = 0.0
+        _long_call_contracts = 0
+
+        # Get long call hedge from real positions
+        if trade_log:
+            try:
+                _rp = trade_log.open_positions()
+                _rp = list(_rp.values()) if isinstance(_rp, dict) else (_rp or [])
+                for _pos in _rp:
+                    if hasattr(_pos, "long_strike") and _pos.long_strike:
+                        _long_call_strike    = float(_pos.long_strike)
+                        _long_call_contracts = getattr(_pos, "contracts", 1)
+                        break
+            except Exception:
+                pass
+
+        # DTE selector
+        _dte = st.select_slider("Target DTE", options=[7,10,14,21], value=14,
+                                key="harvest_dte")
+
+        plan = generate_harvest_plan(
+            snap, shares=_total_shares,
+            long_call_strike=_long_call_strike,
+            long_call_contracts=_long_call_contracts,
+            dte_target=_dte)
+
+        # Context header
+        pos_color = "#c62828" if plan.position_type=="SHORT_SHARES" else                     "#2e7d32" if plan.position_type=="LONG_SHARES" else "#888"
+        st.markdown(
+            f"<div style='background:#1e1e1e;border-left:4px solid {pos_color};"
+            f"border-radius:4px;padding:8px 14px;margin-bottom:10px;'>"
+            f"<b style='color:{pos_color};'>{plan.position_type.replace('_',' ')}</b>"
+            f" &nbsp;|&nbsp; "
+            f"<span style='color:#aaa;font-size:12px;'>{plan.strategy_note}</span>"
+            f"</div>", unsafe_allow_html=True)
+
+        def _render_suggestion(sugg: StrikeSuggestion):
+            rs_color = ("#2e7d32" if sugg.risk_score < 35 else
+                       "#e65100" if sugg.risk_score < 65 else "#c62828")
+            type_icon = "📞" if sugg.option_type=="CALL" else "📤"
+            st.markdown(
+                f"<div style='background:#1e1e1e;border:1px solid {rs_color};"
+                f"border-radius:6px;padding:12px;margin-bottom:8px;'>"
+                f"<div style='font-weight:700;font-size:14px;color:{rs_color};'>"
+                f"{type_icon} Sell {sugg.contracts}× UVXY "
+                f"${sugg.strike:.0f} {sugg.option_type} — {sugg.expiration_date} "
+                f"({sugg.dte}d)</div>"
+                f"<div style='color:#aaa;font-size:11px;margin-top:4px;'>"
+                f"{sugg.rationale}</div></div>",
+                unsafe_allow_html=True)
+            m1,m2,m3,m4,m5 = st.columns(5)
+            m1.metric("Strike",      f"${sugg.strike:.0f}")
+            m2.metric("Delta",       f"{sugg.delta:.3f}")
+            m3.metric("Credit",      f"${sugg.credit:.2f}/sh")
+            m4.metric("Income",      f"${sugg.income_total:,.0f}")
+            m5.markdown(
+                f"<div style='padding:6px;text-align:center;background:#1e1e1e;"
+                f"border-radius:4px;'><div style='font-size:10px;color:#aaa;'>Risk</div>"
+                f"<div style='font-size:13px;font-weight:700;color:{rs_color};'>"
+                f"{sugg.risk_label}<br><small>{sugg.risk_score}/100</small></div></div>",
+                unsafe_allow_html=True)
+
+            # Risk gauge
+            rg = max(2, min(97, sugg.risk_score))
+            st.markdown(
+                f"<div style='background:linear-gradient(to right,#2e7d32 0%,"
+                f"#2e7d32 35%,#e65100 35%,#e65100 65%,#c62828 65%,#c62828 100%);"
+                f"height:8px;border-radius:4px;position:relative;margin:4px 0 8px;'>"
+                f"<div style='position:absolute;left:{rg}%;top:-4px;"
+                f"transform:translateX(-50%);font-size:14px;color:white;'>●</div>"
+                f"</div>", unsafe_allow_html=True)
+
+            # Log Trade
+            lt1, lt2, lt3 = st.columns([2,2,1])
+            _fill = lt1.number_input(
+                "Fill Price", value=float(sugg.credit),
+                step=0.01, key=f"he_fill_{sugg.option_type}_{sugg.strike}")
+            _ct   = lt2.number_input(
+                "Contracts", value=sugg.contracts,
+                step=1, key=f"he_ct_{sugg.option_type}_{sugg.strike}")
+            if lt3.button("📋 Log", key=f"he_log_{sugg.option_type}_{sugg.strike}"):
+                try:
+                    from assignment_engine import get_assignment_store as _gas
+                    _gs = _gas()
+                    _oa = _gs.open_assignments()
+                    if _oa:
+                        _gs.update(_oa[0].assignment_id,
+                            covered_option_active=True,
+                            notes=(f"Harvest: sell {_ct}× ${sugg.strike:.0f} "
+                                  f"{sugg.option_type} exp {sugg.expiration_date} "
+                                  f"@ ${_fill:.2f} | income=${_ct*100*_fill:,.0f}"))
+                        st.success(f"✅ Logged: {_ct}× ${sugg.strike:.0f} "
+                                  f"{sugg.option_type} @ ${_fill:.2f}")
+                    else:
+                        st.info("No open assignment — trade noted")
+                    st.rerun()
+                except Exception as _le:
+                    st.error(f"Log failed: {_le}")
+
+        col_c, col_p = st.columns(2)
+        with col_c:
+            st.markdown("**📞 Call Suggestion**")
+            if plan.call_suggestion:
+                _render_suggestion(plan.call_suggestion)
+            else:
+                st.info("No call suggestion in current regime")
+        with col_p:
+            st.markdown("**📤 Put Suggestion**")
+            if plan.put_suggestion:
+                _render_suggestion(plan.put_suggestion)
+            else:
+                st.info("No put suggestion in current regime")
+
+        if _long_call_strike:
+            st.caption(f"🛡️ Long call hedge detected: ${_long_call_strike:.0f} "
+                      f"({_long_call_contracts} contracts) — call sales are protected")
+
+    except Exception as _he:
+        import traceback
+        st.warning(f"Premium Harvest Engine: {_he}")
+        with st.expander("Error"):
+            st.code(traceback.format_exc())
+
     # ── 6. UVXY DECAY FORECAST ────────────────────────────────────────────
     st.markdown("### 📉 UVXY Decay Forecast (5-day)")
     decay_map = {"HIGH": (0.12, 0.18), "MEDIUM": (0.05, 0.12), "LOW": (0.01, 0.05)}
