@@ -229,3 +229,131 @@ def log_assignment(
     )
     store.add(event)
     return event
+
+
+# ── Extended helpers ──────────────────────────────────────────────────────────
+
+def days_since_assignment(event: AssignmentEvent) -> int:
+    try:
+        return (date.today() - date.fromisoformat(event.date)).days
+    except Exception:
+        return 0
+
+
+def unrealized_pnl(event: AssignmentEvent, current_price: float) -> float:
+    """
+    Short position: profit when price falls below entry.
+    Long position:  profit when price rises above entry.
+    """
+    if event.position_state == "SHORT":
+        return round((event.entry_price - current_price) * abs(event.shares), 2)
+    else:
+        return round((current_price - event.entry_price) * abs(event.shares), 2)
+
+
+def risk_level(current_price: float, entry_price: float,
+               position_state: str) -> tuple[str, float, float]:
+    """
+    Returns risk_label, warning_threshold, crisis_threshold.
+    Short UVXY: risk = price rising above entry.
+    """
+    if position_state == "SHORT":
+        warning  = round(entry_price * 1.20, 2)
+        crisis   = round(entry_price * 1.50, 2)
+        if current_price >= crisis:   label = "🔴 CRISIS"
+        elif current_price >= warning: label = "🟡 WARNING"
+        else:                          label = "🟢 SAFE"
+    else:
+        warning  = round(entry_price * 0.80, 2)
+        crisis   = round(entry_price * 0.50, 2)
+        if current_price <= crisis:   label = "🔴 CRISIS"
+        elif current_price <= warning: label = "🟡 WARNING"
+        else:                          label = "🟢 SAFE"
+    return label, warning, crisis
+
+
+def suggest_short_put(
+    shares: int,
+    current_price: float,
+    snap,
+    dte_target: int = 10,
+) -> CoveredCallSuggestion:
+    """
+    For long UVXY assignment — sell puts below to harvest premium.
+    """
+    from datetime import timedelta
+    abs_shares = abs(shares)
+    contracts  = abs_shares // 100
+
+    otm_pct = (0.12 if snap.vix_pct >= 0.90 else
+               0.10 if snap.vix_pct >= 0.80 else 0.08)
+    strike   = round(current_price * (1 - otm_pct), 0)
+
+    vol_mult  = 1.5 if snap.vix_pct >= 0.85 else 1.0
+    base_prem = current_price * 0.04 * vol_mult
+    dte_factor = dte_target / 7
+    prem_per   = round(base_prem * dte_factor * 100, 0)
+    est_lo     = round(prem_per * contracts * 0.75, 0)
+    est_hi     = round(prem_per * contracts * 1.25, 0)
+    exp_date   = (date.today() + timedelta(days=dte_target)).strftime("%Y-%m-%d")
+
+    return CoveredCallSuggestion(
+        symbol="UVXY", shares=abs_shares, current_price=current_price,
+        suggested_strike=strike, expiration_dte=dte_target,
+        expiration_date=exp_date, target_delta=0.20, contracts=contracts,
+        est_premium_lo=est_lo, est_premium_hi=est_hi,
+        rationale=f"{otm_pct:.0%} OTM put — income against long UVXY assignment",
+    )
+
+
+def portfolio_structure(trade_log=None, assignments=None) -> list[dict]:
+    """
+    Returns portfolio layers for display:
+    Decay Engine / Tail Hedge / Income Layer / Assignment Layer
+    """
+    layers = []
+
+    if assignments:
+        for evt in assignments:
+            layers.append({
+                "layer": "Decay Engine" if evt.position_state == "SHORT" else "Long Exposure",
+                "type":  f"{'Short' if evt.position_state=='SHORT' else 'Long'} {evt.symbol} Shares",
+                "detail": f"{abs(evt.shares):,} shares @ ${evt.entry_price:.2f}",
+                "status": evt.decision,
+            })
+
+    if trade_log:
+        try:
+            positions = trade_log.open_positions()
+            if isinstance(positions, dict):
+                positions = list(positions.values())
+            for pos in positions:
+                # Long leg = tail hedge
+                if hasattr(pos, "long_strike"):
+                    layers.append({
+                        "layer": "Tail Hedge",
+                        "type":  f"Long {getattr(pos,'symbol','UVXY')} Calls",
+                        "detail": f"Strike ${pos.long_strike} exp {getattr(pos,'long_expiration','')}",
+                        "status": "ACTIVE",
+                    })
+                # Short legs = income layer
+                for leg in getattr(pos, "short_legs", []):
+                    is_open = getattr(leg, "status", "") == "open"
+                    exp_ok  = True
+                    try:
+                        from datetime import date as _date
+                        import pandas as pd
+                        exp_ok = pd.Timestamp(leg.expiration_date) >= pd.Timestamp.now()
+                    except Exception:
+                        pass
+                    if is_open and exp_ok:
+                        layers.append({
+                            "layer": "Income Layer",
+                            "type":  f"Short Weekly Call — {getattr(pos,'variant_name','')}",
+                            "detail": f"Strike ${leg.strike} exp {leg.expiration_date}",
+                            "status": "ACTIVE",
+                        })
+        except Exception:
+            pass
+
+    return layers
