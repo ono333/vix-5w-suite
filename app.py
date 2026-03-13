@@ -6503,21 +6503,22 @@ def render_command_dashboard(trade_log=None):
         if (plan.call_suggestion and plan.put_suggestion
                 and plan.position_type == "SHORT_SHARES"):
             st.markdown(
-                "<div style='background:#fff3e0;border-left:5px solid #e65100;"
+                "<div style='background:#ffebee;border-left:5px solid #c62828;"
                 "border-radius:4px;padding:12px 16px;margin-top:8px;'>"
-                "<div style='font-weight:700;color:#e65100;font-size:14px;'>"
-                "⚠️ Strangle Risk Warning — Short Shares + Both Sides</div>"
+                "<div style='font-weight:700;color:#c62828;font-size:14px;'>"
+                "🚫 IB Rejection Risk — Naked Call Against Short Shares</div>"
                 "<div style='color:#333;font-size:13px;margin-top:6px;'>"
-                "Selling both calls AND puts against short UVXY = "
-                "<b>triple short volatility</b>. "
-                "If UVXY spikes, all three legs lose simultaneously.<br><br>"
-                "<b>Recommended approach:</b><br>"
-                "✅ <b>Sell the calls</b> — overlays short shares, earns credit, "
-                "wide cushion<br>"
-                "❌ <b>Skip the puts</b> — short shares already act like puts; "
-                "adding puts stacks redundant downside exposure<br><br>"
-                "<b>Only sell puts when:</b> short shares are closed/trimmed, "
-                "or as a standalone mean-reversion trade with no share position"
+                "<b>IB will reject call sales against short UVXY shares.</b> "
+                "Short shares + short calls = naked call position — "
+                "requires Tier 3-4 options approval and very high margin.<br><br>"
+                "<b>What IB allows against short UVXY:</b><br>"
+                "✅ <b>Buy protective calls</b> — caps upside risk, reduces margin<br>"
+                "⚠️ <b>Sell puts</b> — allowed but adds redundant downside exposure<br>"
+                "✅ <b>Close short shares first</b>, then sell calls freely<br><br>"
+                "<b>Recommended action:</b><br>"
+                "1. Buy 7× protective calls at $63 (cap your upside risk)<br>"
+                "2. Or close/trim short shares, then re-enter as diagonal spread<br>"
+                "3. Do not attempt to sell calls against short shares at IB"
                 "</div></div>",
                 unsafe_allow_html=True)
         elif (plan.call_suggestion and plan.put_suggestion

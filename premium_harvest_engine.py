@@ -202,10 +202,12 @@ def generate_harvest_plan(
         K, price, delta = call_match
         # If short shares — call is a hedge overlay (not covered), cap contracts
         if pos_type == "SHORT_SHARES":
-            c = max(1, contracts // 2)   # sell fewer calls vs short shares
+            c = max(1, contracts // 2)
             has_hedge = long_call_contracts > 0
-            rationale = (f"Call overlay against short shares | "
-                        f"{'Protected by long calls' if has_hedge else 'Uncovered — use caution'} | "
+            # NOTE: selling calls against short shares = naked call at IB
+            # Flag as hedge BUY suggestion instead
+            rationale = (f"⚠️ NAKED at IB — buy protective calls instead | "
+                        f"Strike ${round(K,0):.0f} as LONG hedge cap | "
                         f"σ={sigma:.0%}")
         else:
             c = contracts
