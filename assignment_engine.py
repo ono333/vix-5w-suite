@@ -201,6 +201,22 @@ def suggest_covered_call(
 
 # ── Log helpers ───────────────────────────────────────────────────────────────
 
+def income_projection(sugg, entry_price: float, total_exposure: float) -> dict:
+    """
+    Weekly/monthly income projection and yield vs exposure.
+    """
+    weekly_income  = round((sugg.est_premium_lo + sugg.est_premium_hi) / 2, 0)
+    monthly_income = round(weekly_income * 4.33, 0)
+    yield_pct      = round(weekly_income / max(total_exposure, 1) * 100, 2) if total_exposure else 0
+    monthly_yield  = round(yield_pct * 4.33, 2)
+    return {
+        "weekly_income":   weekly_income,
+        "monthly_income":  monthly_income,
+        "weekly_yield_pct":  yield_pct,
+        "monthly_yield_pct": monthly_yield,
+    }
+
+
 def log_assignment(
     symbol: str,
     shares: int,
