@@ -6490,6 +6490,7 @@ def main():
         page = st.sidebar.radio(
             "Paper Trading Pages",
             [
+                "🎯 Command Dashboard",
                 "Signal Dashboard",
                 "Execution Window", 
                 "Active Trades",
@@ -6507,7 +6508,9 @@ def main():
         
         # Render page
         _ptl = get_trade_log()
-        if page == "Signal Dashboard":
+        if page == "🎯 Command Dashboard":
+            render_command_dashboard(trade_log=_ptl)
+        elif page == "Signal Dashboard":
             render_signal_dashboard(trade_log=_ptl)
         elif page == "Execution Window":
             render_execution_window(trade_log=_ptl)
