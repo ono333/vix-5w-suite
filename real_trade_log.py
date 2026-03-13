@@ -1895,6 +1895,23 @@ class RealTradeLog:
 
     # ── Queries ──────────────────────────────────────────────
 
+    def _sync_legs_from_rolls(self) -> None:
+        """
+        Auto-sync open short leg strike/expiry from latest roll record.
+        Prevents stale leg data when rolls are logged but legs not updated.
+        """
+        for pos in self.positions.values():
+            if pos.status != "open" or not pos.roll_history:
+                continue
+            latest = sorted(pos.roll_history, key=lambda r: r.roll_date)[-1]
+            open_legs = [l for l in pos.short_legs if l.status == "open"]
+            for leg in open_legs:
+                if (leg.strike != latest.new_strike or
+                        leg.expiration_date != latest.new_expiration):
+                    leg.strike          = latest.new_strike
+                    leg.expiration_date = latest.new_expiration
+        self.save()
+
     def open_positions(self) -> Dict[str, RealDiagonalPosition]:
         return {pid: p for pid, p in self.diagonal_positions.items()
                 if p.status == "open"}
