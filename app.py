@@ -6692,6 +6692,20 @@ def render_command_dashboard(trade_log=None):
         except Exception:
             pass
 
+    # Event risk warning
+    try:
+        from event_calendar import get_event_store, event_risk_summary as _ers
+        _ev7 = get_event_store().upcoming(days=7)
+        _er  = event_risk_summary(_ev7)
+        if _er["level"] in ("EXTREME","HIGH"):
+            actions.append(
+                f"📅 {_er['level']} event risk next 7 days — {_er['label']}")
+            if any(e.event_type=="FOMC" for e in _ev7 if e.days_away<=7):
+                actions.append(
+                    "🚫 FOMC within 7 days — do NOT add short positions before decision")
+    except Exception:
+        pass
+
     # Aftershock warning
     if snap.aftershock_risk == "HIGH":
         actions.append(f"🔴 Aftershock risk HIGH ({snap.aftershock_pct:.0f}%) — block new V4 entries")
