@@ -6158,6 +6158,146 @@ def render_command_dashboard(trade_log=None):
 
     st.markdown("---")
 
+    # ── 5b. ASSIGNMENT ENGINE ─────────────────────────────────────────────
+    st.markdown("---")
+    st.markdown("### 📋 Assignment Position Manager")
+    try:
+        from assignment_engine import (
+            get_assignment_store, compute_decision_score,
+            suggest_covered_call, suggest_short_put, log_assignment,
+            days_since_assignment, unrealized_pnl, risk_level, portfolio_structure)
+
+        a_store = get_assignment_store()
+        open_assignments = a_store.open_assignments()
+
+        if open_assignments:
+            for evt in open_assignments:
+                score, decision, confidence = compute_decision_score(snap)
+                evt.decision_score = score
+                evt.decision = decision
+                evt.decision_confidence = confidence
+                a_store.save()
+
+                dec_color = ("#2e7d32" if decision == "HARVEST PREMIUM" else
+                            "#e65100" if decision == "HOLD / MONITOR"  else "#c62828")
+                upnl  = unrealized_pnl(evt, snap.uvxy)
+                days  = days_since_assignment(evt)
+                rlabel, rwarn, rcrisis = risk_level(snap.uvxy, evt.entry_price,
+                                                     evt.position_state)
+                upnl_color = "#2e7d32" if upnl >= 0 else "#c62828"
+
+                st.markdown(
+                    f"<div style='background:#1e1e1e;border:2px solid {dec_color};"
+                    f"border-radius:8px;padding:14px;margin-bottom:10px;'>"
+                    f"<div style='font-weight:700;font-size:15px;color:{dec_color};'>"
+                    f"{'📉' if evt.position_state=='SHORT' else '📈'} "
+                    f"{'SHORT' if evt.position_state=='SHORT' else 'LONG'} "
+                    f"{evt.symbol} — {abs(evt.shares):,} shares</div>"
+                    f"<div style='display:flex;gap:20px;margin-top:8px;flex-wrap:wrap;'>"
+                    f"<span style='color:#aaa;font-size:12px;'>Entry: <b style='color:white;'>${evt.entry_price:.2f}</b></span>"
+                    f"<span style='color:#aaa;font-size:12px;'>Current: <b style='color:white;'>${snap.uvxy:.2f}</b></span>"
+                    f"<span style='color:#aaa;font-size:12px;'>P&L: <b style='color:{upnl_color};'>${upnl:+,.0f}</b></span>"
+                    f"<span style='color:#aaa;font-size:12px;'>Exposure: <b style='color:white;'>${evt.total_exposure:,.0f}</b></span>"
+                    f"<span style='color:#aaa;font-size:12px;'>Days held: <b style='color:white;'>{days}</b></span>"
+                    f"<span style='color:#aaa;font-size:12px;'>Context: <b style='color:white;'>{evt.strategy_context}</b></span>"
+                    f"</div></div>", unsafe_allow_html=True)
+
+                ac1, ac2, ac3, ac4 = st.columns(4)
+                ac1.metric("Decision Score", f"{score:.0f}/100")
+                ac2.markdown(
+                    f"<div style='padding:8px;text-align:center;background:#1e1e1e;"
+                    f"border:2px solid {dec_color};border-radius:6px;'>"
+                    f"<div style='font-size:11px;color:#aaa;'>Decision</div>"
+                    f"<div style='font-size:13px;font-weight:700;color:{dec_color};'>"
+                    f"{decision}</div></div>", unsafe_allow_html=True)
+                ac3.metric("Confidence", confidence)
+                ac4.markdown(
+                    f"<div style='padding:8px;text-align:center;background:#1e1e1e;"
+                    f"border-radius:6px;'>"
+                    f"<div style='font-size:11px;color:#aaa;'>Risk</div>"
+                    f"<div style='font-size:13px;font-weight:700;'>{rlabel}</div>"
+                    f"</div>", unsafe_allow_html=True)
+
+                gauge_pos = max(2, min(97, score))
+                st.markdown(
+                    f"<div style='margin:10px 0 4px;'>"
+                    f"<div style='display:flex;justify-content:space-between;"
+                    f"font-size:10px;color:#aaa;margin-bottom:2px;'>"
+                    f"<span>◀ CLOSE</span><span>HOLD (40)</span>"
+                    f"<span>HARVEST (70) ▶</span></div>"
+                    f"<div style='background:linear-gradient(to right,#c62828 0%,"
+                    f"#c62828 40%,#e65100 40%,#e65100 70%,#2e7d32 70%,#2e7d32 100%);"
+                    f"height:14px;border-radius:6px;position:relative;'>"
+                    f"<div style='position:absolute;left:{gauge_pos}%;top:-5px;"
+                    f"transform:translateX(-50%);font-size:18px;color:white;'>●</div>"
+                    f"</div></div>", unsafe_allow_html=True)
+
+                rcolor = "#c62828" if "CRISIS" in rlabel else "#e65100" if "WARNING" in rlabel else "#2e7d32"
+                st.caption(f"Risk: {rlabel} | Warning: ${rwarn:.2f} | Crisis: ${rcrisis:.2f}")
+
+                if decision == "HARVEST PREMIUM":
+                    if evt.position_state == "SHORT":
+                        sugg = suggest_covered_call(evt.shares, snap.uvxy, snap)
+                        st.markdown("**💰 Covered Call Suggestion:**")
+                    else:
+                        sugg = suggest_short_put(evt.shares, snap.uvxy, snap)
+                        st.markdown("**💰 Short Put Suggestion:**")
+                    s1,s2,s3,s4 = st.columns(4)
+                    s1.metric("Contracts",   f"{sugg.contracts}")
+                    s2.metric("Strike",      f"${sugg.suggested_strike:.0f}")
+                    s3.metric("Expiry",      f"{sugg.expiration_dte}d — {sugg.expiration_date}")
+                    s4.metric("Est Premium", f"${sugg.est_premium_lo:,.0f}–${sugg.est_premium_hi:,.0f}")
+                    st.caption(sugg.rationale)
+                elif decision == "CLOSE POSITION":
+                    st.error("⚠️ Close assignment — volatility unfavorable for harvest")
+
+                if st.button(f"✅ Mark Closed — {evt.assignment_id}",
+                            key=f"close_assign_{evt.assignment_id}"):
+                    a_store.update(evt.assignment_id, status="closed")
+                    st.success("Marked closed")
+                    st.rerun()
+        else:
+            st.info("No active assignments — use the form below to log one")
+
+        # Portfolio Structure
+        st.markdown("**🏗️ Portfolio Structure**")
+        layers = portfolio_structure(trade_log, open_assignments)
+        if layers:
+            for lname in ["Decay Engine","Tail Hedge","Income Layer","Long Exposure"]:
+                items = [l for l in layers if l["layer"]==lname]
+                if items:
+                    st.markdown(f"*{lname}*")
+                    for item in items:
+                        sc = "#2e7d32" if item["status"]=="ACTIVE" else "#e65100"
+                        st.markdown(
+                            f"<div style='padding:4px 12px;border-left:3px solid {sc};"
+                            f"margin:2px 0;font-size:12px;'>"
+                            f"<b>{item['type']}</b> — {item['detail']} "
+                            f"<span style='color:{sc};'>({item['status']})</span></div>",
+                            unsafe_allow_html=True)
+        else:
+            st.caption("No portfolio layers to display")
+
+        # Log new assignment
+        with st.expander("➕ Log New Assignment"):
+            c1, c2, c3 = st.columns(3)
+            a_shares = c1.number_input("Shares (neg=short)", value=-100, step=100,
+                                        key="assign_shares")
+            a_price  = c2.number_input("Entry Price", value=float(snap.uvxy),
+                                        step=0.01, key="assign_price")
+            a_ctx    = c3.text_input("Strategy Context", value="V4 Spike Trade",
+                                      key="assign_ctx")
+            if st.button("📋 Log Assignment", key="log_assign_btn"):
+                evt = log_assignment("UVXY", int(a_shares), a_price, a_ctx, snap)
+                st.success(f"✅ Logged {evt.assignment_id} — Decision: {evt.decision}")
+                st.rerun()
+
+    except Exception as _ae:
+        import traceback
+        st.warning(f"Assignment engine: {_ae}")
+        with st.expander("Error"):
+            st.code(traceback.format_exc())
+
     # ── 6. UVXY DECAY FORECAST ────────────────────────────────────────────
     st.markdown("### 📉 UVXY Decay Forecast (5-day)")
     decay_map = {"HIGH": (0.12, 0.18), "MEDIUM": (0.05, 0.12), "LOW": (0.01, 0.05)}
