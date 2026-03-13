@@ -6278,14 +6278,13 @@ def render_command_dashboard(trade_log=None):
 
                     # Trim recommendation
                     if rc['trim_pct'] > 0:
-                        st.warning(
-                            f"⚠️ **Trim Recommended: {rc['trim_pct']}%** — "
-                            f"{rc['trim_reason']}
-
-"
-                            f"Cover **{rc['trim_shares']:,} shares** @ ${snap.uvxy:.2f} "
-                            f"→ P&L: **${rc['trim_pnl']:+,.0f}** | "
-                            f"Proceeds: ${rc['trim_value']:,.0f}")
+                        _trim_msg = (f"⚠️ **Trim Recommended: {rc['trim_pct']}%** — "
+                                    f"{rc['trim_reason']}  "
+                                    f"Cover **{rc['trim_shares']:,} shares** "
+                                    f"@ ${snap.uvxy:.2f} "
+                                    f"→ P&L: **${rc['trim_pnl']:+,.0f}** | "
+                                    f"Proceeds: ${rc['trim_value']:,.0f}")
+                        st.warning(_trim_msg)
                     else:
                         st.success(f"✅ Hold — {rc['trim_reason']}")
 
