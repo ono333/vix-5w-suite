@@ -6341,11 +6341,8 @@ def render_command_dashboard(trade_log=None):
 
                     # Cash account critical warning
                     if _acct_type == "CASH":
-                        st.error(
-                            f"🚨 **CASH ACCOUNT — NO MARGIN BUFFER**
-
-"
-                            f"{wc['cash_warning']}")
+                        st.error("🚨 **CASH ACCOUNT — NO MARGIN BUFFER** — "
+                                + wc['cash_warning'])
 
                     # Key thresholds
                     th1, th2, th3 = st.columns(3)
@@ -6395,13 +6392,10 @@ def render_command_dashboard(trade_log=None):
                     # Action recommendation
                     st.markdown("**📋 Recommended Actions:**")
                     if _acct_type == "CASH":
-                        st.error(
-                            "🚨 **IB Cash Account — Close position NOW**
-
-"
-                            "Cash accounts have no margin buffer. "
-                            "IB will force-close at the worst moment. "
-                            "Take controlled loss now rather than forced loss later.")
+                        st.error("🚨 **IB Cash Account — Close position NOW** — "
+                                "Cash accounts have no margin buffer. "
+                                "IB will force-close at the worst moment. "
+                                "Take controlled loss now rather than forced loss later.")
                     elif wc['current_loss'] < -(_acct_size * 0.05):
                         st.warning(
                             "⚠️ Loss exceeds 5% of account — consider trimming 50% "
