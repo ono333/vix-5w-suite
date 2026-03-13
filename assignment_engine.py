@@ -373,3 +373,93 @@ def portfolio_structure(trade_log=None, assignments=None) -> list[dict]:
             pass
 
     return layers
+
+
+# ── Position Sizing Risk Check ────────────────────────────────────────────────
+
+def position_risk_check(
+    shares: int,
+    entry_price: float,
+    current_price: float,
+    account_size: float,
+    snap,
+) -> dict:
+    """
+    Comprehensive position sizing and margin stress analysis.
+    Returns risk metrics and trim recommendations.
+    """
+    abs_shares   = abs(shares)
+    is_short     = shares < 0
+
+    # Current exposure and P&L
+    exposure     = round(abs_shares * current_price, 2)
+    entry_value  = round(abs_shares * entry_price, 2)
+    unrealized   = round((entry_price - current_price) * abs_shares, 2) if is_short                    else round((current_price - entry_price) * abs_shares, 2)
+    exposure_pct = round(exposure / account_size * 100, 1)
+
+    # Stress scenarios
+    scenarios = {}
+    for label, mult in [("UVXY +20%", 1.20), ("UVXY +40%", 1.40),
+                        ("UVXY +60%", 1.60), ("UVXY +100%", 2.00)]:
+        stressed_price = current_price * mult
+        if is_short:
+            loss = round((stressed_price - entry_price) * abs_shares, 2)
+        else:
+            loss = round((entry_price - stressed_price) * abs_shares, 2)
+        loss_pct = round(abs(loss) / account_size * 100, 1)
+        scenarios[label] = {
+            "uvxy_price": round(stressed_price, 2),
+            "pnl":        -abs(loss) if loss < 0 else loss,
+            "pnl_pct":    loss_pct,
+            "status":     ("🔴 CRITICAL" if loss_pct > 20 else
+                          "🟡 WARNING"  if loss_pct > 10 else "🟢 SAFE"),
+        }
+
+    # Hard stop price (20% account drawdown threshold)
+    max_loss     = account_size * 0.20
+    if is_short:
+        stop_price = round(entry_price + max_loss / abs_shares, 2)
+    else:
+        stop_price = round(entry_price - max_loss / abs_shares, 2)
+
+    # Trim recommendation based on regime
+    if snap.vix_pct >= 0.90 and snap.aftershock_risk in ("HIGH","MEDIUM"):
+        trim_pct   = 50
+        trim_reason = "PANIC phase + aftershock risk — cut exposure in half"
+    elif snap.vix_pct >= 0.80:
+        trim_pct   = 25
+        trim_reason = "Elevated regime — reduce by 25%"
+    elif snap.collapse_flag:
+        trim_pct   = 0
+        trim_reason = "Collapse detected — hold, decay working in your favor"
+    else:
+        trim_pct   = 0
+        trim_reason = "Regime favorable — hold position"
+
+    trim_shares   = round(abs_shares * trim_pct / 100)
+    trim_value    = round(trim_shares * current_price, 2)
+    trim_pnl      = round((entry_price - current_price) * trim_shares, 2) if is_short                     else round((current_price - entry_price) * trim_shares, 2)
+
+    # Overall risk rating
+    if exposure_pct > 30 or scenarios["UVXY +40%"]["pnl_pct"] > 15:
+        overall_risk = "🔴 HIGH"
+    elif exposure_pct > 15 or scenarios["UVXY +40%"]["pnl_pct"] > 8:
+        overall_risk = "🟡 MEDIUM"
+    else:
+        overall_risk = "🟢 LOW"
+
+    return {
+        "exposure":        exposure,
+        "exposure_pct":    exposure_pct,
+        "entry_value":     entry_value,
+        "unrealized_pnl":  unrealized,
+        "overall_risk":    overall_risk,
+        "stop_price":      stop_price,
+        "trim_pct":        trim_pct,
+        "trim_shares":     trim_shares,
+        "trim_value":      trim_value,
+        "trim_pnl":        trim_pnl,
+        "trim_reason":     trim_reason,
+        "scenarios":       scenarios,
+        "account_pct":     exposure_pct,
+    }

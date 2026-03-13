@@ -6251,6 +6251,84 @@ def render_command_dashboard(trade_log=None):
                 elif decision == "CLOSE POSITION":
                     st.error("⚠️ Close assignment — volatility unfavorable for harvest")
 
+                # ── Position Sizing Risk Check ──────────────────────
+                st.markdown("---")
+                st.markdown("**📐 Position Sizing Risk Check**")
+                try:
+                    from assignment_engine import position_risk_check
+                    _acct = st.session_state.get("account_size", 250000.0)
+                    rc = position_risk_check(
+                        evt.shares, evt.entry_price, snap.uvxy, _acct, snap)
+
+                    # Header metrics
+                    rx1,rx2,rx3,rx4 = st.columns(4)
+                    rx1.metric("Exposure",      f"${rc['exposure']:,.0f}",
+                               f"{rc['exposure_pct']:.1f}% of account")
+                    rx2.metric("Unrealized P&L",
+                               f"${rc['unrealized_pnl']:+,.0f}")
+                    rx3.metric("Hard Stop",     f"${rc['stop_price']:.2f}",
+                               "20% max drawdown")
+                    rx4.markdown(
+                        f"<div style='padding:8px;text-align:center;"
+                        f"background:#1e1e1e;border-radius:6px;'>"
+                        f"<div style='font-size:10px;color:#aaa;'>Overall Risk</div>"
+                        f"<div style='font-size:15px;font-weight:700;'>"
+                        f"{rc['overall_risk']}</div></div>",
+                        unsafe_allow_html=True)
+
+                    # Trim recommendation
+                    if rc['trim_pct'] > 0:
+                        st.warning(
+                            f"⚠️ **Trim Recommended: {rc['trim_pct']}%** — "
+                            f"{rc['trim_reason']}
+
+"
+                            f"Cover **{rc['trim_shares']:,} shares** @ ${snap.uvxy:.2f} "
+                            f"→ P&L: **${rc['trim_pnl']:+,.0f}** | "
+                            f"Proceeds: ${rc['trim_value']:,.0f}")
+                    else:
+                        st.success(f"✅ Hold — {rc['trim_reason']}")
+
+                    # Stress test table
+                    with st.expander("📊 Stress Scenarios"):
+                        for label, s in rc['scenarios'].items():
+                            sc = ("#c62828" if "CRITICAL" in s['status'] else
+                                  "#e65100" if "WARNING"  in s['status'] else "#2e7d32")
+                            st.markdown(
+                                f"<div style='display:flex;justify-content:space-between;"
+                                f"padding:4px 8px;border-left:3px solid {sc};"
+                                f"margin:3px 0;font-size:12px;'>"
+                                f"<span>{label} → ${s['uvxy_price']}</span>"
+                                f"<span style='color:{sc};font-weight:700;'>"
+                                f"P&L: ${s['pnl']:+,.0f} "
+                                f"({s['pnl_pct']:.1f}% of account)</span>"
+                                f"<span>{s['status']}</span></div>",
+                                unsafe_allow_html=True)
+
+                    # Perplexity warnings for short UVXY
+                    if evt.position_state == "SHORT":
+                        with st.expander("⚠️ Short UVXY Risk Warnings"):
+                            st.markdown("""
+**Short UVXY is NOT a simple decay trade:**
+- UVXY can spike 50–300% in days during a volatility shock
+- Decay works *on average* over weeks — not guaranteed short-term
+- Holding through a spike requires margin your account may not have
+
+**Rules for this position:**
+1. Define max loss BEFORE it hits (hard stop above)
+2. Scale out on UVXY drops — don't wait for "full decay"
+3. Do NOT sell puts against short UVXY — adds exposure in wrong direction
+4. Only sell calls if protected by long calls at lower strikes
+5. Re-enter smaller after volatility resets to calm regime
+
+**Close conditions:**
+- UVXY closes above hard stop price → cover immediately
+- VIX spike resumes after pause (aftershock) → reduce 50%
+- Margin utilization > 40% of account → trim to safe size
+                            """)
+                except Exception as _re:
+                    st.warning(f"Risk check unavailable: {_re}")
+
                 if st.button(f"✅ Mark Closed — {evt.assignment_id}",
                             key=f"close_assign_{evt.assignment_id}"):
                     a_store.update(evt.assignment_id, status="closed")
@@ -6530,6 +6608,16 @@ def main():
     )
     
     st.sidebar.markdown("---")
+
+    # ── Account Size (global setting) ──
+    if "account_size" not in st.session_state:
+        st.session_state["account_size"] = 250000.0
+    st.session_state["account_size"] = st.sidebar.number_input(
+        "💰 Account Size ($)",
+        value=st.session_state["account_size"],
+        step=10000.0, min_value=10000.0,
+        key="global_account_size",
+        help="Used for position sizing and margin stress calculations")
 
     # ── Global Generate Signal Batch button ──
     if st.sidebar.button("🔄 Generate Signal Batch", use_container_width=True,
