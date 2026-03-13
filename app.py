@@ -6645,6 +6645,126 @@ def render_command_dashboard(trade_log=None):
 
     st.markdown("---")
 
+    # ── 6b. EVENT CALENDAR ───────────────────────────────────────────────
+    st.markdown("---")
+    st.markdown("### 📅 Event Calendar & VIX Risk")
+    try:
+        from event_calendar import get_event_store, event_risk_summary, MarketEvent
+        import uuid as _uuid
+        from datetime import timedelta as _td
+
+        _estore = get_event_store()
+        _events = _estore.upcoming(days=30)
+        _risk   = event_risk_summary(_events)
+
+        # 7-day risk banner
+        _rc = _risk['color']
+        st.markdown(
+            f"<div style='background:{_rc}22;border-left:5px solid {_rc};"
+            f"border-radius:4px;padding:10px 14px;margin-bottom:10px;'>"
+            f"<b style='color:{_rc};font-size:15px;'>"
+            f"7-Day Event Risk: {_risk['level']}</b>"
+            f"<span style='color:#aaa;font-size:12px;margin-left:12px;'>"
+            f"{_risk['label']}</span></div>",
+            unsafe_allow_html=True)
+
+        # Today alerts
+        for _te in _risk.get("today_events", []):
+            st.error(f"🚨 TODAY: {_te.title} at {_te.time_et} ET — {_te.vix_impact} impact")
+
+        # Impact maps
+        _icol = {"EXTREME":"#c62828","HIGH":"#e65100","MEDIUM":"#f57f17","LOW":"#2e7d32"}
+        _iico = {"EXTREME":"🔴","HIGH":"🟠","MEDIUM":"🟡","LOW":"🟢"}
+        _darr = {"SPIKE":"⬆️","SUPPRESS":"⬇️","NEUTRAL":"↔️","UNKNOWN":"↔️"}
+
+        # Event rows
+        for _e in _events[:12]:
+            _c  = _icol.get(_e.vix_impact, "#888")
+            _ic2 = _iico.get(_e.vix_impact, "⚪")
+            _da  = _darr.get(_e.direction, "↔️")
+            _dl  = ("TODAY" if _e.days_away==0 else
+                    "TOMORROW" if _e.days_away==1 else f"in {_e.days_away}d")
+            st.markdown(
+                f"<div style='display:flex;align-items:center;gap:10px;"
+                f"padding:7px 10px;background:#1a1a1a;border-left:4px solid {_c};"
+                f"border-radius:3px;margin:3px 0;'>"
+                f"<span style='color:#aaa;font-size:11px;min-width:90px;'>{_e.date}</span>"
+                f"<span style='color:#aaa;font-size:11px;min-width:55px;'>{_e.time_et} ET</span>"
+                f"<span style='font-size:12px;font-weight:700;color:{_c};min-width:80px;'>"
+                f"{_ic2} {_e.vix_impact}</span>"
+                f"<span style='font-size:12px;color:white;flex:1;'><b>{_e.title}</b></span>"
+                f"<span style='font-size:11px;color:{_c};min-width:60px;'>{_da} {_e.direction}</span>"
+                f"<span style='font-size:11px;color:#ff9800;font-weight:700;'>{_dl}</span>"
+                f"</div>", unsafe_allow_html=True)
+
+            # Trading guidance for high impact events within 7 days
+            if _e.vix_impact in ("EXTREME","HIGH") and 0 <= _e.days_away <= 7:
+                _guidance = {
+                    "FOMC": ("🚫 No new shorts 48h before | "
+                             "Hawkish surprise → cover immediately | "
+                             "Dovish → VIX drops → re-entry opportunity after 14:00 ET"),
+                    "CPI":  ("Hot CPI → VIX spike → cover shorts | "
+                             "Cool CPI → VIX drops → hold/add | "
+                             "Biggest move within 15min of 08:30 ET"),
+                    "NFP":  ("Weak jobs → recession fear → VIX spike | "
+                             "Strong jobs → hawkish risk | "
+                             "Best setup: miss + weak wages → short vol after print"),
+                    "OPEX": ("Elevated intraday vol into close | "
+                             "Quarterly OpEx largest effect | "
+                             "Roll/manage shorts — do not open new positions"),
+                }.get(_e.event_type, _e.description)
+                st.caption(f"  ↳ {_guidance}")
+
+        if not _events:
+            st.success("✅ No major events in next 30 days")
+
+        # Add custom event
+        with st.expander("➕ Add Custom Event"):
+            _ec1,_ec2,_ec3 = st.columns(3)
+            _etitle  = _ec1.text_input("Title", key="ec_title",
+                                        placeholder="e.g. Tariff announcement")
+            _edate   = _ec2.date_input("Date", key="ec_date",
+                                        value=date.today()+_td(days=1))
+            _etime   = _ec3.text_input("Time ET", key="ec_time", value="TBD")
+            _ec4,_ec5 = st.columns(2)
+            _eimpact = _ec4.selectbox("VIX Impact",
+                                       ["LOW","MEDIUM","HIGH","EXTREME"],
+                                       index=2, key="ec_impact")
+            _edir    = _ec5.selectbox("Direction",
+                                       ["UNKNOWN","SPIKE","SUPPRESS","NEUTRAL"],
+                                       key="ec_dir")
+            if st.button("📅 Add Event", key="ec_add_btn"):
+                if _etitle:
+                    _estore.add(MarketEvent(
+                        event_id   = f"manual_{str(_uuid.uuid4())[:8]}",
+                        date       = _edate.isoformat(),
+                        time_et    = _etime,
+                        event_type = "CUSTOM",
+                        title      = _etitle,
+                        vix_impact = _eimpact,
+                        direction  = _edir,
+                        is_manual  = True,
+                        source     = "manual",
+                    ))
+                    st.success(f"✅ Added: {_etitle}")
+                    st.rerun()
+
+        # Remove manual events
+        _manual = [e for e in _estore.manual_events if not e.is_past]
+        if _manual:
+            with st.expander("🗑️ Remove Custom Events"):
+                for _me in _manual:
+                    if st.button(f"Remove: {_me.title} ({_me.date})",
+                                key=f"rm_{_me.event_id}"):
+                        _estore.remove(_me.event_id)
+                        st.rerun()
+
+    except Exception as _ee:
+        import traceback
+        st.warning(f"Event Calendar: {_ee}")
+        with st.expander("Error"):
+            st.code(traceback.format_exc())
+
     # ── 7. ACTION SUMMARY ─────────────────────────────────────────────────
     st.markdown("### 🎯 Recommended Actions")
 
