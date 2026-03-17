@@ -140,6 +140,8 @@ def _generate_v1_income_harvester(vix_level: float, vix_percentile: float) -> Va
     """
     V1: Income Harvester - Stable income via diagonal spreads.
     Active in: CALM, DECLINING
+    Long: ATM, 26w (6-month LEAP)
+    Short: 2pts OTM, 1w
     """
     return VariantParams(
         variant_id=f"V1-{uuid.uuid4().hex[:8]}",
@@ -150,7 +152,7 @@ def _generate_v1_income_harvester(vix_level: float, vix_percentile: float) -> Va
         position_type="diagonal",
         long_dte_weeks=26,
         short_dte_weeks=1,
-        long_strike_offset=5.0,
+        long_strike_offset=0.0,   # ATM long leg
         short_strike_offset=2.0,
         roll_dte_days=3,
         sigma_mult=0.8,
@@ -160,7 +162,7 @@ def _generate_v1_income_harvester(vix_level: float, vix_percentile: float) -> Va
         max_hold_weeks=12,
         active_in_regimes=[VolatilityRegime.CALM, VolatilityRegime.DECLINING],
         suppressed_in_regimes=[VolatilityRegime.RISING, VolatilityRegime.STRESSED, VolatilityRegime.EXTREME],
-        long_strike=vix_level + 5.0,
+        long_strike=vix_level,           # ATM
         short_strike=vix_level + 2.0,
     )
 
@@ -169,6 +171,8 @@ def _generate_v2_mean_reversion(vix_level: float, vix_percentile: float) -> Vari
     """
     V2: Mean Reversion Accelerator - Post-spike decay capture.
     Active in: DECLINING only
+    Long: slight OTM, 13w
+    Short: 3pts OTM, 1w
     """
     return VariantParams(
         variant_id=f"V2-{uuid.uuid4().hex[:8]}",
@@ -179,7 +183,7 @@ def _generate_v2_mean_reversion(vix_level: float, vix_percentile: float) -> Vari
         position_type="diagonal",
         long_dte_weeks=13,
         short_dte_weeks=1,
-        long_strike_offset=8.0,
+        long_strike_offset=3.0,   # slight OTM
         short_strike_offset=3.0,
         roll_dte_days=3,
         sigma_mult=1.0,
@@ -189,7 +193,7 @@ def _generate_v2_mean_reversion(vix_level: float, vix_percentile: float) -> Vari
         max_hold_weeks=8,
         active_in_regimes=[VolatilityRegime.DECLINING],
         suppressed_in_regimes=[VolatilityRegime.CALM, VolatilityRegime.RISING, VolatilityRegime.STRESSED, VolatilityRegime.EXTREME],
-        long_strike=vix_level + 8.0,
+        long_strike=vix_level + 3.0,
         short_strike=vix_level + 3.0,
     )
 
@@ -198,6 +202,7 @@ def _generate_v3_shock_absorber(vix_level: float, vix_percentile: float) -> Vari
     """
     V3: Shock Absorber - Crisis hedge, long calls only.
     Active in: RISING, STRESSED, EXTREME
+    Long: 8% OTM, 8w
     """
     return VariantParams(
         variant_id=f"V3-{uuid.uuid4().hex[:8]}",
@@ -208,7 +213,7 @@ def _generate_v3_shock_absorber(vix_level: float, vix_percentile: float) -> Vari
         position_type="long_call",
         long_dte_weeks=8,
         short_dte_weeks=1,
-        long_strike_offset=15.0,
+        long_strike_offset=round(vix_level * 0.08, 1),  # 8% OTM in $ terms
         short_strike_offset=2.0,
         roll_dte_days=3,
         sigma_mult=1.2,
@@ -218,15 +223,17 @@ def _generate_v3_shock_absorber(vix_level: float, vix_percentile: float) -> Vari
         max_hold_weeks=6,
         active_in_regimes=[VolatilityRegime.RISING, VolatilityRegime.STRESSED, VolatilityRegime.EXTREME],
         suppressed_in_regimes=[VolatilityRegime.CALM, VolatilityRegime.DECLINING],
-        long_strike=vix_level + 15.0,
+        long_strike=round(vix_level * 1.08, 1),   # 8% OTM
         short_strike=0.0,
     )
 
 
 def _generate_v4_tail_hunter(vix_level: float, vix_percentile: float) -> VariantParams:
     """
-    V4: Tail Hunter - Extreme volatility plays.
+    V4: Tail Hunter - Directional extreme regime diagonal.
     Active in: EXTREME only
+    Long: ATM (0% OTM), 13w LEAP  ← FIXED: was 4w + $20 OTM
+    Short: 10% OTM, 1w
     """
     return VariantParams(
         variant_id=f"V4-{uuid.uuid4().hex[:8]}",
@@ -235,20 +242,20 @@ def _generate_v4_tail_hunter(vix_level: float, vix_percentile: float) -> Variant
         entry_percentile=0.90,
         entry_lookback_weeks=52,
         position_type="long_call",
-        long_dte_weeks=4,
+        long_dte_weeks=13,                          # FIX: was 4 — need LEAP protection
         short_dte_weeks=1,
-        long_strike_offset=20.0,
-        short_strike_offset=2.0,
+        long_strike_offset=0.0,                     # FIX: was 20.0 — ATM for high delta
+        short_strike_offset=round(vix_level * 0.10, 1),  # 10% OTM in $ terms
         roll_dte_days=3,
         sigma_mult=1.5,
         alloc_pct=0.005,
         tp_pct=1.00,
         sl_pct=0.80,
-        max_hold_weeks=4,
+        max_hold_weeks=13,                          # FIX: matches long_dte_weeks
         active_in_regimes=[VolatilityRegime.EXTREME],
         suppressed_in_regimes=[VolatilityRegime.CALM, VolatilityRegime.DECLINING, VolatilityRegime.RISING, VolatilityRegime.STRESSED],
-        long_strike=vix_level + 20.0,
-        short_strike=0.0,
+        long_strike=vix_level,                      # FIX: ATM not vix_level+20
+        short_strike=round(vix_level * 1.10, 1),   # 10% OTM
     )
 
 
@@ -256,44 +263,39 @@ def _generate_v5_regime_allocator(vix_level: float, vix_percentile: float, regim
     """
     V5: Regime Allocator - Adapts parameters based on regime.
     Active in: ALL regimes (always)
+
+    FIXED long_dte and otm_offset for STRESSED/EXTREME:
+      - long_dte was 4w (same as short) — now minimum 13w
+      - otm_offset was 20 ($64+ strike) — now 8-12% OTM in $ terms
     """
-    # Regime-adaptive parameters
     if regime == VolatilityRegime.CALM:
-        entry_pct = 0.35
-        long_dte = 13
-        otm_offset = 10.0
-        tp = 0.12
-        sl = 0.35
-        alloc = 0.025
+        entry_pct  = 0.35
+        long_dte   = 26
+        otm_offset = round(vix_level * 0.05, 1)   # 5% OTM
+        tp = 0.12; sl = 0.35; alloc = 0.025
     elif regime == VolatilityRegime.DECLINING:
-        entry_pct = 0.50
-        long_dte = 8
-        otm_offset = 8.0
-        tp = 0.20
-        sl = 0.30
-        alloc = 0.02
+        entry_pct  = 0.50
+        long_dte   = 13
+        otm_offset = round(vix_level * 0.06, 1)   # 6% OTM
+        tp = 0.20; sl = 0.30; alloc = 0.02
     elif regime == VolatilityRegime.RISING:
-        entry_pct = 0.65
-        long_dte = 6
-        otm_offset = 12.0
-        tp = 0.30
-        sl = 0.40
-        alloc = 0.015
+        entry_pct  = 0.65
+        long_dte   = 13
+        otm_offset = round(vix_level * 0.08, 1)   # 8% OTM
+        tp = 0.30; sl = 0.40; alloc = 0.015
     elif regime == VolatilityRegime.STRESSED:
-        entry_pct = 0.80
-        long_dte = 4
-        otm_offset = 15.0
-        tp = 0.40
-        sl = 0.50
-        alloc = 0.01
+        entry_pct  = 0.80
+        long_dte   = 13                            # FIX: was 4
+        otm_offset = round(vix_level * 0.10, 1)   # FIX: was 15.0 flat
+        tp = 0.40; sl = 0.50; alloc = 0.01
     else:  # EXTREME
-        entry_pct = 0.90
-        long_dte = 4
-        otm_offset = 20.0
-        tp = 0.60
-        sl = 0.60
-        alloc = 0.005
-    
+        entry_pct  = 0.90
+        long_dte   = 13                            # FIX: was 4
+        otm_offset = round(vix_level * 0.12, 1)   # FIX: was 20.0 flat (~$64 strike)
+        tp = 0.60; sl = 0.60; alloc = 0.005
+
+    short_offset = round(otm_offset * 0.4, 1)
+
     return VariantParams(
         variant_id=f"V5-{uuid.uuid4().hex[:8]}",
         name="V5 Regime Allocator",
@@ -304,14 +306,13 @@ def _generate_v5_regime_allocator(vix_level: float, vix_percentile: float, regim
         long_dte_weeks=long_dte,
         short_dte_weeks=1,
         long_strike_offset=otm_offset,
-        short_strike_offset=otm_offset * 0.4,
+        short_strike_offset=short_offset,
         roll_dte_days=3,
         sigma_mult=1.0,
         alloc_pct=alloc,
         tp_pct=tp,
         sl_pct=sl,
         max_hold_weeks=long_dte,
-        # V5 is ALWAYS active - it adapts instead of being suppressed
         active_in_regimes=[
             VolatilityRegime.CALM,
             VolatilityRegime.DECLINING,
@@ -321,7 +322,7 @@ def _generate_v5_regime_allocator(vix_level: float, vix_percentile: float, regim
         ],
         suppressed_in_regimes=[],
         long_strike=vix_level + otm_offset,
-        short_strike=vix_level + (otm_offset * 0.4),
+        short_strike=vix_level + short_offset,
     )
 
 
@@ -347,11 +348,9 @@ def _calculate_percentile(series: pd.Series, lookback: int = 52) -> float:
     """Calculate percentile of current value in lookback window."""
     if series is None or len(series) < 2:
         return 0.5
-    
     lookback_adj = min(lookback, len(series))
     window = series.tail(lookback_adj)
     current = series.iloc[-1]
-    
     return float((window < current).mean())
 
 
@@ -380,12 +379,6 @@ def generate_all_variants(
     IMPORTANT: This function ALWAYS generates all 5 variants.
     Regime suitability is stored in active_in_regimes, NOT used for filtering.
     Filtering happens in the UI/selection layer, not here.
-    
-    Flexible calling patterns:
-    1. generate_all_variants(regime_state) - RegimeState object
-    2. generate_all_variants(uvxy_series, regime_state) - app.py pattern
-    3. generate_all_variants(regime, vix_level, vix_percentile) - explicit
-    4. generate_all_variants(vix_level, regime) - simpler
     """
     from regime_detector import RegimeState
     
@@ -396,15 +389,11 @@ def generate_all_variants(
         vix_level = regime_state.vix_level
         pct = regime_state.vix_percentile
     
-    # Parse arguments flexibly
     elif isinstance(data, pd.Series):
-        # Pattern 1: Series + RegimeState
         vix_level = _get_vix_level(data)
         pct = _calculate_percentile(data, lookback)
-        
         if regime_or_percentile is not None:
             regime = _extract_regime(regime_or_percentile)
-            # If regime_or_percentile is a RegimeState, use its values
             if hasattr(regime_or_percentile, 'vix_percentile'):
                 pct = regime_or_percentile.vix_percentile
             if hasattr(regime_or_percentile, 'vix_level'):
@@ -415,26 +404,22 @@ def generate_all_variants(
             regime_state = None
             
     elif isinstance(data, VolatilityRegime):
-        # Pattern 2: regime enum first
         regime = data
         vix_level = float(regime_or_percentile) if regime_or_percentile is not None else 20.0
         pct = vix_percentile if vix_percentile is not None else 0.5
         regime_state = None
         
     elif isinstance(data, (int, float)):
-        # Pattern 3: vix_level first
         vix_level = float(data)
         regime = _extract_regime(regime_or_percentile) if regime_or_percentile else VolatilityRegime.CALM
         pct = vix_percentile if vix_percentile is not None else 0.5
         regime_state = None
     else:
-        # Fallback
         vix_level = 20.0
         pct = 0.5
         regime = VolatilityRegime.CALM
         regime_state = None
     
-    # Create RegimeState if we don't have one
     if regime_state is None or not isinstance(regime_state, RegimeState):
         regime_state = RegimeState(
             regime=regime,
@@ -446,19 +431,13 @@ def generate_all_variants(
             regime_age_days=0,
         )
     
-    # Generate batch ID and timing
     batch_id = f"BATCH-{datetime.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
     now = datetime.now()
-    
-    # Valid until next Thursday 4:30 PM (or Monday if generated Thursday+)
     days_until_thursday = (3 - now.weekday()) % 7
     if days_until_thursday == 0 and now.hour >= 16:
         days_until_thursday = 7
     valid_until = (now + timedelta(days=days_until_thursday)).replace(hour=16, minute=30, second=0, microsecond=0)
     
-    # ================================================================
-    # ALWAYS GENERATE ALL 5 VARIANTS - NO FILTERING HERE
-    # ================================================================
     variants: List[VariantParams] = [
         _generate_v1_income_harvester(vix_level, pct),
         _generate_v2_mean_reversion(vix_level, pct),
@@ -466,7 +445,6 @@ def generate_all_variants(
         _generate_v4_tail_hunter(vix_level, pct),
         _generate_v5_regime_allocator(vix_level, pct, regime),
     ]
-    # ================================================================
     
     return SignalBatch(
         batch_id=batch_id,
@@ -497,10 +475,10 @@ def get_variant_display_name(role: VariantRole) -> str:
 def get_variant_color(role: VariantRole) -> str:
     """Get color for variant role."""
     colors = {
-        VariantRole.V1_INCOME_HARVESTER: "#4CAF50",  # Green
-        VariantRole.V2_MEAN_REVERSION: "#2196F3",    # Blue
-        VariantRole.V3_SHOCK_ABSORBER: "#FF9800",    # Orange
-        VariantRole.V4_TAIL_HUNTER: "#F44336",       # Red
-        VariantRole.V5_REGIME_ALLOCATOR: "#9C27B0",  # Purple
+        VariantRole.V1_INCOME_HARVESTER: "#4CAF50",
+        VariantRole.V2_MEAN_REVERSION: "#2196F3",
+        VariantRole.V3_SHOCK_ABSORBER: "#FF9800",
+        VariantRole.V4_TAIL_HUNTER: "#F44336",
+        VariantRole.V5_REGIME_ALLOCATOR: "#9C27B0",
     }
     return colors.get(role, "#757575")
