@@ -1,42 +1,9 @@
-# Python
+*.bak*
+*.bak_*
+nohup.out
 __pycache__/
 *.pyc
-*.pyo
-*.pyd
-.Python
-venv/
-vix_env/
-*.egg-info/
-
-# macOS
 .DS_Store
-._*
-
-# IDE
-.idea/
-.vscode/
-*.swp
-
-# Logs
-*.log
-nohup.out
-
-# Backups
-*.backup
-*.backup_*
-app.py.backup*
-
-# Runtime JSON (generated at runtime)
-core/trading_log.json
-core/._trading_log.json
-ui/paper_trade_log.json
-live_signal_data.json
-
-# Old/duplicate files
-trade_log_2026_*.py
-
-# Streamlit config (machine-specific)
-.streamlit/
-
-# Local scripts
-run_backup.sh
+*_preview.html
+friday_signal_preview.html
+member_alert_preview*.html
