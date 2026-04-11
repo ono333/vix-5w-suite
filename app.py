@@ -1120,12 +1120,16 @@ def send_roll_notification_email(positions_needing_roll, recipient: str = "onosh
     except:
         current_price = 38.0
     
-    # Calculate suggested strikes
-    suggested_strikes = {
-        "conservative": round(current_price * 1.02, 0),
-        "moderate": round(current_price * 1.05, 0),
-        "aggressive": round(current_price * 1.10, 0),
-    }
+    # Calculate suggested strikes — anchor to max(uvxy, short_strike)
+    # so ITM shorts always roll ABOVE current strike, never back below it
+    def _roll_strikes(uvxy, short_k=0.0):
+        base = max(uvxy, short_k) if short_k else uvxy
+        return {
+            "conservative": round(base * 1.02, 0),
+            "moderate":     round(base * 1.05, 0),
+            "aggressive":   round(base * 1.10, 0),
+        }
+    suggested_strikes = _roll_strikes(current_price)
     
     # Next Friday
     today = datetime.now()
@@ -1530,7 +1534,13 @@ Score = 0.30×VIX_pct + 0.25×VVIX_pct + 0.20×UVXY_momentum
         _phase = "Unknown"
         _phase_desc = ""
         if _snap:
-            if _snap.spike_score >= 80:
+            # collapse_flag checked FIRST — takes priority over spike_score
+            if _snap.collapse_flag or (_snap.spike_score > 70
+                    and _snap.vix_1d_change < -0.03
+                    and _snap.vvix_1d_change < -0.03):
+                _phase = "🔵 Collapse"
+                _phase_desc = "VIX falling — lock profits, V1/V2 re-entry soon"
+            elif _snap.spike_score >= 80:
                 _phase = "🔴 Spike Peak"
                 _phase_desc = "Volatility near exhaustion — premium elevated, V4/V5 favored"
             elif _snap.spike_score >= 60:
@@ -1539,9 +1549,6 @@ Score = 0.30×VIX_pct + 0.25×VVIX_pct + 0.20×UVXY_momentum
             elif _snap.spike_score >= 40:
                 _phase = "🟡 Expansion"
                 _phase_desc = "Volatility rising — V3 Shock Absorber optimal"
-            elif _snap.collapse_flag:
-                _phase = "🔵 Collapse"
-                _phase_desc = "VIX falling — lock profits, V1/V2 re-entry soon"
             else:
                 _phase = "🟢 Compression"
                 _phase_desc = "Low vol — ideal for V1 income harvesting"
@@ -1804,6 +1811,21 @@ Score = 0.30×VIX_pct + 0.25×VVIX_pct + 0.20×UVXY_momentum
                             with btn_col2:
                                 if st.button(f"🔄 Roll Short", key=f"p_roll_{pos.position_id}"):
                                     st.session_state[f"p_rolling_{pos.position_id}"] = True
+                                if st.button(f"🚨 Assigned", key=f"p_assign_{pos.position_id}",
+                                             help="Short expired ITM — mark as assigned"):
+                                    short = pos.current_short_leg
+                                    if short:
+                                        st.session_state["asgn_prefill_pid"]    = pos.position_id
+                                        st.session_state["asgn_prefill_strike"] = float(short.strike)
+                                        st.session_state["asgn_prefill_expiry"] = short.expiration_date
+                                        short.status      = "assigned"
+                                        short.exit_date   = __import__("datetime").date.today().isoformat()
+                                        short.exit_price  = float(short.strike)
+                                        short.exit_reason = "assigned"
+                                        from trade_log import get_trade_log as _gtl
+                                        _gtl()._save()
+                                        st.warning(f"Short ${short.strike}C marked assigned — go to Assignment Log to close shares.")
+                                        st.rerun()
                         
                         with btn_col3:
                             if st.button(f"💲 Update Prices", key=f"prices_{pos.position_id}"):
@@ -2140,8 +2162,8 @@ Score = 0.30×VIX_pct + 0.25×VVIX_pct + 0.20×UVXY_momentum
                     from email.mime.multipart import MIMEMultipart
                     from daily_signal import build_real_capital_email, classify_variants
                     from real_trade_log import get_real_trade_log, reset_real_trade_log_cache, fetch_real_long_prices
-                    reset_real_trade_log_cache()
-                    _rtl = get_real_trade_log()
+                    reset_real_trade_log_cache(st.session_state.get("real_account", "fidelity"))
+                    _rtl = get_real_trade_log(st.session_state.get("real_account", "fidelity"))
                     fetch_real_long_prices(_rtl)
                     _vs = classify_variants(batch, trade_log, regime.regime)
                     _rhtml = build_real_capital_email(batch, _vs)
@@ -2803,6 +2825,124 @@ Backups:     {STORAGE_DIR / 'backups'}
     """)
     
     # ═══════════════════════════════════════════════════════════════
+    # BROKER RECONCILIATION
+    # ═══════════════════════════════════════════════════════════════
+    st.markdown("---")
+    st.subheader("🔄 Broker Reconciliation")
+    st.caption(
+        "Upload your Fidelity CSV export to sync the trade log with actual positions. "
+        "Always run a dry-run preview before applying."
+    )
+
+    uploaded_csv = st.file_uploader(
+        "Upload Fidelity Portfolio CSV",
+        type="csv",
+        key="reconcile_csv_upload",
+        help="Export from Fidelity: Accounts → Portfolio → Download CSV",
+    )
+
+    if uploaded_csv is not None:
+        import tempfile, os
+        from reconcile import parse_fidelity_csv, load_trade_log, diff, apply_mutations, backup, print_diff, TRADE_LOG_PATH
+        import io, contextlib
+
+        # Save upload to temp file
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".csv")
+        tmp.write(uploaded_csv.read())
+        tmp.close()
+
+        try:
+            fidelity = parse_fidelity_csv(tmp.name)
+            log      = load_trade_log()
+            mutations = diff(fidelity, log)
+
+            total = sum(len(v) for v in mutations.values())
+
+            # ── Diff summary table ────────────────────────────────────────────
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Shorts to Close",  len(mutations["close_shorts"]),
+                        delta=f"-{len(mutations['close_shorts'])}" if mutations["close_shorts"] else None,
+                        delta_color="inverse")
+            col2.metric("Shorts to Add",    len(mutations["add_shorts"]))
+            col3.metric("Longs to Update",  len(mutations["update_longs"]))
+            col4.metric("Corrupted to Fix", len(mutations["fix_corrupted"]),
+                        delta=f"-{len(mutations['fix_corrupted'])}" if mutations["fix_corrupted"] else None,
+                        delta_color="inverse")
+
+            if total == 0:
+                st.success("✅ Trade log is already in sync with Fidelity. Nothing to do.")
+            else:
+                # ── Detailed diff ─────────────────────────────────────────────
+                with st.expander("📋 View full diff before applying", expanded=True):
+
+                    if mutations["close_shorts"]:
+                        st.markdown("**🔴 Shorts to CLOSE** (in log but not in Fidelity):")
+                        for m in mutations["close_shorts"]:
+                            st.markdown(
+                                f"- `${m['strike']}` exp `{m['expiry']}` "
+                                f"[{m['position_id']}] → _{m['exit_reason']}_"
+                            )
+
+                    if mutations["add_shorts"]:
+                        st.markdown("**🟢 Shorts to ADD** (in Fidelity but missing from log):")
+                        for m in mutations["add_shorts"]:
+                            st.markdown(
+                                f"- `${m['strike']}` exp `{m['expiry']}` "
+                                f"× {m['contracts']} @ ${m['avg_cost']:.2f} credit"
+                            )
+
+                    if mutations["update_longs"]:
+                        st.markdown("**🔵 Longs to UPDATE** (log long doesn't match Fidelity):")
+                        for m in mutations["update_longs"]:
+                            new = m.get("new_long")
+                            new_str = f"→ `${new['strike']}` exp `{new['expiry']}`" if new else "→ ?"
+                            st.markdown(
+                                f"- [{m['variant']}] `${m['old_strike']}` "
+                                f"exp `{m['old_expiry']}` {new_str}"
+                            )
+
+                    if mutations["fix_corrupted"]:
+                        st.markdown("**⚠️ Corrupted legs to FIX:**")
+                        for m in mutations["fix_corrupted"]:
+                            st.markdown(
+                                f"- [{m['position_id']}] `${m['strike']}` "
+                                f"exp `{m['expiry']}` — {m['fix']}"
+                            )
+
+                # ── Apply button ──────────────────────────────────────────────
+                st.warning(
+                    f"⚡ {total} mutation(s) pending. "
+                    "A backup will be created automatically before any changes."
+                )
+                if st.button("✅ Apply Reconciliation", type="primary",
+                             key="reconcile_apply_btn"):
+                    backup()
+                    import json, copy
+                    log_copy = copy.deepcopy(log)
+                    apply_mutations(log_copy, mutations, fidelity)
+                    with open(TRADE_LOG_PATH, "w") as f:
+                        json.dump(log_copy, f, indent=2)
+                    try:
+                        from real_trade_log import reset_real_trade_log_cache
+                        reset_real_trade_log_cache("fidelity")
+                    except Exception:
+                        pass
+                    st.success(
+                        f"✅ Trade log updated — {total} mutation(s) applied. "
+                        "Refresh the page to see the changes."
+                    )
+                    st.balloons()
+
+        except Exception as e:
+            import traceback
+            st.error(f"Reconciliation error: {e}")
+            st.code(traceback.format_exc())
+            st.stop()
+        finally:
+            os.unlink(tmp.name)
+
+    st.markdown("---")
+    # ═══════════════════════════════════════════════════════════════
     # BACKUP MANAGEMENT
     # ═══════════════════════════════════════════════════════════════
     st.markdown("---")
@@ -3288,21 +3428,23 @@ def _render_paper_diagonal_positions(trade_log):
                     edit_rolls_clicked = st.button("✏️ Edit Rolls", key=f"p_edit_rolls_{pos.position_id}")
                     if edit_rolls_clicked:
                         st.session_state[f"p_editing_rolls_{pos.position_id}"] = True
-                roll_data = []
-                for roll in pos.roll_history:
-                    roll_data.append({
-                        "Date": roll.roll_date,
-                        "Old Strike": f"${roll.old_strike}",
-                        "New Strike": f"${roll.new_strike}",
-                        "Buy Back": f"${roll.old_exit_price:.2f}",
-                        "New Credit": f"${roll.new_credit:.2f}",
-                        "Net Credit": f"${roll.roll_credit:.2f}",
-                        "Underlying": f"${roll.underlying_price:.2f}",
-                    })
-                st.dataframe(roll_data, use_container_width=True, hide_index=True)
-                
-                if st.session_state.get(f"p_editing_rolls_{pos.position_id}"):
-                    _render_paper_roll_history_edit_form(trade_log, pos)
+                # History collapsed by default — edit button stays visible above
+                with st.expander(f"📋 Roll History ({len(pos.roll_history)} rolls)", expanded=False):
+                    roll_data = []
+                    for roll in pos.roll_history:
+                        roll_data.append({
+                            "Date": roll.roll_date,
+                            "Old Strike": f"${roll.old_strike}",
+                            "New Strike": f"${roll.new_strike}",
+                            "Buy Back": f"${roll.old_exit_price:.2f}",
+                            "New Credit": f"${roll.new_credit:.2f}",
+                            "Net Credit": f"${roll.roll_credit:.2f}",
+                            "Underlying": f"${roll.underlying_price:.2f}",
+                        })
+                    st.dataframe(roll_data, use_container_width=True, hide_index=True)
+                    
+                    if st.session_state.get(f"p_editing_rolls_{pos.position_id}"):
+                        _render_paper_roll_history_edit_form(trade_log, pos)
             
             # Action buttons
             st.markdown("---")
@@ -3458,6 +3600,8 @@ def _render_paper_diagonal_entry_form(trade_log):
         entry_vix = st.number_input("UVXY Price", min_value=1.0, max_value=200.0, value=20.0, key="diag_entry_vix")
         entry_pct = st.number_input("VIX Percentile (%)", min_value=0.0, max_value=100.0, value=20.0, step=0.1, key="diag_entry_pct")
     
+    entry_date_input = st.date_input("Entry Date", value=__import__("datetime").date.today(), key="diag_entry_date", help="Actual trade date — can be backdated")
+
     st.markdown("##### Long Leg")
     lcol1, lcol2, lcol3 = st.columns(3)
     with lcol1:
@@ -3536,6 +3680,7 @@ def _render_paper_diagonal_entry_form(trade_log):
                     entry_regime=entry_regime,
                     entry_vix_level=entry_vix,
                     entry_percentile=entry_pct / 100,
+                    entry_date=entry_date_input.isoformat(),
                     fee_per_contract=fee_per_contract,
                 )
                 st.success(f"✅ Opened diagonal position: {pos.position_id}")
@@ -3560,10 +3705,13 @@ def _render_paper_roll_form(trade_log, pos):
     
     # Roll suggestions based on position type
     st.markdown("##### 💡 Roll Suggestions")
+    # Anchor to max(uvxy, short_strike) so ITM shorts roll above current strike
+    _short_k = float(pos.current_short_leg.strike) if pos.current_short_leg else 0.0
+    _base_price = max(current_price, _short_k)
     suggested_strikes = [
-        round(current_price * 1.02, 0),  # 2% OTM
-        round(current_price * 1.05, 0),  # 5% OTM  
-        round(current_price * 1.10, 0),  # 10% OTM
+        round(_base_price * 1.02, 0),  # 2% OTM
+        round(_base_price * 1.05, 0),  # 5% OTM
+        round(_base_price * 1.10, 0),  # 10% OTM
     ]
     
     # Suggest next Friday expiration
@@ -3607,6 +3755,13 @@ def _render_paper_roll_form(trade_log, pos):
             help="If expired worthless, enter 0"
         )
     
+    roll_date = st.date_input(
+        "Roll Date",
+        value=__import__("datetime").date.today(),
+        key=f"p_roll_date_{pos.position_id}",
+        help="Actual date the roll was executed — can be backdated"
+    )
+
     with col1:
         new_strike = st.number_input(
             "New Strike",
@@ -3649,6 +3804,8 @@ def _render_paper_roll_form(trade_log, pos):
                     vix_level=roll_vix_level,
                     vix_percentile=roll_vix_pct / 100,
                     contracts=contracts_to_roll,
+                    roll_date=roll_date.isoformat(),
+                    notes=f"Backdated roll: {roll_date.isoformat()}",
                 )
                 if contracts_to_roll < max_contracts:
                     st.success(f"✅ Partial roll ({contracts_to_roll} contracts): Net credit ${roll.roll_credit:.2f}")
@@ -3856,6 +4013,26 @@ def _render_paper_edit_form(trade_log, pos):
                         entry_credit=new_short_credit,
                     )
                 
+                # Also persist to real_trade_log if this is a real position
+                try:
+                    from real_trade_log import get_real_trade_log, reset_real_trade_log_cache
+                    rtl = get_real_trade_log(st.session_state.get("real_account", "fidelity"))
+                    if pos.position_id in rtl.open_positions():
+                        rpos = rtl.open_positions()[pos.position_id]
+                        # Update short leg strike/expiry on real position
+                        if short and hasattr(rpos, 'current_short_leg') and rpos.current_short_leg:
+                            rpos.current_short_leg.strike = new_short_strike
+                            rpos.current_short_leg.expiration_date = new_short_exp
+                            rpos.current_short_leg.entry_credit = new_short_credit
+                        # Update long leg
+                        rpos.long_strike = new_long_strike
+                        rpos.long_expiration = new_long_exp
+                        rpos.long_entry_price = new_long_price
+                        rpos.contracts = new_contracts
+                        rtl._save()
+                        reset_real_trade_log_cache(st.session_state.get("real_account", "fidelity"))
+                except Exception as _re:
+                    pass  # paper-only position, no real log entry needed
                 st.success("✅ Position updated!")
                 st.session_state[f"p_editing_{pos.position_id}"] = False
                 st.rerun()
@@ -4726,10 +4903,13 @@ def _render_paper_sell_short_form(trade_log, pos):
     
     # Roll suggestions based on current price
     st.markdown("##### 💡 Suggestions")
+    # Anchor to max(uvxy, short_strike) so ITM shorts roll above current strike
+    _short_k = float(pos.current_short_leg.strike) if pos.current_short_leg else 0.0
+    _base_price = max(current_price, _short_k)
     suggested_strikes = [
-        round(current_price * 1.02, 0),  # 2% OTM
-        round(current_price * 1.05, 0),  # 5% OTM  
-        round(current_price * 1.10, 0),  # 10% OTM
+        round(_base_price * 1.02, 0),  # 2% OTM
+        round(_base_price * 1.05, 0),  # 5% OTM
+        round(_base_price * 1.10, 0),  # 10% OTM
     ]
     
     # Suggest next Friday expiration
@@ -4956,7 +5136,7 @@ def render_paper_trade_log(trade_log=None):
 
     with tab_real:
         from real_trade_log import get_real_trade_log
-        rtl = get_real_trade_log()
+        rtl = get_real_trade_log(st.session_state.get("real_account", "fidelity"))
         # ── Summary bar
         real_open = rtl.open_positions()
         summary   = rtl.summary()
@@ -5082,6 +5262,9 @@ def render_paper_trade_log(trade_log=None):
         - Max Risk: ${long_debit * manual_contracts * 100:.2f} (if LEAP expires worthless)
         """)
         
+        from datetime import date as _date
+        manual_entry_date = st.date_input("Entry Date", value=_date.today(), key="manual_entry_date", help="Actual trade date — can be backdated")
+
         if st.button("📥 Record Diagonal Spread", key="manual_trade_submit"):
             try:
                 variant_names = {
@@ -5112,6 +5295,7 @@ def render_paper_trade_log(trade_log=None):
                     entry_vix_level=0.0,  # Not specified
                     fee_per_contract=fee_per_contract,
                     notes=manual_notes,
+                    entry_date=manual_entry_date.isoformat(),
                 )
                 st.success(f"✅ Recorded {variant_name} diagonal spread! (ID: {pos.position_id})")
                 st.rerun()
@@ -5253,7 +5437,7 @@ def _render_real_roll_edit_form(rtl, pos):
                         setattr(r, field, val)
                 rtl._save()
                 from real_trade_log import reset_real_trade_log_cache
-                reset_real_trade_log_cache()
+                reset_real_trade_log_cache(st.session_state.get("real_account", "fidelity"))
                 st.session_state[f"r_editing_rolls_{pos.position_id}"] = False
                 st.success("✅ Saved.")
                 st.rerun()
@@ -5278,7 +5462,7 @@ def _render_real_roll_edit_form(rtl, pos):
             pos.roll_history.pop(idx)
             rtl._save()
             from real_trade_log import reset_real_trade_log_cache
-            reset_real_trade_log_cache()
+            reset_real_trade_log_cache(st.session_state.get("real_account", "fidelity"))
             st.success("✅ Deleted.")
             st.rerun()
 
@@ -5289,8 +5473,8 @@ def render_real_trade_log():
     import pandas as pd
 
     from real_trade_log import reset_real_trade_log_cache
-    reset_real_trade_log_cache()
-    rtl = get_real_trade_log()
+    reset_real_trade_log_cache(st.session_state.get("real_account", "fidelity"))
+    rtl = get_real_trade_log(st.session_state.get("real_account", "fidelity"))
     # Auto-fetch live prices on page load if any long_current_price is 0
     try:
         _needs_px = any(
@@ -5303,8 +5487,8 @@ def render_real_trade_log():
     if _needs_px:
         try:
             update_diagonal_live_prices(rtl, symbol="UVXY")
-            reset_real_trade_log_cache()
-            rtl = get_real_trade_log()
+            reset_real_trade_log_cache(st.session_state.get("real_account", "fidelity"))
+            rtl = get_real_trade_log(st.session_state.get("real_account", "fidelity"))
         except Exception:
             pass
     open_pos   = rtl.open_positions()
@@ -5326,6 +5510,20 @@ def render_real_trade_log():
       <span style="font-size:11px;color:#664422;margin-left:12px">
         Fidelity / IB · Live capital · Separate from paper trades</span>
     </div>""", unsafe_allow_html=True)
+
+    # Account selector
+    if "real_account" not in st.session_state:
+        st.session_state.real_account = "fidelity"
+
+    _acct_options = {"🏦 Fidelity (Z31686168)": "fidelity", "📊 Interactive Brokers": "ib"}
+    _acct_display = st.radio(
+        "Account",
+        list(_acct_options.keys()),
+        index=0 if st.session_state.real_account == "fidelity" else 1,
+        horizontal=True,
+        key="real_account_selector",
+    )
+    st.session_state.real_account = _acct_options[_acct_display]
 
     # ── Stats bar
     c1, c2, c3, c4, c5 = st.columns(5)
@@ -5356,7 +5554,7 @@ def render_real_trade_log():
             if st.button("🔄 Refresh Prices", key="rtl_refresh"):
                 try:
                     update_diagonal_live_prices(rtl, symbol="UVXY")
-                    reset_real_trade_log_cache()
+                    reset_real_trade_log_cache(st.session_state.get("real_account", "fidelity"))
                 except Exception as e:
                     st.warning(f"Price fetch: {e}")
                 st.rerun()
@@ -5446,6 +5644,12 @@ def render_real_trade_log():
                         days_fri = (4 - today_dt.weekday()) % 7 or 7
                         next_fri = (today_dt + timedelta(days=days_fri)).date()
 
+                        r_roll_date = st.date_input(
+                            "Roll Date",
+                            value=__import__("datetime").date.today(),
+                            key=f"r_roll_date_{pid}",
+                            help="Actual date the roll was executed — can be backdated"
+                        )
                         with st.form(f"r_roll_{pid}"):
                             rc1, rc2, rc3 = st.columns(3)
                             with rc1:
@@ -5481,10 +5685,11 @@ def render_real_trade_log():
                                     underlying_price = uvxy_px,
                                     vix_level        = roll_vix,
                                     vix_percentile   = roll_pct / 100,
+                                    roll_date        = r_roll_date.isoformat(),
                                     roll_reason      = reason,
                                     notes            = notes,
                                 )
-                                reset_real_trade_log_cache()
+                                reset_real_trade_log_cache(st.session_state.get("real_account", "fidelity"))
                                 st.success(
                                     f"✅ Rolled → ${ns:.0f} exp {ne}  "
                                     f"Net credit: ${nc_fill-bb_fill:.2f}/c  "
@@ -5539,7 +5744,7 @@ def render_real_trade_log():
                         try:
                             rtl.close_short_leg(pid, exit_price=0.0,
                                                 exit_reason="expired_worthless")
-                            reset_real_trade_log_cache()
+                            reset_real_trade_log_cache(st.session_state.get("real_account", "fidelity"))
                             st.success("✅ Short marked expired worthless.")
                             st.rerun()
                         except Exception as e:
@@ -5572,7 +5777,7 @@ def render_real_trade_log():
                                     leg.commission = as_comm
                                     leg.slippage = round(as_fill - as_mid, 4)
                                     rtl._save()
-                                    reset_real_trade_log_cache()
+                                    reset_real_trade_log_cache(st.session_state.get("real_account", "fidelity"))
                                     st.session_state[f"r_showing_add_short_{pid}"] = False
                                     st.success(f"✅ Added short ${as_strike:.0f} exp {as_exp}")
                                     st.rerun()
@@ -5583,7 +5788,7 @@ def render_real_trade_log():
                     if _refresh:
                         try:
                             update_diagonal_live_prices(rtl, symbol="UVXY")
-                            reset_real_trade_log_cache()
+                            reset_real_trade_log_cache(st.session_state.get("real_account", "fidelity"))
                             st.success("✅ Prices refreshed.")
                             st.rerun()
                         except Exception as e:
@@ -5609,7 +5814,7 @@ def render_real_trade_log():
                                 pos.long_fill_price = e_fill
                                 pos.long_current_price = e_current
                                 rtl._save()
-                                reset_real_trade_log_cache()
+                                reset_real_trade_log_cache(st.session_state.get("real_account", "fidelity"))
                                 st.session_state[f"r_showing_edit_{pid}"] = False
                                 st.success("✅ Long leg updated.")
                                 st.rerun()
@@ -5639,7 +5844,7 @@ def render_real_trade_log():
                                 pos.close_reason = cl_reason
                                 pos.long_current_price = cl_long_exit
                                 rtl._save()
-                                reset_real_trade_log_cache()
+                                reset_real_trade_log_cache(st.session_state.get("real_account", "fidelity"))
                                 st.session_state[f"r_showing_close_{pid}"] = False
                                 st.success(f"✅ Position closed. Final P&L: ${pos.total_pnl:+,.0f}")
                                 st.rerun()
@@ -5656,7 +5861,7 @@ def render_real_trade_log():
                             if st.button("✅ Yes, Delete", key=f"r_delconfirm_{pid}"):
                                 del rtl.diagonal_positions[pid]
                                 rtl._save()
-                                reset_real_trade_log_cache()
+                                reset_real_trade_log_cache(st.session_state.get("real_account", "fidelity"))
                                 st.session_state.pop(f"r_confirm_del_{pid}", None)
                                 st.success("Deleted.")
                                 st.rerun()
@@ -5679,7 +5884,7 @@ def render_real_trade_log():
                                 try:
                                     pos.recalc_roll_totals()
                                     rtl._save()
-                                    reset_real_trade_log_cache()
+                                    reset_real_trade_log_cache(st.session_state.get("real_account", "fidelity"))
                                     st.success("✅ Recalculated")
                                     st.rerun()
                                 except Exception as e:
@@ -5748,7 +5953,7 @@ def render_real_trade_log():
                     # Close position
                     if st.button(f"❌ Close Position", key=f"rtl_close_{pid}"):
                         rtl.close_position(pid, reason="manual")
-                        reset_real_trade_log_cache()
+                        reset_real_trade_log_cache(st.session_state.get("real_account", "fidelity"))
                         st.rerun()
 
     # ══ NEW ENTRY ════════════════════════════════════════════
@@ -6158,475 +6363,12 @@ def render_command_dashboard(trade_log=None):
 
     st.markdown("---")
 
-    # ── 5b. ASSIGNMENT ENGINE ─────────────────────────────────────────────
-    st.markdown("---")
-    st.markdown("### 📋 Assignment Position Manager")
-    try:
-        from assignment_engine import (
-            get_assignment_store, compute_decision_score,
-            suggest_covered_call, suggest_short_put, log_assignment,
-            days_since_assignment, unrealized_pnl, risk_level, portfolio_structure)
 
-        a_store = get_assignment_store()
-        open_assignments = a_store.open_assignments()
+    # ── 5b. ASSIGNMENT LOG ──────────────────────────────────────────────────
+    st.info("📋 Assignment Log has moved — use the **Assignment Log** page in the sidebar.")
 
-        if open_assignments:
-            for evt in open_assignments:
-                score, decision, confidence = compute_decision_score(snap)
-                evt.decision_score = score
-                evt.decision = decision
-                evt.decision_confidence = confidence
-                a_store.save()
-
-                dec_color = ("#2e7d32" if decision == "HARVEST PREMIUM" else
-                            "#e65100" if decision == "HOLD / MONITOR"  else "#c62828")
-                upnl  = unrealized_pnl(evt, snap.uvxy)
-                days  = days_since_assignment(evt)
-                rlabel, rwarn, rcrisis = risk_level(snap.uvxy, evt.entry_price,
-                                                     evt.position_state)
-                upnl_color = "#2e7d32" if upnl >= 0 else "#c62828"
-
-                st.markdown(
-                    f"<div style='background:#1e1e1e;border:2px solid {dec_color};"
-                    f"border-radius:8px;padding:14px;margin-bottom:10px;'>"
-                    f"<div style='font-weight:700;font-size:15px;color:{dec_color};'>"
-                    f"{'📉' if evt.position_state=='SHORT' else '📈'} "
-                    f"{'SHORT' if evt.position_state=='SHORT' else 'LONG'} "
-                    f"{evt.symbol} — {abs(evt.shares):,} shares</div>"
-                    f"<div style='display:flex;gap:20px;margin-top:8px;flex-wrap:wrap;'>"
-                    f"<span style='color:#aaa;font-size:12px;'>Entry: <b style='color:white;'>${evt.entry_price:.2f}</b></span>"
-                    f"<span style='color:#aaa;font-size:12px;'>Current: <b style='color:white;'>${snap.uvxy:.2f}</b></span>"
-                    f"<span style='color:#aaa;font-size:12px;'>P&L: <b style='color:{upnl_color};'>${upnl:+,.0f}</b></span>"
-                    f"<span style='color:#aaa;font-size:12px;'>Exposure: <b style='color:white;'>${evt.total_exposure:,.0f}</b></span>"
-                    f"<span style='color:#aaa;font-size:12px;'>Days held: <b style='color:white;'>{days}</b></span>"
-                    f"<span style='color:#aaa;font-size:12px;'>Context: <b style='color:white;'>{evt.strategy_context}</b></span>"
-                    f"</div></div>", unsafe_allow_html=True)
-
-                ac1, ac2, ac3, ac4 = st.columns(4)
-                ac1.metric("Decision Score", f"{score:.0f}/100")
-                ac2.markdown(
-                    f"<div style='padding:8px;text-align:center;background:#1e1e1e;"
-                    f"border:2px solid {dec_color};border-radius:6px;'>"
-                    f"<div style='font-size:11px;color:#aaa;'>Decision</div>"
-                    f"<div style='font-size:13px;font-weight:700;color:{dec_color};'>"
-                    f"{decision}</div></div>", unsafe_allow_html=True)
-                ac3.metric("Confidence", confidence)
-                ac4.markdown(
-                    f"<div style='padding:8px;text-align:center;background:#1e1e1e;"
-                    f"border-radius:6px;'>"
-                    f"<div style='font-size:11px;color:#aaa;'>Risk</div>"
-                    f"<div style='font-size:13px;font-weight:700;'>{rlabel}</div>"
-                    f"</div>", unsafe_allow_html=True)
-
-                gauge_pos = max(2, min(97, score))
-                st.markdown(
-                    f"<div style='margin:10px 0 4px;'>"
-                    f"<div style='display:flex;justify-content:space-between;"
-                    f"font-size:10px;color:#aaa;margin-bottom:2px;'>"
-                    f"<span>◀ CLOSE</span><span>HOLD (40)</span>"
-                    f"<span>HARVEST (70) ▶</span></div>"
-                    f"<div style='background:linear-gradient(to right,#c62828 0%,"
-                    f"#c62828 40%,#e65100 40%,#e65100 70%,#2e7d32 70%,#2e7d32 100%);"
-                    f"height:14px;border-radius:6px;position:relative;'>"
-                    f"<div style='position:absolute;left:{gauge_pos}%;top:-5px;"
-                    f"transform:translateX(-50%);font-size:18px;color:white;'>●</div>"
-                    f"</div></div>", unsafe_allow_html=True)
-
-                rcolor = "#c62828" if "CRISIS" in rlabel else "#e65100" if "WARNING" in rlabel else "#2e7d32"
-                st.caption(f"Risk: {rlabel} | Warning: ${rwarn:.2f} | Crisis: ${rcrisis:.2f}")
-
-                if decision == "HARVEST PREMIUM":
-                    if evt.position_state == "SHORT":
-                        sugg = suggest_covered_call(evt.shares, snap.uvxy, snap)
-                        st.markdown("**💰 Covered Call Suggestion:**")
-                    else:
-                        sugg = suggest_short_put(evt.shares, snap.uvxy, snap)
-                        st.markdown("**💰 Short Put Suggestion:**")
-                    s1,s2,s3,s4 = st.columns(4)
-                    s1.metric("Contracts",   f"{sugg.contracts}")
-                    s2.metric("Strike",      f"${sugg.suggested_strike:.0f}")
-                    s3.metric("Expiry",      f"{sugg.expiration_dte}d — {sugg.expiration_date}")
-                    s4.metric("Est Premium", f"${sugg.est_premium_lo:,.0f}–${sugg.est_premium_hi:,.0f}")
-                    st.caption(sugg.rationale)
-                elif decision == "CLOSE POSITION":
-                    st.error("⚠️ Close assignment — volatility unfavorable for harvest")
-
-                # ── Position Sizing Risk Check ──────────────────────
-                st.markdown("---")
-                st.markdown("**📐 Position Sizing Risk Check**")
-                try:
-                    from assignment_engine import position_risk_check
-                    _acct = st.session_state.get("account_size", 250000.0)
-                    rc = position_risk_check(
-                        evt.shares, evt.entry_price, snap.uvxy, _acct, snap)
-
-                    # Header metrics
-                    rx1,rx2,rx3,rx4 = st.columns(4)
-                    rx1.metric("Exposure",      f"${rc['exposure']:,.0f}",
-                               f"{rc['exposure_pct']:.1f}% of account")
-                    rx2.metric("Unrealized P&L",
-                               f"${rc['unrealized_pnl']:+,.0f}")
-                    rx3.metric("Hard Stop",     f"${rc['stop_price']:.2f}",
-                               "20% max drawdown")
-                    rx4.markdown(
-                        f"<div style='padding:8px;text-align:center;"
-                        f"background:#1e1e1e;border-radius:6px;'>"
-                        f"<div style='font-size:10px;color:#aaa;'>Overall Risk</div>"
-                        f"<div style='font-size:15px;font-weight:700;'>"
-                        f"{rc['overall_risk']}</div></div>",
-                        unsafe_allow_html=True)
-
-                    # Trim recommendation
-                    if rc['trim_pct'] > 0:
-                        _trim_msg = (f"⚠️ **Trim Recommended: {rc['trim_pct']}%** — "
-                                    f"{rc['trim_reason']}  "
-                                    f"Cover **{rc['trim_shares']:,} shares** "
-                                    f"@ ${snap.uvxy:.2f} "
-                                    f"→ P&L: **${rc['trim_pnl']:+,.0f}** | "
-                                    f"Proceeds: ${rc['trim_value']:,.0f}")
-                        st.warning(_trim_msg)
-                    else:
-                        st.success(f"✅ Hold — {rc['trim_reason']}")
-
-                    # Stress test table
-                    with st.expander("📊 Stress Scenarios"):
-                        for label, s in rc['scenarios'].items():
-                            sc = ("#c62828" if "CRITICAL" in s['status'] else
-                                  "#e65100" if "WARNING"  in s['status'] else "#2e7d32")
-                            st.markdown(
-                                f"<div style='display:flex;justify-content:space-between;"
-                                f"padding:4px 8px;border-left:3px solid {sc};"
-                                f"margin:3px 0;font-size:12px;'>"
-                                f"<span>{label} → ${s['uvxy_price']}</span>"
-                                f"<span style='color:{sc};font-weight:700;'>"
-                                f"P&L: ${s['pnl']:+,.0f} "
-                                f"({s['pnl_pct']:.1f}% of account)</span>"
-                                f"<span>{s['status']}</span></div>",
-                                unsafe_allow_html=True)
-
-                    # Perplexity warnings for short UVXY
-                    if evt.position_state == "SHORT":
-                        with st.expander("⚠️ Short UVXY Risk Warnings"):
-                            st.markdown("""
-**Short UVXY is NOT a simple decay trade:**
-- UVXY can spike 50–300% in days during a volatility shock
-- Decay works *on average* over weeks — not guaranteed short-term
-- Holding through a spike requires margin your account may not have
-
-**Rules for this position:**
-1. Define max loss BEFORE it hits (hard stop above)
-2. Scale out on UVXY drops — don't wait for "full decay"
-3. Do NOT sell puts against short UVXY — adds exposure in wrong direction
-4. Only sell calls if protected by long calls at lower strikes
-5. Re-enter smaller after volatility resets to calm regime
-
-**Close conditions:**
-- UVXY closes above hard stop price → cover immediately
-- VIX spike resumes after pause (aftershock) → reduce 50%
-- Margin utilization > 40% of account → trim to safe size
-                            """)
-                except Exception as _re:
-                    st.warning(f"Risk check unavailable: {_re}")
-
-                # ── Worst Case Scenario Panel ────────────────────────
-                st.markdown("---")
-                st.markdown("**💀 Worst Case Scenario Analysis**")
-                try:
-                    from assignment_engine import worst_case_scenarios
-                    _acct_type = st.session_state.get("account_type", "MARGIN")
-                    _acct_size = st.session_state.get("account_size", 250000.0)
-                    wc = worst_case_scenarios(
-                        evt.shares, evt.entry_price, snap.uvxy,
-                        _acct_size, _acct_type)
-
-                    # Cash account critical warning
-                    if _acct_type == "CASH":
-                        st.error("🚨 **CASH ACCOUNT — NO MARGIN BUFFER** — "
-                                + wc['cash_warning'])
-
-                    # Key thresholds
-                    th1, th2, th3 = st.columns(3)
-                    th1.metric("Breakeven",    f"${wc['breakeven']:.2f}")
-                    th2.metric("10% Loss Level", f"${wc['max_safe']:.2f}",
-                               "Reduce here")
-                    th3.metric("30% Loss Level", f"${wc['margin_wipe']:.2f}",
-                               "Margin call / force close")
-
-                    # Current loss
-                    cl = wc['current_loss']
-                    cl_color = "#c62828" if cl < 0 else "#2e7d32"
-                    cl_pct   = round(abs(cl) / _acct_size * 100, 1)
-                    st.markdown(
-                        f"<div style='padding:8px 12px;background:#1e1e1e;"
-                        f"border-radius:4px;margin:6px 0;'>"
-                        f"Current P&L: <b style='color:{cl_color};'>"
-                        f"${cl:+,.0f} ({cl_pct:.1f}% of account)</b>"
-                        f"</div>", unsafe_allow_html=True)
-
-                    # Scenario table
-                    st.markdown("**Historical spike scenarios:**")
-                    for label, s in wc['scenarios'].items():
-                        sc = ("#c62828" if "DESTROYING" in s['status'] or
-                              "CRITICAL" in s['status'] else
-                              "#e65100" if "SERIOUS" in s['status'] or
-                              "SIGNIFICANT" in s['status'] else "#2e7d32")
-                        mc_tag = ""
-                        if s['force_close']:
-                            mc_tag = " 🚨 IB FORCE CLOSE"
-                        elif s['margin_call']:
-                            mc_tag = " ⚠️ MARGIN CALL"
-                        st.markdown(
-                            f"<div style='display:flex;justify-content:"
-                            f"space-between;align-items:center;"
-                            f"padding:6px 10px;border-left:4px solid {sc};"
-                            f"background:#1a1a1a;margin:3px 0;border-radius:2px;'>"
-                            f"<span style='font-size:12px;color:#ccc;'>"
-                            f"{label} → ${s['target_price']}</span>"
-                            f"<span style='font-size:12px;font-weight:700;"
-                            f"color:{sc};'>${s['pnl']:+,.0f} "
-                            f"({s['pnl_pct']:.1f}%){mc_tag}</span>"
-                            f"<span style='font-size:11px;'>{s['status']}</span>"
-                            f"</div>",
-                            unsafe_allow_html=True)
-
-                    # Action recommendation
-                    st.markdown("**📋 Recommended Actions:**")
-                    if _acct_type == "CASH":
-                        st.error("🚨 **IB Cash Account — Close position NOW** — "
-                                "Cash accounts have no margin buffer. "
-                                "IB will force-close at the worst moment. "
-                                "Take controlled loss now rather than forced loss later.")
-                    elif wc['current_loss'] < -(_acct_size * 0.05):
-                        st.warning(
-                            "⚠️ Loss exceeds 5% of account — consider trimming 50% "
-                            "to reduce exposure before spike continues")
-                    else:
-                        st.info(
-                            "Position within tolerable range. "
-                            f"Set hard stop at ${wc['max_safe']:.2f}. "
-                            "Review if UVXY approaches that level.")
-
-                except Exception as _we:
-                    st.warning(f"Worst case analysis unavailable: {_we}")
-
-                if st.button(f"✅ Mark Closed — {evt.assignment_id}",
-                            key=f"close_assign_{evt.assignment_id}"):
-                    a_store.update(evt.assignment_id, status="closed")
-                    st.success("Marked closed")
-                    st.rerun()
-        else:
-            st.info("No active assignments — use the form below to log one")
-
-        # Portfolio Structure
-        st.markdown("**🏗️ Portfolio Structure**")
-        layers = portfolio_structure(trade_log, open_assignments)
-        if layers:
-            for lname in ["Decay Engine","Tail Hedge","Income Layer","Long Exposure"]:
-                items = [l for l in layers if l["layer"]==lname]
-                if items:
-                    st.markdown(f"*{lname}*")
-                    for item in items:
-                        sc = "#2e7d32" if item["status"]=="ACTIVE" else "#e65100"
-                        st.markdown(
-                            f"<div style='padding:4px 12px;border-left:3px solid {sc};"
-                            f"margin:2px 0;font-size:12px;'>"
-                            f"<b>{item['type']}</b> — {item['detail']} "
-                            f"<span style='color:{sc};'>({item['status']})</span></div>",
-                            unsafe_allow_html=True)
-        else:
-            st.caption("No portfolio layers to display")
-
-        # Log new assignment
-        with st.expander("➕ Log New Assignment"):
-            c1, c2, c3 = st.columns(3)
-            a_shares = c1.number_input("Shares (neg=short)", value=-100, step=100,
-                                        key="assign_shares")
-            a_price  = c2.number_input("Entry Price", value=float(snap.uvxy),
-                                        step=0.01, key="assign_price")
-            a_ctx    = c3.text_input("Strategy Context", value="V4 Spike Trade",
-                                      key="assign_ctx")
-            if st.button("📋 Log Assignment", key="log_assign_btn"):
-                evt = log_assignment("UVXY", int(a_shares), a_price, a_ctx, snap)
-                st.success(f"✅ Logged {evt.assignment_id} — Decision: {evt.decision}")
-                st.rerun()
-
-    except Exception as _ae:
-        import traceback
-        st.warning(f"Assignment engine: {_ae}")
-        with st.expander("Error"):
-            st.code(traceback.format_exc())
-
-    # ── 5c. PREMIUM HARVEST ENGINE ───────────────────────────────────────
-    st.markdown("---")
-    st.markdown("### 🌾 Premium Harvest Engine")
-    try:
-        from premium_harvest_engine import generate_harvest_plan, StrikeSuggestion
-        from assignment_engine import get_assignment_store
-
-        # Get assigned shares
-        _a_store = get_assignment_store()
-        _open_assigns = _a_store.open_assignments()
-        _total_shares = sum(e.shares for e in _open_assigns)
-        _long_call_strike = 0.0
-        _long_call_contracts = 0
-
-        # Get long call hedge from real positions
-        if trade_log:
-            try:
-                _rp = trade_log.open_positions()
-                _rp = list(_rp.values()) if isinstance(_rp, dict) else (_rp or [])
-                for _pos in _rp:
-                    if hasattr(_pos, "long_strike") and _pos.long_strike:
-                        _long_call_strike    = float(_pos.long_strike)
-                        _long_call_contracts = getattr(_pos, "contracts", 1)
-                        break
-            except Exception:
-                pass
-
-        # DTE selector
-        _dte = st.select_slider("Target DTE", options=[7,10,14,21], value=14,
-                                key="harvest_dte")
-
-        plan = generate_harvest_plan(
-            snap, shares=_total_shares,
-            long_call_strike=_long_call_strike,
-            long_call_contracts=_long_call_contracts,
-            dte_target=_dte)
-
-        # Context header
-        pos_color = "#c62828" if plan.position_type=="SHORT_SHARES" else                     "#2e7d32" if plan.position_type=="LONG_SHARES" else "#888"
-        st.markdown(
-            f"<div style='background:#1e1e1e;border-left:4px solid {pos_color};"
-            f"border-radius:4px;padding:8px 14px;margin-bottom:10px;'>"
-            f"<b style='color:{pos_color};'>{plan.position_type.replace('_',' ')}</b>"
-            f" &nbsp;|&nbsp; "
-            f"<span style='color:#aaa;font-size:12px;'>{plan.strategy_note}</span>"
-            f"</div>", unsafe_allow_html=True)
-
-        def _render_suggestion(sugg: StrikeSuggestion):
-            rs_color = ("#2e7d32" if sugg.risk_score < 35 else
-                       "#e65100" if sugg.risk_score < 65 else "#c62828")
-            type_icon = "📞" if sugg.option_type=="CALL" else "📤"
-            st.markdown(
-                f"<div style='background:#1e1e1e;border:1px solid {rs_color};"
-                f"border-radius:6px;padding:12px;margin-bottom:8px;'>"
-                f"<div style='font-weight:700;font-size:14px;color:{rs_color};'>"
-                f"{type_icon} Sell {sugg.contracts}× UVXY "
-                f"${sugg.strike:.0f} {sugg.option_type} — {sugg.expiration_date} "
-                f"({sugg.dte}d)</div>"
-                f"<div style='color:#aaa;font-size:11px;margin-top:4px;'>"
-                f"{sugg.rationale}</div></div>",
-                unsafe_allow_html=True)
-            m1,m2,m3,m4,m5 = st.columns(5)
-            m1.metric("Strike",      f"${sugg.strike:.0f}")
-            m2.metric("Delta",       f"{sugg.delta:.3f}")
-            m3.metric("Credit",      f"${sugg.credit:.2f}/sh")
-            m4.metric("Income",      f"${sugg.income_total:,.0f}")
-            m5.markdown(
-                f"<div style='padding:6px;text-align:center;background:#1e1e1e;"
-                f"border-radius:4px;'><div style='font-size:10px;color:#aaa;'>Risk</div>"
-                f"<div style='font-size:13px;font-weight:700;color:{rs_color};'>"
-                f"{sugg.risk_label}<br><small>{sugg.risk_score}/100</small></div></div>",
-                unsafe_allow_html=True)
-
-            # Risk gauge
-            rg = max(2, min(97, sugg.risk_score))
-            st.markdown(
-                f"<div style='background:linear-gradient(to right,#2e7d32 0%,"
-                f"#2e7d32 35%,#e65100 35%,#e65100 65%,#c62828 65%,#c62828 100%);"
-                f"height:8px;border-radius:4px;position:relative;margin:4px 0 8px;'>"
-                f"<div style='position:absolute;left:{rg}%;top:-4px;"
-                f"transform:translateX(-50%);font-size:14px;color:white;'>●</div>"
-                f"</div>", unsafe_allow_html=True)
-
-            # Log Trade
-            lt1, lt2, lt3 = st.columns([2,2,1])
-            _fill = lt1.number_input(
-                "Fill Price", value=float(sugg.credit),
-                step=0.01, key=f"he_fill_{sugg.option_type}_{sugg.strike}")
-            _ct   = lt2.number_input(
-                "Contracts", value=sugg.contracts,
-                step=1, key=f"he_ct_{sugg.option_type}_{sugg.strike}")
-            if lt3.button("📋 Log", key=f"he_log_{sugg.option_type}_{sugg.strike}"):
-                try:
-                    from assignment_engine import get_assignment_store as _gas
-                    _gs = _gas()
-                    _oa = _gs.open_assignments()
-                    if _oa:
-                        _gs.update(_oa[0].assignment_id,
-                            covered_option_active=True,
-                            notes=(f"Harvest: sell {_ct}× ${sugg.strike:.0f} "
-                                  f"{sugg.option_type} exp {sugg.expiration_date} "
-                                  f"@ ${_fill:.2f} | income=${_ct*100*_fill:,.0f}"))
-                        st.success(f"✅ Logged: {_ct}× ${sugg.strike:.0f} "
-                                  f"{sugg.option_type} @ ${_fill:.2f}")
-                    else:
-                        st.info("No open assignment — trade noted")
-                    st.rerun()
-                except Exception as _le:
-                    st.error(f"Log failed: {_le}")
-
-        col_c, col_p = st.columns(2)
-        with col_c:
-            st.markdown("**📞 Call Suggestion**")
-            if plan.call_suggestion:
-                _render_suggestion(plan.call_suggestion)
-            else:
-                st.info("No call suggestion in current regime")
-        with col_p:
-            st.markdown("**📤 Put Suggestion**")
-            if plan.put_suggestion:
-                _render_suggestion(plan.put_suggestion)
-            else:
-                st.info("No put suggestion in current regime")
-
-        # ── Strangle Risk Warning ─────────────────────────────────────────
-        if (plan.call_suggestion and plan.put_suggestion
-                and plan.position_type == "SHORT_SHARES"):
-            st.markdown(
-                "<div style='background:#ffebee;border-left:5px solid #c62828;"
-                "border-radius:4px;padding:12px 16px;margin-top:8px;'>"
-                "<div style='font-weight:700;color:#c62828;font-size:14px;'>"
-                "🚫 IB Rejection Risk — Naked Call Against Short Shares</div>"
-                "<div style='color:#333;font-size:13px;margin-top:6px;'>"
-                "<b>IB will reject call sales against short UVXY shares.</b> "
-                "Short shares + short calls = naked call position — "
-                "requires Tier 3-4 options approval and very high margin.<br><br>"
-                "<b>What IB allows against short UVXY:</b><br>"
-                "✅ <b>Buy protective calls</b> — caps upside risk, reduces margin<br>"
-                "⚠️ <b>Sell puts</b> — allowed but adds redundant downside exposure<br>"
-                "✅ <b>Close short shares first</b>, then sell calls freely<br><br>"
-                "<b>Recommended action:</b><br>"
-                "1. Buy 7× protective calls at $63 (cap your upside risk)<br>"
-                "2. Or close/trim short shares, then re-enter as diagonal spread<br>"
-                "3. Do not attempt to sell calls against short shares at IB"
-                "</div></div>",
-                unsafe_allow_html=True)
-        elif (plan.call_suggestion and plan.put_suggestion
-                and plan.position_type == "LONG_SHARES"):
-            st.markdown(
-                "<div style='background:#e8f5e9;border-left:5px solid #2e7d32;"
-                "border-radius:4px;padding:12px 16px;margin-top:8px;'>"
-                "<div style='font-weight:700;color:#2e7d32;font-size:14px;'>"
-                "✅ Covered Strangle — Long Shares</div>"
-                "<div style='color:#333;font-size:13px;margin-top:6px;'>"
-                "Long shares + sell calls = covered call ✅<br>"
-                "Long shares + sell puts = cash-secured put ✅<br>"
-                "Both sides together = covered strangle — "
-                "acceptable if put strike is well below current price "
-                "and you are willing to add shares at that level."
-                "</div></div>",
-                unsafe_allow_html=True)
-
-        if _long_call_strike:
-            st.caption(f"🛡️ Long call hedge detected: ${_long_call_strike:.0f} "
-                      f"({_long_call_contracts} contracts) — call sales are protected")
-
-    except Exception as _he:
-        import traceback
-        st.warning(f"Premium Harvest Engine: {_he}")
-        with st.expander("Error"):
-            st.code(traceback.format_exc())
+    # ── 5c. PREMIUM HARVEST ───────────────────────────────────────────────
+    st.info("🌾 Premium Harvest suggestions have moved — use the **Assignment Log** page in the sidebar.")
 
     # ── 6. UVXY DECAY FORECAST ────────────────────────────────────────────
     st.markdown("### 📉 UVXY Decay Forecast (5-day)")
@@ -6724,7 +6466,7 @@ def render_command_dashboard(trade_log=None):
             _etitle  = _ec1.text_input("Title", key="ec_title",
                                         placeholder="e.g. Tariff announcement")
             _edate   = _ec2.date_input("Date", key="ec_date",
-                                        value=date.today()+_td(days=1))
+                                        value=__import__("datetime").date.today()+_td(days=1))
             _etime   = _ec3.text_input("Time ET", key="ec_time", value="TBD")
             _ec4,_ec5 = st.columns(2)
             _eimpact = _ec4.selectbox("VIX Impact",
@@ -6878,11 +6620,27 @@ def main():
         ["MARGIN", "CASH"],
         index=0 if st.session_state["account_type"] == "MARGIN" else 1,
         key="global_account_type",
-        help="MARGIN = Fidelity Live | CASH = IB Paper")
+        help="Select account above to switch between Fidelity and IB")
     st.sidebar.caption(
-        "💵 Fidelity = MARGIN | 📋 IB Paper = CASH")
+        "💵 Active account: " + st.session_state.get("real_account", "fidelity").upper())
 
     # ── Global Generate Signal Batch button ──
+    # ── Alert Email button ──────────────────────────────────────────────────
+    if st.sidebar.button("🚨 Send Alert Email", use_container_width=True,
+                         key="sidebar_alert_email",
+                         help="Send action alert email now"):
+        with st.sidebar:
+            with st.spinner("Sending alert…"):
+                try:
+                    from alert_engine import send_alert
+                    ok = send_alert(dry_run=False)
+                    if ok:
+                        st.sidebar.success("✅ Alert sent!")
+                    else:
+                        st.sidebar.error("❌ Send failed — check logs")
+                except Exception as _ae:
+                    st.sidebar.error(f"❌ {_ae}")
+
     if st.sidebar.button("🔄 Generate Signal Batch", use_container_width=True,
                          key="sidebar_generate_batch",
                          help="Regenerate signals from live market data and freeze"):
@@ -6950,8 +6708,8 @@ def main():
 
                     # Real variant states (using real trade log)
                     from real_trade_log import get_real_trade_log, reset_real_trade_log_cache, fetch_real_long_prices
-                    reset_real_trade_log_cache()
-                    rtl_live = get_real_trade_log()
+                    reset_real_trade_log_cache(st.session_state.get("real_account", "fidelity"))
+                    rtl_live = get_real_trade_log(st.session_state.get("real_account", "fidelity"))
                     real_variant_states = classify_variants(batch, rtl_live, regime_state.regime)
 
                     def _do_send(html, subject):
@@ -6967,8 +6725,8 @@ def main():
                     # Real email first
                     from real_trade_log import get_real_trade_log, reset_real_trade_log_cache
                     from real_trade_log import fetch_real_long_prices
-                    reset_real_trade_log_cache()
-                    rtl_live = get_real_trade_log()
+                    reset_real_trade_log_cache(st.session_state.get("real_account", "fidelity"))
+                    rtl_live = get_real_trade_log(st.session_state.get("real_account", "fidelity"))
                     fetch_real_long_prices(rtl_live)
                     real_html = build_real_capital_email(batch, real_variant_states)
                     if real_html:
@@ -6995,7 +6753,7 @@ def main():
 
     if "Real Trading" in mode:
         from real_trade_log import get_real_trade_log
-        rtl = get_real_trade_log()
+        rtl = get_real_trade_log(st.session_state.get("real_account", "fidelity"))
         # ── Real Trading sidebar
         st.sidebar.markdown("## 💵 Real Trading")
         page = st.sidebar.radio(
@@ -7008,6 +6766,7 @@ def main():
                 "Post-Mortem Review",
                 "Variant Analytics",
                 "System Health",
+                "📋 Assignment Log",
             ],
             index=0,
             key="real_page",
@@ -7039,6 +6798,8 @@ def main():
             render_variant_analytics(trade_log=rtl)
         elif page == "System Health":
             render_system_health(trade_log=rtl)
+        elif page == "📋 Assignment Log":
+            render_assignment_log(mode="real")
 
     elif "Research" in mode:
         # Research mode navigation
@@ -7123,6 +6884,7 @@ def main():
                 "Post-Mortem Review",
                 "Variant Analytics",
                 "System Health",
+                "📋 Assignment Log",
             ],
             index=0,
             key="paper_page",
@@ -7149,6 +6911,675 @@ def main():
             render_paper_trade_log(trade_log=_ptl)
         elif page == "System Health":
             render_system_health(trade_log=_ptl)
+        elif page == "📋 Assignment Log":
+            render_assignment_log(mode="paper")
+
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ASSIGNMENT LOG  —  Real & Paper
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def render_assignment_log(mode: str = "real"):
+    import json, uuid, pandas as pd
+    from pathlib import Path
+    from datetime import date, datetime
+
+    label     = "Real" if mode == "real" else "Paper"
+    STORE_DIR = Path.home() / ".vix_suite"
+    STORE_DIR.mkdir(parents=True, exist_ok=True)
+    ASGN_FILE = STORE_DIR / f"assignments_{mode}.json"
+    HARV_FILE = STORE_DIR / f"harvest_log_{mode}.json"
+
+    rerun_key = f"asgn_needs_rerun_{mode}"
+    if st.session_state.get(rerun_key):
+        st.session_state[rerun_key] = False
+        st.rerun()
+
+    # ── helpers ───────────────────────────────────────────────────────────────
+    def _load(f):
+        if not f.exists(): return []
+        try: return json.loads(f.read_text())
+        except: return []
+
+    def _save(f, recs):
+        try:
+            from backup_manager import get_backup_manager
+            get_backup_manager().backup_now(reason="assignment_save")
+        except: pass
+        f.write_text(json.dumps(recs, indent=2))
+
+    # ── fetch live UVXY price ─────────────────────────────────────────────────
+    uvxy_price = 20.0
+    try:
+        from vol_triangle import capture_snapshot
+        _snap = capture_snapshot(force=False)
+        uvxy_price = float(_snap.uvxy)
+        snap_ok = True
+    except:
+        _snap = None
+        snap_ok = False
+
+    # ── load data ─────────────────────────────────────────────────────────────
+    asgn_recs  = _load(ASGN_FILE)
+    harv_recs  = _load(HARV_FILE)
+    open_asgn  = [r for r in asgn_recs  if r.get("status") == "open"]
+    closed_asgn= [r for r in asgn_recs  if r.get("status") == "closed"]
+    open_harv  = [r for r in harv_recs  if r.get("status") == "open"]
+    closed_harv= [r for r in harv_recs  if r.get("status") == "closed"]
+
+    total_shares   = sum(r["shares"] for r in open_asgn)
+    notional       = sum(abs(r["shares"]) * r["entry_price"] for r in open_asgn)
+    total_upnl     = sum(r["shares"] * (uvxy_price - r["entry_price"]) for r in open_asgn)
+    total_realized = sum(r.get("realized_pnl", 0) for r in closed_asgn)
+    harv_open_income = sum(r["credit"] * r["contracts"] * 100 for r in open_harv)
+    harv_realized    = sum(r.get("realized_pnl", 0) for r in closed_harv)
+
+    # ── page header ───────────────────────────────────────────────────────────
+    st.title(f"📋 Assignment Log — {label} Trading")
+    uvxy_col, _ = st.columns([1, 3])
+    with uvxy_col:
+        uvxy_price = st.number_input(
+            "UVXY price", min_value=0.01,
+            value=round(uvxy_price, 2), step=0.01, format="%.2f",
+            key=f"asgn_uvxy_{mode}",
+            help="Auto-fetched from vol snapshot. Override if needed."
+        )
+        if snap_ok:
+            st.caption(f"✅ Auto-fetched from live snapshot")
+        else:
+            st.caption("⚠️ Could not fetch live price — enter manually")
+
+    # ── KPI row ───────────────────────────────────────────────────────────────
+    k1,k2,k3,k4,k5,k6 = st.columns(6)
+    k1.metric("Open Assignments", len(open_asgn))
+    k2.metric("Net Shares", f"{total_shares:+,d}")
+    k3.metric("Notional", f"${notional:,.0f}")
+    k4.metric("Shares P&L", f"${total_upnl:+,.0f}",
+              delta_color="normal" if total_upnl >= 0 else "inverse")
+    k5.metric("Options Income (open)", f"${harv_open_income:+,.0f}")
+    k6.metric("All Realized P&L", f"${total_realized+harv_realized:+,.0f}")
+
+    st.markdown("---")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # TAB STRUCTURE
+    # ══════════════════════════════════════════════════════════════════════════
+    tab_asgn, tab_harv, tab_add = st.tabs([
+        f"📊 Assignments ({len(open_asgn)} open)",
+        f"🌾 Options Sold ({len(open_harv)} open)",
+        "➕ Add New",
+    ])
+
+    # ══════════════════════════════
+    # TAB 1: ASSIGNMENTS
+    # ══════════════════════════════
+    with tab_asgn:
+        st.markdown("#### 🟢 Open Assignments")
+        if not open_asgn:
+            st.info(f"No open {label.lower()} assignments.")
+        else:
+            # ── Spreadsheet editor ────────────────────────────────────────────
+            df_open = pd.DataFrame([{
+                "id":       r["id"],
+                "Date":     r.get("date",""),
+                "Shares":   r["shares"],
+                "Entry $":  r["entry_price"],
+                "Strategy": r.get("strategy_context",""),
+                "Notes":    r.get("notes",""),
+                "Unreal P&L": round(r["shares"]*(uvxy_price - r["entry_price"]),0),
+            } for r in open_asgn])
+
+            edited = st.data_editor(
+                df_open,
+                column_config={
+                    "id":       st.column_config.TextColumn("ID", disabled=True, width="small"),
+                    "Date":     st.column_config.TextColumn("Date"),
+                    "Shares":   st.column_config.NumberColumn("Shares", step=100),
+                    "Entry $":  st.column_config.NumberColumn("Entry $", format="%.3f", step=0.001),
+                    "Strategy": st.column_config.SelectboxColumn("Strategy", options=[
+                        "V1 Income Harvester","V2 Mean Reversion","V3 Shock Absorber",
+                        "V4 Spike Trade","V5 Regime Allocator","Manual / Other"]),
+                    "Notes":    st.column_config.TextColumn("Notes"),
+                    "Unreal P&L": st.column_config.NumberColumn("Unreal P&L $", disabled=True, format="$%.0f"),
+                },
+                use_container_width=True,
+                hide_index=True,
+                num_rows="fixed",
+                key=f"asgn_open_editor_{mode}",
+            )
+
+            sc1, sc2 = st.columns(2)
+            with sc1:
+                if st.button("💾 Save Edits", key=f"asgn_save_{mode}", type="primary"):
+                    all_recs = _load(ASGN_FILE)
+                    for _, row in edited.iterrows():
+                        for r in all_recs:
+                            if r["id"] == row["id"]:
+                                r["date"]             = str(row["Date"])
+                                r["shares"]           = int(row["Shares"])
+                                r["entry_price"]      = float(row["Entry $"])
+                                r["strategy_context"] = str(row["Strategy"])
+                                r["notes"]            = str(row["Notes"])
+                    _save(ASGN_FILE, all_recs)
+                    st.success("✅ Saved")
+                    st.session_state[rerun_key] = True
+
+            with sc2:
+                # Close selector
+                close_opts = [f"#{r['id'][:8]} · {r.get('strategy_context','')} · {r['shares']:+,d} shares"
+                              for r in open_asgn]
+                sel_close = st.selectbox("Close position", ["— select —"] + close_opts,
+                                         key=f"asgn_close_sel_{mode}")
+                if sel_close != "— select —":
+                    idx = close_opts.index(sel_close)
+                    rec = open_asgn[idx]
+                    cc1, cc2 = st.columns(2)
+                    with cc1:
+                        exit_px = st.number_input("Exit price", value=uvxy_price,
+                                                   step=0.001, format="%.3f",
+                                                   key=f"asgn_exit_px_{mode}_{rec['id']}")
+                    with cc2:
+                        est_pnl = int(rec["shares"]) * (exit_px - rec["entry_price"])
+                        st.metric("Est P&L", f"${est_pnl:+,.0f}")
+                    if st.button("🔒 Confirm Close", type="primary",
+                                 key=f"asgn_confirm_close_{mode}_{rec['id']}"):
+                        all_recs = _load(ASGN_FILE)
+                        for r in all_recs:
+                            if r["id"] == rec["id"]:
+                                r["status"]       = "closed"
+                                r["exit_price"]   = float(exit_px)
+                                r["exit_date"]    = date.today().isoformat()
+                                r["realized_pnl"] = est_pnl
+                        _save(ASGN_FILE, all_recs)
+                        st.success(f"Closed. Realized: ${est_pnl:+,.0f}")
+                        st.session_state[rerun_key] = True
+
+            # Delete row
+            # Close assignment with P&L writeback to position
+            all_recs = _load(ASGN_FILE) if "all_recs" not in dir() else all_recs
+            open_asgns = [r for r in all_recs if r.get("status") == "open"]
+            if open_asgns:
+                st.markdown("#### 💰 Close Assignment (Buy Back Shares)")
+                for asgn in open_asgns:
+                    pid = asgn.get("position_id", "")
+                    shares = abs(int(asgn.get("shares", 0)))
+                    entry_p = float(asgn.get("entry_price", 0))
+                    with st.expander(
+                        f"{'['+pid[:12]+'] ' if pid else ''}"
+                        f"{asgn.get('strategy_context','')} | "
+                        f"{shares} shares @ ${entry_p:.3f} | "
+                        f"{asgn.get('date','')}",
+                        expanded=True,
+                    ):
+                        xc1, xc2 = st.columns(2)
+                        exit_p = xc1.number_input(
+                            "Buyback Price",
+                            value=float(uvxy_price),
+                            step=0.01,
+                            key=f"asgn_exit_{asgn['id']}",
+                        )
+                        exit_dt = xc2.date_input(
+                            "Close Date",
+                            value=__import__("datetime").date.today(),
+                            key=f"asgn_edt_{asgn['id']}",
+                        )
+                        direction = "SHORT" if int(asgn.get("shares", 0)) < 0 else "LONG"
+                        if direction == "SHORT":
+                            pnl = (entry_p - exit_p) * shares
+                        else:
+                            pnl = (exit_p - entry_p) * shares
+                        pnl_color = "green" if pnl >= 0 else "red"
+                        st.markdown(
+                            f'Est. P&L: <span style="color:{pnl_color};font-weight:700;">'
+                            f'${pnl:+,.2f}</span>',
+                            unsafe_allow_html=True,
+                        )
+                        st.caption("ℹ️ Close immediately — UVXY decays daily, holding assignments is costly.")
+                        if st.button(f"✅ Close Assignment", key=f"asgn_close_{asgn['id']}"):
+                            asgn["status"]       = "closed"
+                            asgn["exit_price"]   = float(exit_p)
+                            asgn["exit_date"]    = exit_dt.isoformat()
+                            asgn["realized_pnl"] = round(pnl, 2)
+                            _save(ASGN_FILE, all_recs)
+                            # Write P&L back to linked position if available
+                            if pid:
+                                try:
+                                    from trade_log import get_trade_log as _gtl
+                                    _tl = _gtl()
+                                    _pos = _tl.diagonal_positions.get(pid)
+                                    if _pos:
+                                        _pos.notes = (_pos.notes or "") + (
+                                            f" | Assignment closed {exit_dt}: "
+                                            f"${pnl:+,.2f}"
+                                        )
+                                        _tl._save()
+                                except Exception:
+                                    pass
+                            st.success(f"✅ Assignment closed | P&L ${pnl:+,.2f}")
+                            st.rerun()
+
+            with st.expander("🗑️ Delete an assignment"):
+                del_opts = [f"#{r['id'][:8]} · {r['shares']:+,d} · {r.get('date','')}"
+                            for r in open_asgn]
+                sel_del = st.selectbox("Select to delete", ["— select —"] + del_opts,
+                                        key=f"asgn_del_sel_{mode}")
+                if sel_del != "— select —":
+                    idx = del_opts.index(sel_del)
+                    rec = open_asgn[idx]
+                    st.warning(f"Delete #{rec['id'][:8]}? This cannot be undone.")
+                    if st.button("Confirm Delete", type="primary",
+                                 key=f"asgn_del_confirm_{mode}_{rec['id']}"):
+                        try:
+                            from backup_manager import get_backup_manager
+                            get_backup_manager().backup_now(reason="before_delete")
+                        except: pass
+                        all_recs = _load(ASGN_FILE)
+                        _save(ASGN_FILE, [r for r in all_recs if r["id"] != rec["id"]])
+                        st.session_state[rerun_key] = True
+                        st.rerun()
+
+        # ── Closed assignments ────────────────────────────────────────────────
+        st.markdown("#### ⚫ Closed Assignments")
+        if not closed_asgn:
+            st.info("No closed assignments yet.")
+        else:
+            df_closed = pd.DataFrame([{
+                "id":       r["id"],
+                "Date":     r.get("date",""),
+                "Exit":     r.get("exit_date",""),
+                "Shares":   r["shares"],
+                "Entry $":  r["entry_price"],
+                "Exit $":   r.get("exit_price", 0.0),
+                "P&L $":    r.get("realized_pnl", 0.0),
+                "Strategy": r.get("strategy_context",""),
+                "Notes":    r.get("notes",""),
+            } for r in sorted(closed_asgn, key=lambda x: x.get("exit_date",""), reverse=True)])
+
+            edited_c = st.data_editor(
+                df_closed,
+                column_config={
+                    "id":      st.column_config.TextColumn("ID", disabled=True, width="small"),
+                    "Date":    st.column_config.TextColumn("Date"),
+                    "Exit":    st.column_config.TextColumn("Exit"),
+                    "Shares":  st.column_config.NumberColumn("Shares", disabled=True),
+                    "Entry $": st.column_config.NumberColumn("Entry $", format="%.3f"),
+                    "Exit $":  st.column_config.NumberColumn("Exit $",  format="%.3f"),
+                    "P&L $":   st.column_config.NumberColumn("P&L $", disabled=True, format="$%.0f"),
+                    "Strategy":st.column_config.TextColumn("Strategy"),
+                    "Notes":   st.column_config.TextColumn("Notes"),
+                },
+                use_container_width=True,
+                hide_index=True,
+                num_rows="fixed",
+                key=f"asgn_closed_editor_{mode}",
+            )
+
+            cc1, cc2 = st.columns(2)
+            with cc1:
+                if st.button("💾 Save Closed Edits", key=f"asgn_csave_{mode}"):
+                    all_recs = _load(ASGN_FILE)
+                    for _, row in edited_c.iterrows():
+                        for r in all_recs:
+                            if r["id"] == row["id"]:
+                                r["entry_price"]  = float(row["Entry $"])
+                                r["exit_price"]   = float(row["Exit $"])
+                                r["exit_date"]    = str(row["Exit"])
+                                r["notes"]        = str(row["Notes"])
+                                r["realized_pnl"] = int(r["shares"]) * (float(row["Exit $"]) - float(row["Entry $"]))
+                    _save(ASGN_FILE, all_recs)
+                    st.success("✅ Saved")
+                    st.session_state[rerun_key] = True
+
+            with cc2:
+                with st.expander("🗑️ Delete closed record"):
+                    del_c_opts = [f"#{r['id'][:8]} · {r.get('exit_date','')} · ${r.get('realized_pnl',0):+,.0f}"
+                                  for r in closed_asgn]
+                    sel_dc = st.selectbox("Select", ["— select —"] + del_c_opts,
+                                           key=f"asgn_cdel_sel_{mode}")
+                    if sel_dc != "— select —":
+                        idx = del_c_opts.index(sel_dc)
+                        rec = closed_asgn[idx]
+                        if st.button("Confirm Delete", type="primary",
+                                     key=f"asgn_cdel_confirm_{mode}_{rec['id']}"):
+                            try:
+                                from backup_manager import get_backup_manager
+                                get_backup_manager().backup_now(reason="before_delete")
+                            except: pass
+                            all_recs = _load(ASGN_FILE)
+                            _save(ASGN_FILE, [r for r in all_recs if r["id"] != rec["id"]])
+                            st.session_state[rerun_key] = True
+                            st.rerun()
+
+    # ══════════════════════════════
+    # TAB 2: OPTIONS SOLD (HARVEST LOG)
+    # ══════════════════════════════
+    with tab_harv:
+        # ── Harvest suggestions ───────────────────────────────────────────────
+        if snap_ok and _snap:
+            st.markdown("### 🌾 Premium Harvest Suggestions")
+            st.caption("Generated from live vol snapshot against your current share position.")
+            try:
+                from premium_harvest_engine import generate_harvest_plan
+                dte_target = st.slider("Target DTE", min_value=5, max_value=45,
+                                        value=14, step=1, key=f"harvest_dte_{mode}")
+                plan = generate_harvest_plan(_snap, shares=total_shares,
+                                             dte_target=dte_target)
+                st.info(f"**{plan.position_type}** · {total_shares:+,d} shares · {plan.strategy_note}")
+
+                hc1, hc2 = st.columns(2)
+                def _sugg_card(col, sugg, label):
+                    with col:
+                        st.markdown(f"#### {label}")
+                        if sugg:
+                            st.markdown(f"""
+                            <div style="background:#1e293b;border-radius:10px;
+                                 padding:14px 18px;border:1px solid #334155;">
+                                <div style="font-size:1.05rem;font-weight:700;color:#f1f5f9;">
+                                    Sell {sugg.strike:.0f}{sugg.option_type[0]}
+                                    · {sugg.expiration_date} · {sugg.dte}d
+                                </div>
+                                <div style="display:grid;grid-template-columns:repeat(3,1fr);
+                                     gap:8px;margin-top:10px;font-size:0.82rem;color:#94a3b8;">
+                                    <div><div style="color:#64748b;font-size:0.68rem">CREDIT/SHR</div>${sugg.credit:.2f}</div>
+                                    <div><div style="color:#64748b;font-size:0.68rem">TOTAL</div>${sugg.income_total:,.0f}</div>
+                                    <div><div style="color:#64748b;font-size:0.68rem">CONTRACTS</div>{sugg.contracts}</div>
+                                    <div><div style="color:#64748b;font-size:0.68rem">DELTA</div>{sugg.delta:.3f}</div>
+                                    <div><div style="color:#64748b;font-size:0.68rem">RISK</div>{sugg.risk_label}</div>
+                                    <div><div style="color:#64748b;font-size:0.68rem">HEDGED</div>{"✅" if sugg.has_hedge else "❌"}</div>
+                                </div>
+                                <div style="margin-top:8px;font-size:0.73rem;color:#64748b;">{sugg.rationale}</div>
+                            </div>""", unsafe_allow_html=True)
+                        else:
+                            st.info("No suggestion for current regime.")
+
+                _sugg_card(hc1, plan.call_suggestion, "📞 Call Suggestion")
+                _sugg_card(hc2, plan.put_suggestion,  "🫷 Put Suggestion")
+            except Exception as _he:
+                st.warning(f"Harvest engine error: {_he}")
+        else:
+            st.info("Live vol snapshot unavailable — suggestions require market data.")
+
+        st.markdown("---")
+
+        # ── Open options log — spreadsheet editor ─────────────────────────────
+        st.markdown("### 📝 Open Options Sold")
+        if not open_harv:
+            st.info("No open options logged yet. Use the form below to add one.")
+        else:
+            df_harv = pd.DataFrame([{
+                "id":       h["id"],
+                "Type":     h["option_type"],
+                "Strike":   h["strike"],
+                "Expiry":   h["expiry"],
+                "Credit":   h["credit"],
+                "Qty":      h["contracts"],
+                "Max Income":round(h["credit"]*h["contracts"]*100, 0),
+                "Notes":    h.get("notes",""),
+            } for h in open_harv])
+
+            edited_h = st.data_editor(
+                df_harv,
+                column_config={
+                    "id":         st.column_config.TextColumn("ID", disabled=True, width="small"),
+                    "Type":       st.column_config.SelectboxColumn("Type", options=["PUT","CALL"]),
+                    "Strike":     st.column_config.NumberColumn("Strike", format="%.1f", step=0.5),
+                    "Expiry":     st.column_config.TextColumn("Expiry"),
+                    "Credit":     st.column_config.NumberColumn("Credit", format="%.3f", step=0.01),
+                    "Qty":        st.column_config.NumberColumn("Contracts", step=1),
+                    "Max Income": st.column_config.NumberColumn("Max Income $", disabled=True, format="$%.0f"),
+                    "Notes":      st.column_config.TextColumn("Notes"),
+                },
+                use_container_width=True,
+                hide_index=True,
+                num_rows="fixed",
+                key=f"harv_open_editor_{mode}",
+            )
+
+            hb1, hb2, hb3 = st.columns(3)
+            with hb1:
+                if st.button("💾 Save Edits", key=f"harv_save_{mode}", type="primary"):
+                    all_h = _load(HARV_FILE)
+                    for _, row in edited_h.iterrows():
+                        for h in all_h:
+                            if h["id"] == row["id"]:
+                                h["option_type"] = str(row["Type"])
+                                h["strike"]      = float(row["Strike"])
+                                h["expiry"]      = str(row["Expiry"])
+                                h["credit"]      = float(row["Credit"])
+                                h["contracts"]   = int(row["Qty"])
+                                h["notes"]       = str(row["Notes"])
+                    _save(HARV_FILE, all_h)
+                    st.success("✅ Saved")
+                    st.session_state[rerun_key] = True
+
+            with hb2:
+                # Buy to close
+                btc_opts = [f"#{h['id'][:8]} · {h['option_type']} {h['strike']} · {h['expiry']}"
+                            for h in open_harv]
+                sel_btc = st.selectbox("Buy to close", ["— select —"] + btc_opts,
+                                        key=f"harv_btc_sel_{mode}")
+                if sel_btc != "— select —":
+                    idx = btc_opts.index(sel_btc)
+                    h = open_harv[idx]
+                    btc_px = st.number_input("Buy-to-close price",
+                                              value=0.0, step=0.01, format="%.2f",
+                                              key=f"harv_btc_px_{mode}_{h['id']}")
+                    realized = round((h["credit"] - btc_px) * h["contracts"] * 100, 0)
+                    st.metric("Realized P&L", f"${realized:+,.0f}")
+                    if st.button("✅ Close Option", type="primary",
+                                 key=f"harv_btc_confirm_{mode}_{h['id']}"):
+                        all_h = _load(HARV_FILE)
+                        for hh in all_h:
+                            if hh["id"] == h["id"]:
+                                hh["status"]       = "closed"
+                                hh["close_price"]  = float(btc_px)
+                                hh["realized_pnl"] = realized
+                        _save(HARV_FILE, all_h)
+                        st.success(f"Closed. Realized: ${realized:+,.0f}")
+                        st.session_state[rerun_key] = True
+
+            with hb3:
+                with st.expander("🗑️ Delete"):
+                    del_h_opts = [f"#{h['id'][:8]} · {h['option_type']} {h['strike']}"
+                                  for h in open_harv]
+                    sel_dh = st.selectbox("Select", ["— select —"] + del_h_opts,
+                                           key=f"harv_del_sel_{mode}")
+                    if sel_dh != "— select —":
+                        idx = del_h_opts.index(sel_dh)
+                        h = open_harv[idx]
+                        if st.button("Confirm Delete", type="primary",
+                                     key=f"harv_del_confirm_{mode}_{h['id']}"):
+                            try:
+                                from backup_manager import get_backup_manager
+                                get_backup_manager().backup_now(reason="before_delete")
+                            except: pass
+                            all_h = _load(HARV_FILE)
+                            _save(HARV_FILE, [hh for hh in all_h if hh["id"] != h["id"]])
+                            st.session_state[rerun_key] = True
+                            st.rerun()
+
+        # ── Closed options — spreadsheet ──────────────────────────────────────
+        if closed_harv:
+            st.markdown("### ⚫ Closed Options")
+            df_ch = pd.DataFrame([{
+                "id":      h["id"],
+                "Type":    h["option_type"],
+                "Strike":  h["strike"],
+                "Expiry":  h["expiry"],
+                "Credit":  h["credit"],
+                "Close $": h.get("close_price", 0.0),
+                "Qty":     h["contracts"],
+                "P&L $":   h.get("realized_pnl", 0.0),
+                "Notes":   h.get("notes",""),
+            } for h in sorted(closed_harv,
+                               key=lambda x: x.get("expiry",""), reverse=True)])
+
+            edited_ch = st.data_editor(
+                df_ch,
+                column_config={
+                    "id":      st.column_config.TextColumn("ID", disabled=True, width="small"),
+                    "Type":    st.column_config.TextColumn("Type", disabled=True),
+                    "Strike":  st.column_config.NumberColumn("Strike", disabled=True),
+                    "Expiry":  st.column_config.TextColumn("Expiry"),
+                    "Credit":  st.column_config.NumberColumn("Credit", format="%.3f"),
+                    "Close $": st.column_config.NumberColumn("Close $", format="%.3f"),
+                    "Qty":     st.column_config.NumberColumn("Contracts", disabled=True),
+                    "P&L $":   st.column_config.NumberColumn("P&L $", disabled=True, format="$%.0f"),
+                    "Notes":   st.column_config.TextColumn("Notes"),
+                },
+                use_container_width=True,
+                hide_index=True,
+                num_rows="fixed",
+                key=f"harv_closed_editor_{mode}",
+            )
+
+            if st.button("💾 Save Closed Edits", key=f"harv_csave_{mode}"):
+                all_h = _load(HARV_FILE)
+                for _, row in edited_ch.iterrows():
+                    for h in all_h:
+                        if h["id"] == row["id"]:
+                            h["credit"]      = float(row["Credit"])
+                            h["close_price"] = float(row["Close $"])
+                            h["expiry"]      = str(row["Expiry"])
+                            h["notes"]       = str(row["Notes"])
+                            h["realized_pnl"]= round(
+                                (h["credit"] - h["close_price"]) * h["contracts"] * 100, 0)
+                _save(HARV_FILE, all_h)
+                st.success("✅ Saved")
+                st.session_state[rerun_key] = True
+
+        # ── Log new option sold ───────────────────────────────────────────────
+        st.markdown("### ➕ Log Option Sold")
+        with st.form(f"hadd_{mode}"):
+            hfa1, hfa2 = st.columns(2)
+            with hfa1:
+                hf_type   = st.selectbox("Type", ["PUT","CALL"], key=f"ha_t_{mode}")
+                hf_strike = st.number_input("Strike",
+                    value=float(round(uvxy_price * 0.90, 0)),
+                    step=0.5, key=f"ha_s_{mode}")
+                hf_credit = st.number_input("Credit received",
+                    value=0.50, step=0.01, format="%.3f", key=f"ha_c_{mode}")
+            with hfa2:
+                hf_exp  = st.date_input("Expiry", key=f"ha_e_{mode}")
+                hf_qty  = st.number_input("Contracts",
+                    min_value=1,
+                    value=max(1, abs(total_shares) // 100),
+                    step=1, key=f"ha_q_{mode}")
+                hf_notes= st.text_area("Notes", height=68, key=f"ha_n_{mode}")
+            total_income = round(float(hf_credit) * int(hf_qty) * 100, 0)
+            st.info(f"{hf_type} {hf_strike:.0f} · {int(hf_qty)} contracts · "
+                    f"Total income: **${total_income:,.0f}**")
+            if st.form_submit_button("✅ Log Option Sold",
+                                     type="primary", use_container_width=True):
+                all_h = _load(HARV_FILE)
+                all_h.append({
+                    "id":           str(uuid.uuid4()),
+                    "option_type":  hf_type,
+                    "strike":       float(hf_strike),
+                    "expiry":       hf_exp.isoformat(),
+                    "credit":       float(hf_credit),
+                    "contracts":    int(hf_qty),
+                    "status":       "open",
+                    "close_price":  0.0,
+                    "realized_pnl": 0.0,
+                    "notes":        hf_notes,
+                    "created_at":   datetime.now().isoformat(),
+                })
+                _save(HARV_FILE, all_h)
+                st.session_state[rerun_key] = True
+                st.success(f"✅ Logged {hf_type} {hf_strike:.0f} · ${total_income:,.0f} income")
+
+    # ══════════════════════════════
+    # TAB 3: ADD NEW ASSIGNMENT
+    # ══════════════════════════════
+    with tab_add:
+        st.markdown(f"**Add new {label.lower()} assignment**")
+        with st.form(f"asgn_add_{mode}"):
+            fc1, fc2 = st.columns(2)
+            with fc1:
+                f_date   = st.date_input("Entry Date", value=__import__("datetime").date.today(),
+                    key=f"aa_d_{mode}")
+                f_shares = st.number_input("Shares (negative = short)",
+                    value=-100, step=100, key=f"aa_s_{mode}")
+                f_price  = st.number_input("Entry Price",
+                    value=round(uvxy_price, 3),
+                    step=0.001, format="%.3f", key=f"aa_p_{mode}")
+            with fc2:
+                f_ctx    = st.selectbox("Strategy Context", [
+                    "V1 Income Harvester","V2 Mean Reversion","V3 Shock Absorber",
+                    "V4 Spike Trade","V5 Regime Allocator","Manual / Other"],
+                    key=f"aa_c_{mode}")
+                f_status = st.selectbox("Status", ["open","closed"],
+                    key=f"aa_st_{mode}")
+                f_notes  = st.text_area("Notes", height=68, key=f"aa_n_{mode}")
+
+            direction  = "SHORT" if int(f_shares) < 0 else "LONG"
+            notional_p = abs(int(f_shares)) * float(f_price)
+            st.info(f"{direction} {abs(int(f_shares)):,} shares @ "
+                    f"${float(f_price):.3f} = **${notional_p:,.0f}** notional")
+
+            if st.form_submit_button(f"✅ Add {label} Assignment",
+                                     type="primary", use_container_width=True):
+                new_rec = {
+                    "id":               str(uuid.uuid4()),
+                    "date":             f_date.isoformat(),
+                    "shares":           int(f_shares),
+                    "entry_price":      float(f_price),
+                    "status":           f_status,
+                    "strategy_context": f_ctx,
+                    "mode":             mode,
+                    "notes":            f_notes,
+                    "exit_price":       0.0,
+                    "exit_date":        "",
+                    "realized_pnl":     0.0,
+                    "created_at":       datetime.now().isoformat(),
+                    "position_id":      st.session_state.get("asgn_prefill_pid", ""),
+                    "short_strike":     st.session_state.get("asgn_prefill_strike", 0.0),
+                    "short_expiry":     st.session_state.get("asgn_prefill_expiry", ""),
+                }
+                all_recs = _load(ASGN_FILE)
+                all_recs.append(new_rec)
+                _save(ASGN_FILE, all_recs)
+                st.success(f"✅ {direction} {abs(int(f_shares)):,} shares "
+                           f"@ ${float(f_price):.3f}")
+                st.session_state[rerun_key] = True
+
+        # ── Import from assignment_engine ─────────────────────────────────────
+        with st.expander("🔄 Import from assignment_engine", expanded=False):
+            st.caption("One-time import of existing records from your assignment_engine store.")
+            if st.button("Run Import", key=f"asgn_import_{mode}"):
+                try:
+                    from assignment_engine import get_assignment_store
+                    store        = get_assignment_store()
+                    all_recs     = _load(ASGN_FILE)
+                    existing_ids = {r["id"] for r in all_recs}
+                    imported     = 0
+                    for ev in store.events:
+                        aid = str(getattr(ev, "assignment_id", ""))
+                        if aid in existing_ids:
+                            continue
+                        all_recs.append({
+                            "id":               aid,
+                            "date":             str(getattr(ev, "date", "")),
+                            "shares":           int(getattr(ev, "shares", 0)),
+                            "entry_price":      float(getattr(ev, "entry_price", 0)),
+                            "status":           str(getattr(ev, "status", "open")),
+                            "strategy_context": str(getattr(ev, "strategy_context", "")),
+                            "mode":             mode,
+                            "notes":            "",
+                            "exit_price":       0.0,
+                            "exit_date":        "",
+                            "realized_pnl":     0.0,
+                            "created_at":       datetime.now().isoformat(),
+                        })
+                        imported += 1
+                    _save(ASGN_FILE, all_recs)
+                    st.success(f"Imported {imported} record(s).")
+                    st.session_state[rerun_key] = True
+                except Exception as e:
+                    st.error(f"Import failed: {e}")
 
 
 if __name__ == "__main__":

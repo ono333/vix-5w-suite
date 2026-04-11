@@ -189,7 +189,7 @@ def _spike_score(vix_pct: float, vvix_pct: float, uvxy_mom: float,
     score = round(raw * 100, 1)
 
     if score < 40:   label = "Calm"
-    elif score < 60: label = "Expansion"
+    elif score < 60: label = "Expansion"  # collapse check applied after
     elif score < 80: label = "Possible Peak"
     else:            label = "Spike Exhaustion"
 
@@ -308,6 +308,9 @@ def capture_snapshot(force: bool = False) -> VolSnapshot:
     regime        = _regime_from_pct(vix_pct)
     crisis        = vix > 35.0
     collapse      = _collapse_flag(vix_s)
+    # Override label if collapse detected — takes priority over score-based label
+    if collapse and label in ("Expansion", "Compression"):
+        label = "Collapse"
     vvix_leads    = (vvix_pct - vix_pct) > 0.15
 
     # 1-day changes
