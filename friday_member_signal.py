@@ -123,10 +123,17 @@ def load_signal_batch() -> dict:
 
 
 def get_last_signal() -> dict | None:
+    """Return last signal from a PREVIOUS date (not today)."""
     if not SIGNAL_HISTORY_PATH.exists():
         return None
     try:
         history = json.loads(SIGNAL_HISTORY_PATH.read_text())
+        today = date.today().isoformat()
+        # Find most recent entry from a different date
+        for entry in reversed(history):
+            if entry.get("signal_date", "") != today:
+                return entry
+        # Fallback: return last entry even if same date (for testing)
         return history[-1] if history else None
     except Exception:
         return None
@@ -441,14 +448,52 @@ def build_email(snap: dict, batch: dict,
     next_exp  = (date.today() + timedelta(days=days_fri)).strftime("%b %d")
 
     last_note = ""
+    transition_html = ""
     if last_signal:
-        ld  = last_signal.get("signal_date", "")
-        lu  = last_signal.get("uvxy_price", 0)
-        lv  = last_signal.get("variants", {})
-        v1s = lv.get("V1", {}).get("recommended_strike", 0)
+        ld   = last_signal.get("signal_date", "")
+        lu   = last_signal.get("uvxy_price", 0)
+        lv   = last_signal.get("variants", {})
+        v1s  = lv.get("V1", {}).get("recommended_strike", 0)
+        last_phase = last_signal.get("phase", "")
         if v1s:
             last_note = (f"Last week's V1 reference strike: <strong>${v1s}</strong> "
                          f"(signal {ld}, UVXY was ${lu:.2f})")
+
+        # Detect phase transition
+        transition_from = None
+        if last_phase in ("Expansion", "Late Spike", "Spike Peak") and phase == "Collapse":
+            transition_from = "V4"
+            transition_to   = "V2"
+        elif last_phase in ("Spike Peak", "Exhaustion") and phase in ("Collapse", "Compression"):
+            transition_from = "V4"
+            transition_to   = "V2"
+
+        if transition_from:
+            v2s = lv.get("V2", {}).get("recommended_strike", 0)
+            transition_html = f"""
+            <tr><td style="padding:16px 28px;border-bottom:1px solid #e8ede8;
+                           background:#fffbf0;border-left:4px solid #d97706;">
+              <div style="font-size:10px;letter-spacing:2px;color:#d97706;
+                          text-transform:uppercase;margin-bottom:10px;font-weight:700;">
+                📌 Phase Transition: {last_phase} → {phase}</div>
+              <div style="font-size:13px;font-weight:700;color:#1a1a1a;margin-bottom:8px;">
+                Last week's signal was {transition_from} Tail Hunter.<br>
+                This week: transition your {transition_from} to {transition_to} Mean Reversion.
+              </div>
+              <div style="font-size:12px;color:#444;line-height:2.0;">
+                <strong>How to transition:</strong><br>
+                1. <strong>Keep your existing long leg</strong> — do NOT close it<br>
+                2. When your current short expires →
+                   Sell to Open: <strong>{transition_to} short call</strong>,
+                   target credit ${lv.get("V2", {}).get("recommended_strike", "~$45")}
+                   strike area, 7 DTE<br>
+                3. Your position is now <strong>{transition_to} Mean Reversion</strong><br><br>
+                <span style="color:#d97706;">
+                  ⚠️ If you need personal guidance on this transition,
+                  reply to this email.
+                </span>
+              </div>
+            </td></tr>"""
 
     flags = ""
     if collapse:
@@ -569,6 +614,7 @@ def build_email(snap: dict, batch: dict,
     </table>
   </td></tr>
 
+  {transition_html}
   <!-- POSITION CHECK -->
   <tr><td style="padding:20px 28px;border-bottom:1px solid #e8ede8;">
     <div style="font-size:10px;letter-spacing:2px;color:{rc};
