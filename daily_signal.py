@@ -490,6 +490,18 @@ def _roll_mode(short_delta: float, short_dte: int, short_strike: float,
     Three-mode roll classifier per ChatGPT spec.
     Returns dict with mode, color, emoji, action_label, reason, target_otm_pct.
     """
+    # Expiring worthless — DTE=0 and delta effectively zero
+    if short_dte <= 0 and short_delta < 0.05:
+        return dict(
+            mode        = "EXPIRING_WORTHLESS",
+            color       = "#16a34a",
+            emoji       = "✅",
+            badge       = "✅ Expiring Worthless",
+            action      = "EXPIRING_WORTHLESS",
+            action_label= "No action needed",
+            reason      = "Short expires worthless today — let it expire. Sell new short Monday.",
+            target_otm  = "—",
+        )
     itm = short_strike <= uvxy_price
 
     if short_dte <= 0 or (short_dte <= 2 and itm):
@@ -576,6 +588,7 @@ def build_position_aware_email(
     regime_state = batch.regime_state
     regime_name  = regime_state.regime.value.upper() if regime_state else "UNKNOWN"
     vix_level    = regime_state.vix_level if regime_state else 20.0
+    uvxy_price   = regime_state.uvxy_price if (regime_state and hasattr(regime_state, "uvxy_price")) else vix_level
     vix_pct      = regime_state.vix_percentile if regime_state else 0
 
     management_variants  = [s for s in variant_states if s.has_position]
@@ -787,12 +800,20 @@ def build_position_aware_email(
 
             # Roll debit estimates
             cur_strike = short.strike if short else vix_level
-            roll_conservative = round(vix_level * 1.02)
-            roll_moderate     = round(vix_level * 1.05)
-            roll_aggressive   = round(vix_level * 1.10)
-            rd_cons = _estimate_roll_debit(vix_level, cur_strike, roll_conservative)
-            rd_mod  = _estimate_roll_debit(vix_level, cur_strike, roll_moderate)
-            rd_agg  = _estimate_roll_debit(vix_level, cur_strike, roll_aggressive)
+            # For expiring/expired shorts: anchor purely to uvxy_price (old strike is gone)
+            # For ITM shorts: must roll above current strike
+            # Per-variant strike targets using short_strike_offset from batch
+            _v_offset = getattr(variant, 'short_strike_offset', 3.0)
+            _short_itm = float(cur_strike) < uvxy_price
+            _roll_base = max(uvxy_price, float(cur_strike)) if _short_itm else uvxy_price
+            # Conservative = HIGHEST strike (most cushion, least premium)
+            # Aggressive   = LOWEST strike  (least cushion, most premium)
+            roll_conservative = round(_roll_base + _v_offset + 2)
+            roll_moderate     = round(_roll_base + _v_offset + 1)
+            roll_aggressive   = round(_roll_base + _v_offset)
+            rd_cons = _estimate_roll_debit(uvxy_price, cur_strike, roll_conservative)
+            rd_mod  = _estimate_roll_debit(uvxy_price, cur_strike, roll_moderate)
+            rd_agg  = _estimate_roll_debit(uvxy_price, cur_strike, roll_aggressive)
 
             # Scaling
             if diag:
@@ -823,6 +844,115 @@ def build_position_aware_email(
             pnl_c = "#2e7d32" if pnl >= 0 else "#c62828"
             lpnl_c = "#2e7d32" if long_pnl >= 0 else "#c62828"
             spnl_c = "#2e7d32" if short_pnl >= 0 else "#c62828"
+
+            # ── Build Action Card ──────────────────────────────────────────
+            try:
+                from datetime import date as _acd, timedelta as _act
+                # Next Friday ≥ 7 DTE for short target
+                _today_ac = _acd.today()
+                _days_fri = (4 - _today_ac.weekday()) % 7 or 7
+                _next_fri = _today_ac + _act(days=_days_fri)
+                if _days_fri < 7:
+                    _next_fri = _next_fri + _act(days=7)
+                _exp_str = _next_fri.strftime("%b %d")
+
+                # Delta ceiling from sigma_mult
+                _sm = getattr(variant, "sigma_mult", 1.0)
+                _dc = 0.28 if _sm <= 0.8 else 0.25 if _sm <= 0.9 else                       0.22 if _sm <= 1.0 else 0.18 if _sm <= 1.2 else 0.15
+
+                # Short strike target
+                _offset = getattr(variant, "short_strike_offset", 2.0)
+                _tgt_strike = round(uvxy_price + _offset)
+
+                # Long leg DTE warning
+                _long_dte_remaining = diag.days_to_long_expiry() if diag else 999
+
+                # Build card based on action
+                if action == "SELL_SHORT":
+                    _card_bg = "#f3e5f5"; _card_bd = "#9c27b0"
+                    _card_html = f"""
+                <div style="margin-top:10px;padding:12px 14px;
+                             background:{_card_bg};border-left:4px solid {_card_bd};
+                             border-radius:4px;">
+                  <div style="font-size:11px;font-weight:700;color:{_card_bd};
+                               text-transform:uppercase;letter-spacing:1px;
+                               margin-bottom:8px;">📋 Action — Sell Short</div>
+                  <div style="font-size:13px;font-weight:700;color:#1a1a1a;
+                               margin-bottom:6px;">
+                    Sell to Open: <span style="color:{_card_bd};">
+                    ${_tgt_strike}C {_exp_str}</span>
+                  </div>
+                  <div style="font-size:12px;color:#444;line-height:1.8;">
+                    Target credit: <strong>$0.50–1.50</strong><br>
+                    Delta ceiling: <strong>δ ≤ {_dc:.2f}</strong><br>
+                    Verify live chain — use limit order at mid.
+                  </div>
+                  {"" if _long_dte_remaining > 7 else f'<div style="margin-top:8px;padding:6px 10px;background:#ffebee;border-radius:4px;font-size:12px;color:#c62828;font-weight:700;">🚨 Long leg expires in {_long_dte_remaining}d — ROLL LONG FIRST before selling new short</div>'}
+                </div>"""
+                elif action in ("ROLL_NOW", "ROLL", "EMERGENCY"):
+                    _card_bg = "#fff3e0"; _card_bd = "#e65100"
+                    _long_warn = (f'<div style="margin-top:8px;padding:6px 10px;background:#ffebee;border-radius:4px;font-size:12px;color:#c62828;font-weight:700;">🚨 Long leg expires in {_long_dte_remaining}d — ROLL LONG FIRST</div>' if _long_dte_remaining <= 7 else "")
+                    _card_html = f"""
+                <div style="margin-top:10px;padding:12px 14px;
+                             background:{_card_bg};border-left:4px solid {_card_bd};
+                             border-radius:4px;">
+                  <div style="font-size:11px;font-weight:700;color:{_card_bd};
+                               text-transform:uppercase;letter-spacing:1px;
+                               margin-bottom:8px;">🔄 Action — Roll Short</div>
+                  <div style="font-size:13px;color:#444;line-height:1.8;">
+                    <strong>1. Buy to Close:</strong>
+                    {f"${float(short.strike):.0f}C" if short else "no open short — skip BTC"}<br>
+                    <strong>2. Sell to Open:</strong>
+                    <span style="color:{_card_bd};font-weight:700;">
+                    ${_tgt_strike}C {_exp_str}</span><br>
+                    Target credit: <strong>$0.50–1.50</strong> &nbsp;·&nbsp;
+                    δ ≤ <strong>{_dc:.2f}</strong>
+                  </div>
+                  {_long_warn}
+                </div>"""
+                elif _long_dte_remaining <= 14:
+                    # Long leg expiring — urgent warning even if short is OK
+                    _card_bg = "#fff8e1"; _card_bd = "#f9a825"
+                    _long_strike = float(diag.long_strike) if diag else 0
+                    _new_long = round(uvxy_price * 0.92)
+                    _card_html = f"""
+                <div style="margin-top:10px;padding:12px 14px;
+                             background:{_card_bg};border-left:4px solid {_card_bd};
+                             border-radius:4px;">
+                  <div style="font-size:11px;font-weight:700;color:{_card_bd};
+                               text-transform:uppercase;letter-spacing:1px;
+                               margin-bottom:8px;">⚠️ Urgent — Long Leg Expiring</div>
+                  <div style="font-size:13px;color:#444;line-height:1.8;">
+                    <strong>1. Buy to Close:</strong>
+                    ${_long_strike:.0f}C (long leg — near zero)<br>
+                    <strong>2. Buy to Open:</strong>
+                    <span style="color:{_card_bd};font-weight:700;">
+                    ~${_new_long}C Sep 18</span>
+                    — target δ 0.65–0.75
+                  </div>
+                </div>"""
+                elif action == "HOLD":
+                    _card_html = """
+                <div style="margin-top:10px;padding:10px 14px;
+                             background:#f0fdf4;border-left:4px solid #16a34a;
+                             border-radius:4px;font-size:12px;color:#444;">
+                  ✅ <strong>Hold</strong> — no action needed today.
+                  Monitor delta Thursday morning.
+                </div>"""
+                elif action == "TAKE_PROFIT":
+                    _card_html = f"""
+                <div style="margin-top:10px;padding:10px 14px;
+                             background:#e8f5e9;border-left:4px solid #4CAF50;
+                             border-radius:4px;font-size:12px;color:#444;">
+                  🎯 <strong>Take Profit</strong> — Buy to Close at 80%+ profit.<br>
+                  Then Sell to Open: ${_tgt_strike}C {_exp_str} — δ ≤ {_dc:.2f}
+                </div>"""
+                else:
+                    _card_html = ""
+                _action_card = _card_html
+            except Exception as _ace:
+                _action_card = f'<div style="font-size:11px;color:#999;">Action card error: {_ace}</div>'
+            # ── End Action Card ────────────────────────────────────────────
 
             html += f"""
     <div style="border:1px solid #e0e8ff;border-left:4px solid {ac};border-radius:6px;
@@ -893,21 +1023,21 @@ def build_position_aware_email(
         </tr>
         <tr>
           <td style="padding:4px 8px;">🟢 ${roll_conservative:.0f}</td>
-          <td style="padding:4px 8px;">{(roll_conservative/vix_level-1)*100:.0f}%</td>
+          <td style="padding:4px 8px;">{(roll_conservative/uvxy_price-1)*100:.0f}%</td>
           <td style="padding:4px 8px;font-weight:700;">${rd_cons:+.2f}</td>
           <td style="padding:4px 8px;color:{'#4CAF50' if rd_cons>=-debit_cap else '#f44336'};">
               {'✅' if rd_cons>=-debit_cap else '❌'} cap ${debit_cap:.2f}</td>
         </tr>
         <tr>
           <td style="padding:4px 8px;">🟡 ${roll_moderate:.0f}</td>
-          <td style="padding:4px 8px;">{(roll_moderate/vix_level-1)*100:.0f}%</td>
+          <td style="padding:4px 8px;">{(roll_moderate/uvxy_price-1)*100:.0f}%</td>
           <td style="padding:4px 8px;font-weight:700;">${rd_mod:+.2f}</td>
           <td style="padding:4px 8px;color:{'#4CAF50' if rd_mod>=-debit_cap else '#f44336'};">
               {'✅' if rd_mod>=-debit_cap else '❌'} cap ${debit_cap:.2f}</td>
         </tr>
         <tr>
           <td style="padding:4px 8px;">🔴 ${roll_aggressive:.0f}</td>
-          <td style="padding:4px 8px;">{(roll_aggressive/vix_level-1)*100:.0f}%</td>
+          <td style="padding:4px 8px;">{(roll_aggressive/uvxy_price-1)*100:.0f}%</td>
           <td style="padding:4px 8px;font-weight:700;">${rd_agg:+.2f}</td>
           <td style="padding:4px 8px;color:{'#4CAF50' if rd_agg>=-debit_cap else '#f44336'};">
               {'✅' if rd_agg>=-debit_cap else '❌'} cap ${debit_cap:.2f}</td>
@@ -926,6 +1056,9 @@ def build_position_aware_email(
       <!-- Action banner -->
       <div style="background:{ac};color:#fff;padding:10px 14px;border-radius:4px;
                   font-size:13px;font-weight:600;">{at}</div>
+
+      <!-- ── ACTION CARD ── -->
+      {_action_card}
     </div>
 """
         html += "  </div>\n"
@@ -1012,7 +1145,18 @@ def build_position_aware_email(
         has_pos    = state.has_position
         entry_cred = state.suggested_entry_credit or 0
         short_offset = getattr(variant, 'short_strike_offset', 2)
-        target = round(vix_level + short_offset, 0)
+        target = round(uvxy_price + short_offset, 0)
+        _v_strike_params = {
+            "v1_income_harvester": {"long_itm": 5.0, "short_otm": 2.0},
+            "v2_mean_reversion":   {"long_itm": 3.0, "short_otm": 3.0},
+            "v3_shock_absorber":   {"long_itm": 0.0, "short_otm": 4.0},
+            "v4_tail_hunter":      {"long_itm": 5.0, "short_otm": 5.0},
+            "v5_regime_allocator": {"long_itm": 3.0, "short_otm": 2.5},
+        }
+        _v_role = getattr(variant.role, "value", str(variant.role)).lower()
+        _vp = _v_strike_params.get(_v_role, {"long_itm": 3.0, "short_otm": 3.0})
+        _fresh_long_k  = round(uvxy_price - _vp["long_itm"])
+        _fresh_short_k = round(uvxy_price + _vp["short_otm"])
         today  = datetime.now()
         long_expiry  = snap_to_uvxy_expiry((today + timedelta(weeks=variant.long_dte_weeks)).date())
         short_expiry = today + timedelta(weeks=variant.short_dte_weeks)
@@ -1041,9 +1185,9 @@ def build_position_aware_email(
       <table style="width:100%;font-size:12px;">
         <tr>
           <td style="padding:3px 0;color:#555;">Long:</td>
-          <td>${variant.long_strike:.0f} exp {long_exp_str} ({variant.long_dte_weeks}w)</td>
+          <td>${_fresh_long_k:.0f} exp {long_exp_str} ({variant.long_dte_weeks}w)</td>
           <td style="padding:3px 0;color:#555;">Short:</td>
-          <td>${target:.0f} exp {short_exp_str}</td>
+          <td>${_fresh_short_k:.0f} exp {short_exp_str}</td>
         </tr>
         <tr style="background:rgba(76,175,80,0.1);">
           <td style="padding:3px 0;color:#555;">Est. Credit:</td>
@@ -1095,6 +1239,7 @@ def build_real_capital_email(
     regime_state = batch.regime_state
     regime_name  = regime_state.regime.value.upper() if regime_state else "UNKNOWN"
     vix_level    = regime_state.vix_level if regime_state else 20.0
+    uvxy_price   = regime_state.uvxy_price if (regime_state and hasattr(regime_state, "uvxy_price")) else vix_level
     vix_pct      = regime_state.vix_percentile if regime_state else 0
 
     ts_data    = _fetch_iv_term_structure()
@@ -1303,13 +1448,28 @@ def build_real_capital_email(
         v_id = pos.variant_id.upper()
         debit_cap = 1.50 if "V1" in v_id else 1.25 if "V5" in v_id else 1.50
 
-        cur_k = short.strike if short else vix_level
-        roll_cons = round(vix_level * 1.02)
-        roll_mod  = round(vix_level * 1.05)
-        roll_agg  = round(vix_level * 1.10)
-        rd_c = _estimate_roll_debit(vix_level, cur_k, roll_cons)
-        rd_m = _estimate_roll_debit(vix_level, cur_k, roll_mod)
-        rd_a = _estimate_roll_debit(vix_level, cur_k, roll_agg)
+        cur_k = short.strike if short else uvxy_price
+        # Per-variant strike offsets (dollar-based)
+        _v_offset_map = {
+            "v1_income_harvester": 2.0,
+            "v2_mean_reversion":   3.0,
+            "v3_shock_absorber":   4.0,
+            "v4_tail_hunter":      5.0,
+            "v5_regime_allocator": 2.5,
+        }
+        _v_id_key = pos.variant_id.lower() if hasattr(pos, "variant_id") else v_id.lower()
+        _v_off = _v_offset_map.get(_v_id_key, 3.0)
+        # Roll base anchored to uvxy_price unless short is ITM
+        _real_itm = float(cur_k) < uvxy_price
+        _real_base = max(uvxy_price, float(cur_k)) if _real_itm else uvxy_price
+        # Conservative = HIGHEST strike (most cushion, least premium)
+        # Aggressive   = LOWEST strike  (least cushion, most premium)
+        roll_cons = round(_real_base + _v_off + 2)
+        roll_mod  = round(_real_base + _v_off + 1)
+        roll_agg  = round(_real_base + _v_off)
+        rd_c = _estimate_roll_debit(uvxy_price, cur_k, roll_cons)
+        rd_m = _estimate_roll_debit(uvxy_price, cur_k, roll_mod)
+        rd_a = _estimate_roll_debit(uvxy_price, cur_k, roll_agg)
 
         sc_ok, sc_reason = _scaling_eligible(pos)
 
@@ -1526,14 +1686,30 @@ def build_real_capital_email(
         band = _short_strike_band(vix_level)
         from datetime import date as _date, timedelta
         # Use computed strike if available, else derive from UVXY + offset
-        long_k_val  = v.long_strike  if v.long_strike  > 0 else (vix_level + v.long_strike_offset)
-        short_k_val = v.short_strike if v.short_strike > 0 else (vix_level + v.short_strike_offset)
+        # OTM target derived from VIX regime, but strikes anchored to UVXY price
+        if   vix_level < 17:  _tgt_otm = 0.10
+        elif vix_level <= 22: _tgt_otm = 0.07
+        elif vix_level <= 25: _tgt_otm = 0.05
+        elif vix_level <= 35: _tgt_otm = 0.075
+        elif vix_level <= 50: _tgt_otm = 0.10
+        else:                  _tgt_otm = 0.125
+
+        # Long leg: ~10% ITM (LEAP convexity anchor), always below short
+        # Short leg: target OTM band applied to current UVXY price
+        long_k_val  = (v.long_strike if v.long_strike > 0
+                       else round(uvxy_price * 0.90))
+        short_k_val = (v.short_strike if v.short_strike > 0
+                       else round(uvxy_price * (1 + _tgt_otm)))
+
+        # Safety: short must always be above long for a valid call diagonal
+        if short_k_val <= long_k_val:
+            short_k_val = long_k_val + 2
         long_k  = f"${long_k_val:.0f}"
         short_k = f"${short_k_val:.0f}"
         long_exp  = (_date.today() + timedelta(weeks=v.long_dte_weeks)).strftime("%b %d")
         short_exp = (_date.today() + timedelta(weeks=v.short_dte_weeks)).strftime("%b %d")
         # OTM band — use actual % even in elevated VIX
-        otm_pct = round((short_k_val - vix_level) / vix_level * 100, 1)
+        otm_pct = round((short_k_val - uvxy_price) / uvxy_price * 100, 1)
         band_actual = f"{otm_pct:.1f}% OTM (${short_k_val:.0f})"
         cand_rows += f"""
     <div style="border:1px solid #804000;border-left:3px solid #ff6600;
@@ -1680,7 +1856,7 @@ def build_alert_email(positions_needing_action: list, is_real: bool = False) -> 
       <td style="padding:8px;font-weight:700;">{p['name']}</td>
       <td style="padding:8px;color:{rm['color']};font-weight:700;">{rm['badge']}</td>
       <td style="padding:8px;">{rm['reason']}</td>
-      <td style="padding:8px;font-weight:600;">{rm['action']}</td>
+      <td style="padding:8px;font-weight:600;">{'' if rm['action'] == 'EXPIRING_WORTHLESS' else rm['action']}</td>
       <td style="padding:8px;">{rm['target_otm']} OTM</td>
       <td style="padding:8px;font-size:11px;color:#888;">{rm['target_note']}</td>
     </tr>"""
@@ -1755,7 +1931,7 @@ def check_and_send_alerts(batch, variant_states, vix_level: float,
                 short_dte = 0
             sd = _bs_delta(vix_level, float(short.strike), short_dte/365 if short_dte > 0 else 0.001)
             debit_cap = 1.50
-            rm = _roll_mode(sd, short_dte, float(short.strike), vix_level, debit_cap)
+            rm = _roll_mode(sd, short_dte, float(short.strike), uvxy_price, debit_cap)
             if rm["priority"] >= 2:  # DEFENSIVE or EMERGENCY
                 paper_alerts.append({
                     "name":      getattr(pos, "variant_name", pos.variant_id),
@@ -1778,7 +1954,7 @@ def check_and_send_alerts(batch, variant_states, vix_level: float,
                 short_dte = 0
             sd = _bs_delta(vix_level, float(short.strike), short_dte/365 if short_dte > 0 else 0.001)
             debit_cap = 1.50
-            rm = _roll_mode(sd, short_dte, float(short.strike), vix_level, debit_cap)
+            rm = _roll_mode(sd, short_dte, float(short.strike), uvxy_price, debit_cap)
             if rm["priority"] >= 2:
                 real_alerts.append({
                     "name":      pos.variant_name,
@@ -1808,6 +1984,74 @@ def check_and_send_alerts(batch, variant_states, vix_level: float,
 
     return paper_alerts + real_alerts
 
+
+
+
+
+# ── Batch persistence ──────────────────────────────────────────────────────
+import json as _json
+
+def load_signal_batch():
+    import os
+    batch_path = os.path.expanduser("~/.vix_suite/current_signal_batch.json")
+    if not os.path.exists(batch_path):
+        return None
+    try:
+        with open(batch_path) as f:
+            data = _json.load(f)
+        from variant_generator import SignalBatch, VariantParams
+        from regime_detector import RegimeState
+        from enums import VolatilityRegime, VariantRole
+        regime = VolatilityRegime(data["regime_state"]["regime"])
+        regime_state = RegimeState(
+            regime=regime,
+            vix_level=data["regime_state"]["vix_level"],
+            vix_percentile=data["regime_state"]["vix_percentile"],
+            confidence=data["regime_state"].get("confidence", 0.7),
+            vix_slope=data["regime_state"].get("vix_slope", 0.0),
+        )
+        variants = []
+        for v in data.get("variants", []):
+            try:
+                role = VariantRole(v["role"])
+                active = [VolatilityRegime(r) for r in v.get("active_in_regimes", [])]
+                suppressed = [VolatilityRegime(r) for r in v.get("suppressed_in_regimes", [])]
+                variants.append(VariantParams(
+                    variant_id=v["variant_id"], name=v["name"], role=role,
+                    entry_percentile=v.get("entry_percentile", 0.25),
+                    long_dte_weeks=v.get("long_dte_weeks", 13),
+                    short_dte_weeks=v.get("short_dte_weeks", 1),
+                    long_strike_offset=v.get("long_strike_offset", 0.0),
+                    short_strike_offset=v.get("short_strike_offset", 2.0),
+                    long_strike=v.get("long_strike", 0.0),
+                    short_strike=v.get("short_strike", 0.0),
+                    active_in_regimes=active,
+                    suppressed_in_regimes=suppressed,
+                ))
+            except Exception:
+                continue
+        return SignalBatch(
+            batch_id=data["batch_id"],
+            generated_at=datetime.fromisoformat(data["generated_at"]),
+            valid_until=datetime.fromisoformat(data["valid_until"]),
+            regime_state=regime_state,
+            variants=variants,
+            frozen=data.get("frozen", True),
+        )
+    except Exception as e:
+        print(f"   Could not load signal batch: {e}")
+        return None
+
+
+def save_signal_batch(batch):
+    import os
+    batch_path = os.path.expanduser("~/.vix_suite/current_signal_batch.json")
+    os.makedirs(os.path.dirname(batch_path), exist_ok=True)
+    try:
+        with open(batch_path, "w") as f:
+            _json.dump(batch.to_dict(), f, indent=2, default=str)
+    except Exception as e:
+        print(f"   Could not save signal batch: {e}")
 
 def main():
     parser = argparse.ArgumentParser(description="Position-Aware VIX Signal Generator")
@@ -1873,8 +2117,12 @@ def main():
     if batch and batch.frozen:
         from datetime import timezone
         now_utc = datetime.now(timezone.utc)
-        batch_valid = (hasattr(batch, 'valid_until') and
-                       batch.valid_until.replace(tzinfo=timezone.utc) > now_utc)
+        batch_date  = batch.generated_at.date() if hasattr(batch, 'generated_at') else None
+        batch_valid = (
+            hasattr(batch, 'valid_until') and
+            batch.valid_until.replace(tzinfo=timezone.utc) > now_utc and
+            batch_date == date.today()   # force regen if batch is from a previous day
+        )
         if batch_valid:
             print(f"\n📋 Using frozen batch: {batch.batch_id} (valid until {batch.valid_until})")
             # Use batch's own regime — not re-derived from live data
