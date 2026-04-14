@@ -1239,18 +1239,20 @@ def build_real_capital_email(
     regime_state = batch.regime_state
     regime_name  = regime_state.regime.value.upper() if regime_state else "UNKNOWN"
     vix_level    = regime_state.vix_level if regime_state else 20.0
-    uvxy_price   = regime_state.uvxy_price if (regime_state and hasattr(regime_state, "uvxy_price")) else vix_level
     vix_pct      = regime_state.vix_percentile if regime_state else 0
 
     ts_data    = _fetch_iv_term_structure()
     stale_warn = _data_age_warning(fetch_time)
 
-    # Vol Triangle snapshot
+    # Vol Triangle snapshot — use for UVXY price (more reliable than regime_state)
     try:
         from vol_triangle import get_latest_snapshot
         _vsnap = get_latest_snapshot()
     except Exception:
         _vsnap = None
+
+    # UVXY price from snapshot — most reliable source
+    uvxy_price = float(_vsnap.uvxy) if _vsnap and hasattr(_vsnap, "uvxy") else vix_level
 
     regime_colors = {
         "CALM": "#e65100", "DECLINING": "#bf360c",
@@ -1488,6 +1490,74 @@ def build_real_capital_email(
         spnl_c = "#88ff88" if net_creds >= 0 else "#ff6666"
         tpnl_c = "#88ff88" if tot_pnl >= 0 else "#ff6666"
 
+        # ── Real Action Card ───────────────────────────────────────────────
+        try:
+            from datetime import date as _racd, timedelta as _ract
+            _today_r   = _racd.today()
+            _days_fri  = (4 - _today_r.weekday()) % 7 or 7
+            _next_fri_r = _today_r + _ract(days=_days_fri)
+            if _days_fri < 7:
+                _next_fri_r = _next_fri_r + _ract(days=7)
+            _exp_str_r = _next_fri_r.strftime("%b %d")
+
+            _variant_r = pos.variant_params if hasattr(pos, "variant_params") else {}
+            _sm_r   = _variant_r.get("sigma_mult", 1.0) if isinstance(_variant_r, dict) else 1.0
+            _dc_r   = 0.28 if _sm_r <= 0.8 else 0.25 if _sm_r <= 0.9 else                       0.22 if _sm_r <= 1.0 else 0.18 if _sm_r <= 1.2 else 0.15
+            _off_r  = _variant_r.get("short_strike_offset", 2.0) if isinstance(_variant_r, dict) else 2.0
+            _tgt_r  = round(uvxy_price + _off_r)
+            _long_dte_r = pos.days_to_long_expiry() if hasattr(pos, "days_to_long_expiry") else 999
+            _long_warn_r = (f'<div style="margin-top:8px;padding:6px 10px;background:#3a0000;border-radius:4px;font-size:12px;color:#ff6666;font-weight:700;">🚨 Long leg expires in {_long_dte_r}d — ROLL LONG FIRST</div>' if _long_dte_r <= 7 else "")
+
+            _rm_action = _rm_real.get("action","") if isinstance(_rm_real, dict) else ""
+            if not short:
+                _real_action_card = f"""
+                <div style="margin-top:10px;padding:12px 14px;background:#1a0a2e;
+                             border-left:4px solid #9c27b0;border-radius:4px;">
+                  <div style="font-size:11px;font-weight:700;color:#ce93d8;
+                               text-transform:uppercase;letter-spacing:1px;
+                               margin-bottom:8px;">📋 Action — Sell Short</div>
+                  <div style="font-size:13px;color:#e0c8b0;line-height:1.8;">
+                    Sell to Open: <span style="color:#ce93d8;font-weight:700;">
+                    ${_tgt_r}C {_exp_str_r}</span><br>
+                    Target credit: <strong>$0.50–1.50</strong> &nbsp;·&nbsp;
+                    δ ≤ <strong>{_dc_r:.2f}</strong><br>
+                    <span style="font-size:11px;color:#888;">
+                    Verify live chain — limit order at mid</span>
+                  </div>
+                  {_long_warn_r}
+                </div>"""
+            elif _rm_action in ("roll_now","roll_early_delta","roll_early_itm") or short_dte <= 2:
+                _real_action_card = f"""
+                <div style="margin-top:10px;padding:12px 14px;background:#1a1200;
+                             border-left:4px solid #e65100;border-radius:4px;">
+                  <div style="font-size:11px;font-weight:700;color:#ffb74d;
+                               text-transform:uppercase;letter-spacing:1px;
+                               margin-bottom:8px;">🔄 Action — Roll Short</div>
+                  <div style="font-size:13px;color:#e0c8b0;line-height:1.8;">
+                    <strong>1. Buy to Close:</strong>
+                    {f"${float(short.strike):.0f}C" if short else "no open short"}<br>
+                    <strong>2. Sell to Open:</strong>
+                    <span style="color:#ffb74d;font-weight:700;">
+                    ${_tgt_r}C {_exp_str_r}</span><br>
+                    Target credit: <strong>$0.50–1.50</strong> &nbsp;·&nbsp;
+                    δ ≤ <strong>{_dc_r:.2f}</strong>
+                  </div>
+                  {_long_warn_r}
+                </div>"""
+            elif short_delta <= 0.20 and short_dte > 2:
+                _real_action_card = f"""
+                <div style="margin-top:10px;padding:10px 14px;background:#0a1a0a;
+                             border-left:4px solid #2e7d32;border-radius:4px;
+                             font-size:12px;color:#88ff88;">
+                  ✅ <strong>Hold</strong> — delta safe, no action needed.
+                  {_long_warn_r}
+                </div>"""
+            else:
+                _real_action_card = ""
+        except Exception as _race:
+            _real_action_card = f'<div style="font-size:11px;color:#888;">Card error: {_race}</div>'
+        # ── End Real Action Card ───────────────────────────────────────────
+
         html += f"""
     <div style="border:1px solid #5a2800;border-left:4px solid {uc};border-radius:6px;
                 padding:14px;margin-bottom:14px;background:#261000;">
@@ -1578,6 +1648,8 @@ def build_real_capital_email(
                   padding:6px 10px;color:#e0c8b0;">
         Scaling: {'✅' if sc_ok else '⛔'} {sc_reason}
       </div>
+
+      {_real_action_card}
     </div>
 """
     html += "  </div>\n"
