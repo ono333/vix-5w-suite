@@ -6749,6 +6749,94 @@ def main():
                     st.sidebar.error(f"❌ Email error: {_e}")
                     st.sidebar.code(traceback.format_exc())
 
+    # ── Member Email button ──────────────────────────────────────────────
+    if st.sidebar.button("📧 Send Member Email", use_container_width=True,
+                         key="member_email_btn",
+                         help="Thu: heads-up alert | Fri: full signal | Other days: preview to self"):
+        with st.sidebar:
+            with st.spinner("Sending member email..."):
+                try:
+                    import os, smtplib
+                    from datetime import date as _date
+                    from email.mime.text import MIMEText
+                    from email.mime.multipart import MIMEMultipart
+
+                    _smtp_user = os.environ.get("SMTP_USER", "")
+                    _smtp_pass = os.environ.get("SMTP_PASS", "")
+                    _today     = _date.today()
+                    _weekday   = _today.weekday()  # 3=Thu, 4=Fri
+
+                    def _send_one(subj, html, recipients):
+                        for _r in recipients:
+                            _msg = MIMEMultipart("alternative")
+                            _msg["Subject"] = subj
+                            _msg["From"]    = _smtp_user
+                            _msg["To"]      = _r
+                            _msg["Reply-To"] = _smtp_user
+                            _msg.attach(MIMEText(html, "html"))
+                            with smtplib.SMTP_SSL("smtp.gmail.com", 465) as _srv:
+                                _srv.login(_smtp_user, _smtp_pass)
+                                _srv.sendmail(_smtp_user, _r, _msg.as_string())
+
+                    if _weekday == 3:
+                        # Thursday — heads-up alert to members
+                        from thursday_member_alert import (
+                            load_snap, load_batch, load_last_signal,
+                            build_email as _build, load_member_list)
+                        _subj, _html = _build(load_snap(), load_batch(), load_last_signal())
+                        _recip = load_member_list() or [_smtp_user]
+                        _send_one(_subj, _html, _recip)
+                        st.sidebar.success(f"✅ Thursday alert → {len(_recip)} recipient(s)")
+
+                    elif _weekday == 4:
+                        # Friday — full signal to members
+                        from friday_member_signal import (
+                            load_vol_snapshot, load_signal_batch,
+                            get_last_signal, save_signal_history,
+                            build_email as _build, load_member_list,
+                            _build_role_map)
+                        _snap  = load_vol_snapshot()
+                        _batch = load_signal_batch()
+                        _subj, _html = _build(_snap, _batch, get_last_signal())
+                        _recip = load_member_list() or [_smtp_user]
+                        _send_one(_subj, _html, _recip)
+                        # Save signal history
+                        _rm = _build_role_map(_batch)
+                        save_signal_history({
+                            "signal_date": _today.isoformat(),
+                            "uvxy_price":  _snap.get("uvxy", 0.0),
+                            "vix_level":   _snap.get("vix", 0.0),
+                            "vix_pct":     _snap.get("vix_pct", 0.5),
+                            "regime":      _snap.get("regime", ""),
+                            "phase":       _snap.get("spike_label", ""),
+                            "variants": {
+                                k: {"recommended_strike": round(
+                                    _snap.get("uvxy",0) + v.get("short_strike_offset",2)),
+                                    "dte": v.get("short_dte_weeks",1)*7}
+                                for k, v in _rm.items()
+                            }
+                        })
+                        st.sidebar.success(f"✅ Friday signal → {len(_recip)} recipient(s)")
+
+                    else:
+                        # Other days — preview to self only
+                        from friday_member_signal import (
+                            load_vol_snapshot, load_signal_batch,
+                            get_last_signal, build_email as _build)
+                        _snap  = load_vol_snapshot()
+                        _batch = load_signal_batch()
+                        _subj, _html = _build(_snap, _batch, get_last_signal())
+                        _send_one(_subj, _html, [_smtp_user])
+                        st.sidebar.info(
+                            f"ℹ️ Preview sent to {_smtp_user} "
+                            f"(today is {_today.strftime('%A')} — "
+                            f"members receive Thu/Fri only)")
+
+                except Exception as _me:
+                    import traceback
+                    st.sidebar.error(f"❌ Member email error: {_me}")
+                    st.sidebar.code(traceback.format_exc())
+
     st.sidebar.markdown("---")
 
     if "Real Trading" in mode:
