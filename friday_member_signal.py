@@ -224,6 +224,41 @@ def _iv_for_regime(regime: str) -> float:
 
 # ── Movement table ────────────────────────────────────────────────────────────
 
+def _delta_ceiling_banner(batch: dict, regime: str, phase: str = "") -> str:
+    """Prominent delta ceiling display above movement table."""
+    role_map = _build_role_map(batch)
+    labels = {"V1":"Income","V2":"Mean Rev","V3":"Shock","V4":"Tail","V5":"Regime"}
+    cells = ""
+    for key in ["V1","V2","V3","V4","V5"]:
+        v   = role_map.get(key, {})
+        act = _activation(v, regime, phase) if v else "off"
+        dc  = _delta_ceil(v) if v else 0.22
+        if act == "full":
+            bg = "#16a34a"; fc = "#ffffff"; op = "1.0"
+        elif act == "reduced":
+            bg = "#d97706"; fc = "#ffffff"; op = "1.0"
+        else:
+            bg = "#e5e7eb"; fc = "#9ca3af"; op = "0.7"
+        cells += (
+            f'<td style="padding:8px 4px;text-align:center;opacity:{op};">'
+            f'<div style="background:{bg};color:{fc};padding:6px 8px;'
+            f'border-radius:6px;display:inline-block;min-width:58px;">'
+            f'<div style="font-size:10px;font-weight:700;letter-spacing:1px;">{key} {labels[key]}</div>'
+            f'<div style="font-size:20px;font-weight:900;margin-top:2px;">\u03b4\u2264{dc:.2f}</div>'
+            f'</div></td>'
+        )
+    return (
+        '<div style="background:#f0f7f2;border:2px solid #1E4D2B;border-radius:8px;'
+        'padding:12px 16px;margin-bottom:12px;">'
+        '<div style="font-size:10px;font-weight:700;color:#1E4D2B;letter-spacing:2px;'
+        'text-transform:uppercase;margin-bottom:8px;text-align:center;">'
+        '&#9889; Delta Ceilings &#8212; Do Not Exceed</div>'
+        f'<table width="100%" cellpadding="0" cellspacing="0"><tr>{cells}</tr></table>'
+        '<div style="font-size:11px;color:#555;margin-top:8px;text-align:center;">'
+        'If your strike&#39;s delta exceeds ceiling &rarr; '
+        '<strong>move to next strike further OTM</strong></div></div>'
+    )
+
 VARIANT_LABELS = {
     "V1": "Income Harvester", "V2": "Mean Reversion",
     "V3": "Shock Absorber",   "V4": "Tail Hunter",
@@ -689,6 +724,7 @@ def build_email(snap: dict, batch: dict,
       Centered on UVXY ${uvxy:.2f}. Find your row at execution time.
       Use the reference strike as a starting point — find the strike
       paying the target credit with delta at or below the ceiling.</div>
+    {_delta_ceiling_banner(batch, regime, phase)}
     {_movement_table(uvxy, batch, regime, phase)}
   </td></tr>
 
