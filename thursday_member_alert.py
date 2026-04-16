@@ -362,7 +362,20 @@ def build_email(snap: dict, batch: dict,
       &nbsp;·&nbsp; Full signal tomorrow Friday at 10:00am ET.<br>
       <span style="color:#bbb;font-size:10px;">
         For informational purposes only. Not investment advice.
-        Options trading involves significant risk of loss.</span>
+        Options trading involves significant risk of loss.
+        <div style="font-size:10px;color:#999;line-height:1.8;margin-top:8px;
+                        padding-top:8px;border-top:1px solid #e8e8e8;">
+          <strong style="color:#666;">DISCLAIMER</strong><br>
+          Options trading involves significant risk of loss and is not suitable
+          for all investors. Past performance is not indicative of future results.
+          The information provided is for educational and informational purposes
+          only and does not constitute financial, investment, or trading advice.
+          You are solely responsible for your own investment decisions.
+          Volatility Harvest is not a registered investment adviser.
+          Always consult a licensed financial advisor before making any
+          investment decisions. UVXY and other leveraged volatility products
+          can lose value rapidly and may not be suitable for most investors.
+        </div></span>
     </div>
   </td></tr>
 
