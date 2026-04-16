@@ -6596,7 +6596,7 @@ def main():
     
     mode = st.sidebar.radio(
         "Mode",
-        ["💵 Real Trading", "📈 Paper Trading", "📊 Research"],
+        ["💵 Real Trading", "📈 Paper Trading", "🤖 Paper Auto (Tradier)", "📊 Research"],
         index=0,
         key="app_mode",
     )
@@ -6959,6 +6959,32 @@ def main():
         elif page == "Trade Explorer":
             render_trade_explorer(params, data, bt)
     
+    elif "Paper Auto" in mode:
+        # ── Tradier Paper Auto mode ──────────────────────────────────────
+        st.sidebar.markdown("## 🤖 Paper Auto (Tradier)")
+        st.sidebar.caption("Sandbox account VA88395338")
+
+        page = st.sidebar.radio(
+            "Paper Auto Pages",
+            [
+                "📊 Positions & P&L",
+                "📋 Order History",
+                "⚙️ Execution Control",
+                "📈 Performance",
+            ],
+            index=0,
+            key="paper_auto_page",
+        )
+
+        if page == "📊 Positions & P&L":
+            render_tradier_positions()
+        elif page == "📋 Order History":
+            render_tradier_orders()
+        elif page == "⚙️ Execution Control":
+            render_tradier_execution()
+        elif page == "📈 Performance":
+            render_tradier_performance()
+
     else:
         # Paper trading mode navigation
         page = st.sidebar.radio(
@@ -7002,6 +7028,268 @@ def main():
         elif page == "📋 Assignment Log":
             render_assignment_log(mode="paper")
 
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PAPER AUTO (TRADIER) PAGES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _tradier_client():
+    """Get Tradier sandbox client."""
+    import os, requests
+    token   = os.environ.get("TRADIER_SANDBOX_TOKEN","")
+    account = "VA88395338"
+    base    = "https://sandbox.tradier.com/v1"
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+    return base, headers, account
+
+def _tradier_get(path, params=None):
+    import os, requests
+    token   = os.environ.get("TRADIER_SANDBOX_TOKEN","")
+    account = "VA88395338"
+    base    = "https://sandbox.tradier.com/v1"
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+    r = requests.get(f"{base}{path}", headers=headers, params=params)
+    return r.json()
+
+def render_tradier_positions():
+    import pandas as pd
+    from datetime import date
+    st.title("🤖 Tradier Paper — Positions & P&L")
+
+    try:
+        # Balances
+        bal    = _tradier_get("/accounts/VA88395338/balances")
+        margin = bal.get("balances",{}).get("margin",{})
+        equity = float(bal.get("balances",{}).get("total_equity", 0))
+        bp     = float(margin.get("option_buying_power", 0))
+
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Total Equity", f"${equity:,.0f}")
+        c2.metric("Option Buying Power", f"${bp:,.0f}")
+        c3.metric("Deployed", f"${100000-bp:,.0f}")
+
+        st.markdown("---")
+
+        # Positions
+        pos_data = _tradier_get("/accounts/VA88395338/positions")
+        pos = pos_data.get("positions",{})
+        if not pos or pos == "null":
+            st.info("No open positions")
+            return
+
+        positions = pos.get("position",[])
+        if not isinstance(positions, list): positions = [positions]
+
+        today = date.today()
+        rows  = []
+        for p in positions:
+            sym  = p.get("symbol","")
+            qty  = float(p.get("quantity",0))
+            cost = float(p.get("cost_basis",0))
+            # Parse OCC symbol
+            try:
+                idx      = sym.index("UVXY") + 4
+                exp_str  = sym[idx:idx+6]
+                exp_date = date(2000+int(exp_str[:2]), int(exp_str[2:4]), int(exp_str[4:6]))
+                dte      = (exp_date - today).days
+                strike   = int(sym[idx+7:]) / 1000
+                cp       = sym[idx+6]
+                leg_type = "Long" if qty > 0 else "Short"
+                rows.append({
+                    "Symbol": sym, "Type": leg_type,
+                    "Strike": f"${strike:.0f}C",
+                    "Expiry": str(exp_date), "DTE": dte,
+                    "Qty": int(qty),
+                    "Cost/Share": f"${cost/abs(qty)/100:.2f}" if qty != 0 else "—",
+                    "Total Cost": f"${cost:.0f}",
+                })
+            except Exception:
+                rows.append({"Symbol": sym, "Type": "?", "Strike": "?",
+                             "Expiry": "?", "DTE": "?", "Qty": int(qty),
+                             "Cost/Share": "?", "Total Cost": f"${cost:.0f}"})
+
+        if rows:
+            df = pd.DataFrame(rows)
+            st.subheader("Open Positions")
+            st.dataframe(df, use_container_width=True, hide_index=True)
+
+            # Long state from file
+            long_state_path = Path.home() / ".vix_suite" / "tradier_long_state.json"
+            if long_state_path.exists():
+                import json
+                state = json.loads(long_state_path.read_text())
+                st.subheader("Variant Assignment")
+                variant_rows = []
+                for key in ["V1","V2","V3","V4","V5"]:
+                    lg = state.get(key,{})
+                    sh = state.get("shorts",{}).get(key,{})
+                    variant_rows.append({
+                        "Variant": key,
+                        "Long Strike": f"${lg.get('strike',0):.0f}C" if lg else "—",
+                        "Long Expiry": lg.get("expiry","—"),
+                        "Long Cost": f"${lg.get('fill_price',0):.2f}" if lg else "—",
+                        "Short Strike": f"${sh.get('strike',0):.0f}C" if sh else "—",
+                        "Short Expiry": sh.get("expiry","—"),
+                        "Short Credit": f"${sh.get('fill_price',0):.2f}" if sh else "—",
+                    })
+                st.dataframe(pd.DataFrame(variant_rows),
+                             use_container_width=True, hide_index=True)
+
+    except Exception as e:
+        st.error(f"Error fetching positions: {e}")
+
+
+def render_tradier_orders():
+    import pandas as pd
+    st.title("🤖 Tradier Paper — Order History")
+
+    try:
+        data   = _tradier_get("/accounts/VA88395338/orders")
+        orders = data.get("orders",{})
+        if not orders or orders == "null":
+            st.info("No orders found")
+            return
+
+        ords = orders.get("order",[])
+        if not isinstance(ords, list): ords = [ords]
+
+        rows = []
+        for o in reversed(ords):
+            rows.append({
+                "ID":       o.get("id"),
+                "Symbol":   o.get("option_symbol",""),
+                "Side":     o.get("side",""),
+                "Qty":      o.get("quantity"),
+                "Status":   o.get("status",""),
+                "Price":    f"${float(o.get('price',0)):.2f}",
+                "Fill":     f"${float(o.get('avg_fill_price',0)):.2f}" if o.get("avg_fill_price") else "—",
+                "Date":     o.get("transaction_date","")[:10] if o.get("transaction_date") else o.get("create_date","")[:10],
+            })
+
+        df = pd.DataFrame(rows)
+        # Color filled vs open
+        st.dataframe(df, use_container_width=True, hide_index=True)
+
+    except Exception as e:
+        st.error(f"Error fetching orders: {e}")
+
+
+def render_tradier_execution():
+    import subprocess, sys
+    st.title("🤖 Tradier Paper — Execution Control")
+
+    st.markdown("""
+    Run the automated execution scripts directly from the app.
+    All executions target the **Tradier sandbox** account `VA88395338`.
+    """)
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("Long Leg Manager")
+        st.caption("Checks and enters/rolls long legs per variant")
+        if st.button("🔍 Check Long Legs", key="btn_long_check"):
+            with st.spinner("Checking..."):
+                r = subprocess.run(
+                    [sys.executable, "/home/shin/vix_suite/tradier_long_manager.py","--check"],
+                    capture_output=True, text=True, cwd="/home/shin/vix_suite"
+                )
+                st.code(r.stdout + r.stderr)
+
+        if st.button("👁 Preview Long Entry", key="btn_long_preview"):
+            with st.spinner("Previewing..."):
+                r = subprocess.run(
+                    [sys.executable, "/home/shin/vix_suite/tradier_long_manager.py","--preview"],
+                    capture_output=True, text=True, cwd="/home/shin/vix_suite"
+                )
+                st.code(r.stdout + r.stderr)
+
+        if st.button("🚀 Execute Long Entry", key="btn_long_execute", type="primary"):
+            with st.spinner("Executing..."):
+                r = subprocess.run(
+                    [sys.executable, "/home/shin/vix_suite/tradier_long_manager.py","--paper"],
+                    capture_output=True, text=True, cwd="/home/shin/vix_suite"
+                )
+                st.code(r.stdout + r.stderr)
+
+    with col2:
+        st.subheader("Short Leg Executor")
+        st.caption("Sells short legs after verifying longs exist")
+
+        if st.button("👁 Preview Shorts", key="btn_short_preview"):
+            with st.spinner("Previewing..."):
+                r = subprocess.run(
+                    [sys.executable, "/home/shin/vix_suite/tradier_executor.py","--preview"],
+                    capture_output=True, text=True, cwd="/home/shin/vix_suite"
+                )
+                st.code(r.stdout + r.stderr)
+
+        if st.button("🚀 Execute Shorts", key="btn_short_execute", type="primary"):
+            with st.spinner("Executing..."):
+                r = subprocess.run(
+                    [sys.executable, "/home/shin/vix_suite/tradier_executor.py","--paper"],
+                    capture_output=True, text=True, cwd="/home/shin/vix_suite"
+                )
+                st.code(r.stdout + r.stderr)
+
+    st.markdown("---")
+    st.subheader("Full Auto Cycle")
+    st.caption("Longs first, then shorts after verification")
+    if st.button("⚡ Run Full Cycle", key="btn_full_cycle", type="primary"):
+        with st.spinner("Running full cycle..."):
+            r1 = subprocess.run(
+                [sys.executable, "/home/shin/vix_suite/tradier_long_manager.py","--paper"],
+                capture_output=True, text=True, cwd="/home/shin/vix_suite"
+            )
+            st.code("=== LONG MANAGER ===\n" + r1.stdout + r1.stderr)
+            r2 = subprocess.run(
+                [sys.executable, "/home/shin/vix_suite/tradier_executor.py","--paper"],
+                capture_output=True, text=True, cwd="/home/shin/vix_suite"
+            )
+            st.code("=== SHORT EXECUTOR ===\n" + r2.stdout + r2.stderr)
+
+
+def render_tradier_performance():
+    import json, pandas as pd
+    st.title("🤖 Tradier Paper — Performance")
+
+    long_state_path = Path.home() / ".vix_suite" / "tradier_long_state.json"
+    if not long_state_path.exists():
+        st.info("No performance data yet — run execution first")
+        return
+
+    state = json.loads(long_state_path.read_text())
+
+    st.subheader("Position Summary")
+    rows = []
+    total_cost    = 0.0
+    total_credits = 0.0
+
+    for key in ["V1","V2","V3","V4","V5"]:
+        lg = state.get(key,{})
+        sh = state.get("shorts",{}).get(key,{})
+        if not lg:
+            continue
+        long_cost    = float(lg.get("fill_price",0)) * 100
+        short_credit = float(sh.get("fill_price",0)) * 100 if sh else 0
+        net_cost     = long_cost - short_credit
+        total_cost    += long_cost
+        total_credits += short_credit
+        rows.append({
+            "Variant":      key,
+            "Long Cost":    f"${long_cost:.0f}",
+            "Short Credit": f"${short_credit:.0f}",
+            "Net Cost":     f"${net_cost:.0f}",
+            "Coverage":     f"{short_credit/long_cost*100:.1f}%" if long_cost > 0 else "—",
+        })
+
+    if rows:
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Total Long Cost",    f"${total_cost:,.0f}")
+        c2.metric("Total Credits",      f"${total_credits:,.0f}")
+        c3.metric("Net Deployed",       f"${total_cost-total_credits:,.0f}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
