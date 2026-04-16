@@ -267,60 +267,118 @@ def find_best_strike(chain: list[dict], dc: float,
 # ── Mid-price executor ────────────────────────────────────────────────────────
 
 def execute_with_reprice(client: TradierClient, underlying: str,
-                         option_symbol: str, quantity: int,
-                         initial_mid: float, ask: float,
+                         option_symbol: str, side: str,
+                         quantity: int, bid: float, ask: float,
+                         sandbox: bool = True,
                          dry_run: bool = False) -> dict:
     """
-    Place limit at mid, reprice toward ask if not filled.
-    Returns fill info.
+    Most profitable execution algorithm for UVXY options.
+
+    STO (sell): start at mid, nudge toward bid each interval
+    BTO (buy):  start at mid, nudge toward ask each interval
+
+    Sandbox: cancel + re-place (no modify API)
+    Live:    true order modification (single cancel-free reprice)
+
+    Never goes below bid (STO) or above ask (BTO).
+    Skips if bid ≤ $0.05 (no liquidity).
     """
-    price = round(initial_mid, 2)
+    is_sell = "sell" in side.lower()
+
+    # Liquidity check for sells
+    if is_sell and bid <= 0.05:
+        print(f"   ⚠️ Bid ${bid:.2f} too low — no liquidity, skipping")
+        return {"status": "skipped_low_bid"}
+
+    mid   = round((bid + ask) / 2, 2)
+    price = mid
+    floor = bid   if is_sell else mid   # never go below bid on sells
+    ceil  = mid   if is_sell else ask   # never go above ask on buys
+    direction = "toward bid" if is_sell else "toward ask"
+    nudge     = 0.01  # $0.01 per interval — fine-grained
 
     if dry_run:
-        print(f"   [DRY RUN] Would place: STO {option_symbol} ×{quantity} @ ${price:.2f}")
+        action = "STO" if is_sell else "BTO"
+        print(f"   [DRY RUN] {action} {option_symbol} ×{quantity} "
+              f"@ mid ${price:.2f} (bid=${bid:.2f} ask=${ask:.2f})")
         return {"status": "dry_run", "price": price}
 
-    print(f"   Placing order: STO {option_symbol} ×{quantity} @ ${price:.2f}")
-    result = client.place_order(underlying, option_symbol,
-                                "sell_to_open", quantity, price)
-    order  = result.get("order", {})
-    oid    = order.get("id")
+    action = "STO" if is_sell else "BTO"
+    print(f"   {action} {option_symbol} ×{quantity} "
+          f"@ ${price:.2f} (bid=${bid:.2f} ask=${ask:.2f})")
 
-    if not oid:
-        print(f"   ❌ Order failed: {result}")
-        return {"status": "failed", "result": result}
-
-    print(f"   Order ID: {oid} — polling for fill...")
+    # Place initial order
+    try:
+        result = client.place_order(underlying, option_symbol,
+                                    side, quantity, price)
+        oid = result.get("order", {}).get("id")
+        if not oid:
+            print(f"   ❌ Order failed: {result}")
+            return {"status": "failed"}
+        print(f"   Order {oid} placed @ ${price:.2f}")
+    except Exception as e:
+        print(f"   ❌ Place failed: {e}")
+        return {"status": "failed"}
 
     for attempt in range(MAX_REPRICE_ATTEMPTS):
         time.sleep(REPRICE_INTERVAL_SEC)
-        status = client.get_order(oid)
-        state  = status.get("status", "")
-        print(f"   Attempt {attempt+1}: status={state}")
+
+        try:
+            status = client.get_order(oid)
+            state  = status.get("status", "")
+        except Exception:
+            state = "unknown"
+
+        print(f"   [{attempt+1}] status={state} price=${price:.2f}")
 
         if state == "filled":
-            fill_price = float(status.get("avg_fill_price", price))
-            print(f"   ✅ Filled @ ${fill_price:.2f}")
+            fill_px = float(status.get("avg_fill_price", price))
+            print(f"   ✅ Filled @ ${fill_px:.2f}")
             return {"status": "filled", "order_id": oid,
-                    "fill_price": fill_price, "quantity": quantity}
+                    "fill_price": fill_px, "quantity": quantity}
 
         if state in ("canceled", "expired", "rejected"):
-            print(f"   ❌ Order {state}")
             return {"status": state, "order_id": oid}
 
-        # Nudge toward ask
-        new_price = min(round(price + NUDGE_PER_ATTEMPT * (attempt + 1), 2), ask)
-        if new_price != price:
+        # Calculate new price — nudge toward floor/ceil
+        if is_sell:
+            new_price = max(round(price - nudge, 2), floor)
+        else:
+            new_price = min(round(price + nudge, 2), ceil)
+
+        if new_price == price:
+            print(f"   At limit (${price:.2f}) — waiting for fill")
+            continue
+
+        print(f"   Repricing ${price:.2f} → ${new_price:.2f} ({direction})")
+
+        if sandbox:
+            # Sandbox: cancel + re-place
             try:
-                print(f"   Repricing: ${price:.2f} → ${new_price:.2f}")
+                client.session.delete(
+                    f"{client.base}/accounts/{client.account}/orders/{oid}",
+                )
+            except Exception:
+                pass
+            try:
+                result  = client.place_order(underlying, option_symbol,
+                                             side, quantity, new_price)
+                new_oid = result.get("order", {}).get("id")
+                if new_oid:
+                    oid   = new_oid
+                    price = new_price
+                    print(f"   New order {oid} @ ${price:.2f}")
+            except Exception as e:
+                print(f"   ⚠️ Re-place failed: {e}")
+        else:
+            # Live: true modify
+            try:
                 client.modify_order(oid, new_price)
                 price = new_price
-            except Exception as _me:
-                print(f"   ⚠️ Reprice failed (market closed?): {_me}")
-                print(f"   Order {oid} remains working at ${price:.2f}")
-                break
+            except Exception as e:
+                print(f"   ⚠️ Modify failed: {e}")
 
-    print(f"   ⚠️ Max attempts reached — order still working (ID: {oid})")
+    print(f"   ⚠️ Max attempts — order {oid} still working @ ${price:.2f}")
     return {"status": "working", "order_id": oid, "last_price": price}
 
 
@@ -449,58 +507,122 @@ def run(sandbox: bool = True, preview: bool = False,
 
     print(f"\n{'─'*60}")
     results = {}
+    pending_orders = {}  # key → order details
 
+    # ── Phase 1: Place all orders simultaneously ───────────────────────────
+    print("\n  Phase 1 — Placing all orders...")
     for key in variants_to_run:
         v = role_map.get(key)
         if not v:
-            print(f"\n{key}: not in signal batch — skip")
+            print(f"  {key}: not in signal batch — skip")
             continue
 
-        dc      = delta_ceil(v)
-        offset  = v.get("short_strike_offset", 2.0)
+        dc         = delta_ceil(v)
+        offset     = v.get("short_strike_offset", 2.0)
         ref_strike = round(uvxy + offset)
-        contracts  = 1  # conservative default for paper
+        contracts  = 1
 
-        print(f"\n{key} — delta ceiling: {dc:.2f}, ref strike: ${ref_strike}")
+        print(f"\n  {key} — delta ceiling: {dc:.2f}, ref strike: ${ref_strike}")
 
-        # Find best strike from live chain
         best = find_best_strike(chain, dc, min_credit=0.25)
 
-        if best:
-            # Safety: short strike MUST be above long strike
-            if best["strike"] <= best_long["strike"]:
-                print(f"   ❌ BLOCKED: short ${best['strike']:.0f}C ≤ "
-                      f"long ${best_long['strike']:.0f}C — would create ITM spread")
-                results[key] = {"status": "blocked_long_safety"}
-                continue
-
         if not best:
-            print(f"   ⚠️ No strike found meeting delta ≤ {dc:.2f} with credit ≥ $0.25")
-            print(f"   Consider extending DTE")
+            print(f"  ⚠️  No strike found for {key}")
             results[key] = {"status": "no_strike"}
             continue
 
-        print(f"   Best strike: ${best['strike']:.0f}C {exp}")
-        print(f"   Delta: {best['delta']:.3f} | Bid: ${best['bid']:.2f} | "
-              f"Ask: ${best['ask']:.2f} | Mid: ${best['mid']:.2f}")
-
-        if preview:
-            print(f"   [PREVIEW] STO ${best['strike']:.0f}C {exp} "
-                  f"×{contracts} @ ${best['mid']:.2f}")
-            results[key] = {"status": "preview", "strike": best['strike'],
-                            "expiry": str(exp), "mid": best['mid'],
-                            "delta": best['delta']}
+        if best["strike"] <= best_long["strike"]:
+            print(f"  ❌ BLOCKED: short ${best['strike']:.0f}C ≤ "
+                  f"long ${best_long['strike']:.0f}C")
+            results[key] = {"status": "blocked_long_safety"}
             continue
 
-        # Execute
-        fill = execute_with_reprice(
-            client, "UVXY", best["symbol"],
-            contracts, best["mid"], best["ask"],
-            dry_run=False
-        )
-        results[key] = {**fill, "strike": best["strike"],
-                        "expiry": str(exp), "delta": best["delta"]}
+        print(f"  {key}: ${best['strike']:.0f}C δ={best['delta']:.3f} "
+              f"bid=${best['bid']:.2f} ask=${best['ask']:.2f} "
+              f"mid=${best['mid']:.2f}")
 
+        if preview:
+            print(f"  [PREVIEW] STO ${best['strike']:.0f}C ×{contracts} "
+                  f"@ ${best['mid']:.2f}")
+            results[key] = {"status": "preview", "strike": best["strike"],
+                            "expiry": str(exp), "mid": best["mid"],
+                            "delta": best["delta"]}
+            continue
+
+        # Place at bid for sell orders (guaranteed fill for STO)
+        place_price = best["bid"]
+        try:
+            result = client.place_order("UVXY", best["symbol"],
+                                        "sell_to_open", contracts, place_price)
+            order  = result.get("order", {})
+            oid    = order.get("id")
+        except Exception as _oe:
+            print(f"  {key}: ❌ Timeout: {_oe} — retrying in 5s")
+            time.sleep(5)
+            try:
+                result = client.place_order("UVXY", best["symbol"],
+                                            "sell_to_open", contracts, place_price)
+                order = result.get("order", {})
+                oid   = order.get("id")
+            except Exception as _oe2:
+                print(f"  {key}: ❌ Retry failed: {_oe2}")
+                results[key] = {"status": "failed"}
+                continue
+        if oid:
+            print(f"  {key}: Order {oid} placed @ ${place_price:.2f}")
+            pending_orders[key] = {
+                "order_id": oid,
+                "strike":   best["strike"],
+                "expiry":   str(exp),
+                "delta":    best["delta"],
+                "price":    place_price,
+                "ask":      best["ask"],
+                "symbol":   best["symbol"],
+            }
+        else:
+            print(f"  {key}: ❌ Order failed: {result}")
+            results[key] = {"status": "failed"}
+
+    if not pending_orders or preview:
+        # Skip polling for preview mode
+        pass
+    else:
+        # ── Phase 2: Poll all orders together ─────────────────────────────
+        print(f"\n  Phase 2 — Polling {len(pending_orders)} orders...")
+        for attempt in range(MAX_REPRICE_ATTEMPTS):
+            time.sleep(10)  # short poll interval since all placed at ask
+            all_done = True
+            for key, od in list(pending_orders.items()):
+                if key in results:
+                    continue
+                status = client.get_order(od["order_id"])
+                state  = status.get("status", "")
+                if state == "filled":
+                    fill_px = float(status.get("avg_fill_price", od["price"]))
+                    print(f"  ✅ {key}: filled @ ${fill_px:.2f}")
+                    results[key] = {
+                        "status":     "filled",
+                        "order_id":   od["order_id"],
+                        "fill_price": fill_px,
+                        "strike":     od["strike"],
+                        "expiry":     od["expiry"],
+                        "delta":      od["delta"],
+                    }
+                elif state in ("canceled","expired","rejected"):
+                    print(f"  ❌ {key}: {state}")
+                    results[key] = {"status": state}
+                else:
+                    all_done = False
+            if all_done:
+                break
+        # Any still pending
+        for key, od in pending_orders.items():
+            if key not in results:
+                results[key] = {"status": "working",
+                                "order_id": od["order_id"],
+                                "strike": od["strike"]}
+
+    # Legacy single-order loop no longer needed — skip to summary
     # Summary
     print(f"\n{'='*60}")
     print("  EXECUTION SUMMARY")
