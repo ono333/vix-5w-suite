@@ -1300,6 +1300,16 @@ def render_signal_dashboard(trade_log=None):
     # ── Volatility Triangle Panel ────────────────────────────────────────
     st.markdown("---")
     st.subheader("🔺 Volatility Triangle")
+    if snap:
+        _age = ""
+        try:
+            from datetime import datetime
+            _cap = datetime.fromisoformat(snap.captured_at)
+            _age_min = (datetime.now() - _cap).seconds // 60
+            _age = f" · {_age_min}m ago" if _age_min > 0 else " · just now"
+        except Exception:
+            pass
+        st.caption(f"🕐 Data as of {snap.captured_at[11:16]} ET{_age}")
     try:
         from vol_triangle import capture_snapshot
         snap = capture_snapshot(force=True)
