@@ -7118,20 +7118,22 @@ def render_tradier_positions():
             long_state_path = Path.home() / ".vix_suite" / "tradier_long_state.json"
             if long_state_path.exists():
                 import json
-                state = json.loads(long_state_path.read_text())
+                state    = json.loads(long_state_path.read_text())
+                variants = state.get("variants", {})
                 st.subheader("Variant Assignment")
                 variant_rows = []
                 for key in ["V1","V2","V3","V4","V5"]:
-                    lg = state.get(key,{})
-                    sh = state.get("shorts",{}).get(key,{})
+                    v  = variants.get(key, {})
+                    lg = v.get("long") or {}
+                    sh = v.get("short") or {}
                     variant_rows.append({
-                        "Variant": key,
+                        "Variant":     key,
                         "Long Strike": f"${lg.get('strike',0):.0f}C" if lg else "—",
                         "Long Expiry": lg.get("expiry","—"),
-                        "Long Cost": f"${lg.get('fill_price',0):.2f}" if lg else "—",
-                        "Short Strike": f"${sh.get('strike',0):.0f}C" if sh else "—",
-                        "Short Expiry": sh.get("expiry","—"),
-                        "Short Credit": f"${sh.get('fill_price',0):.2f}" if sh else "—",
+                        "Long Cost":   f"${lg.get('fill_price',0):.2f}" if lg else "—",
+                        "Short Strike":f"${sh.get('strike',0):.0f}C" if sh else "—",
+                        "Short Expiry":sh.get("expiry","—"),
+                        "Short Credit":f"${sh.get('fill_price',0):.2f}" if sh else "—",
                     })
                 st.dataframe(pd.DataFrame(variant_rows),
                              use_container_width=True, hide_index=True)
@@ -7260,6 +7262,7 @@ def render_tradier_performance():
         return
 
     state = json.loads(long_state_path.read_text())
+    variants = state.get("variants", {})
 
     st.subheader("Position Summary")
     rows = []
@@ -7267,8 +7270,9 @@ def render_tradier_performance():
     total_credits = 0.0
 
     for key in ["V1","V2","V3","V4","V5"]:
-        lg = state.get(key,{})
-        sh = state.get("shorts",{}).get(key,{})
+        v  = variants.get(key, {})
+        lg = v.get("long") or {}
+        sh = v.get("short") or {}
         if not lg:
             continue
         long_cost    = float(lg.get("fill_price",0)) * 100
