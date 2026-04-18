@@ -41,6 +41,9 @@ from email.mime.text import MIMEText
 from pathlib import Path
 from typing import Optional
 
+from tradier_liquidity import check_liquidity, log_skip
+from tradier_exec_log import log_fill
+
 # ── Paths ─────────────────────────────────────────────────────────────────────
 STORAGE_DIR        = Path.home() / ".vix_suite"
 VOL_SNAPSHOTS_PATH = STORAGE_DIR / "vol_snapshots.json"
@@ -547,12 +550,21 @@ def run(sandbox: bool = True, preview: bool = False, check_only: bool = False):
                         continue
                     LOG.log(f"  BTO ${best['strike']:.0f}C {exp} "
                             f"δ={best['delta']:.3f} ask=${best['ask']:.2f}")
+                    liq_ok, liq_reason = check_liquidity(best["bid"], best["ask"])
+                    if not liq_ok:
+                        log_skip(key, best["strike"], str(exp),
+                                 best["bid"], best["ask"], liq_reason)
+                        LOG.log(f"  ⚠️ Liquidity check failed: {liq_reason}")
+                        continue
                     if not preview:
                         result = place_with_reprice(
                             client, "UVXY", best["symbol"],
                             "buy_to_open", 1,
                             best["bid"], best["ask"])
                         if result["status"] == "filled":
+                            log_fill(key, best["strike"], str(exp), "BTO",
+                                     best["mid"], result["fill_price"], 1,
+                                     str(result.get("order_id", "")))
                             variant_state["long"] = {
                                 "symbol":     best["symbol"],
                                 "strike":     best["strike"],
@@ -588,6 +600,13 @@ def run(sandbox: bool = True, preview: bool = False, check_only: bool = False):
                             best_new = find_long_strike(chain)
                             if best_new:
                                 LOG.log(f"  Roll to ${best_new['strike']:.0f}C {new_exp}")
+                                liq_ok, liq_reason = check_liquidity(
+                                    best_new["bid"], best_new["ask"])
+                                if not liq_ok:
+                                    log_skip(key, best_new["strike"], str(new_exp),
+                                             best_new["bid"], best_new["ask"], liq_reason)
+                                    LOG.log(f"  ⚠️ Roll liquidity check failed: {liq_reason}")
+                                    continue
                                 if not preview:
                                     # BTO new long first
                                     r_buy = place_with_reprice(
@@ -595,6 +614,10 @@ def run(sandbox: bool = True, preview: bool = False, check_only: bool = False):
                                         "buy_to_open", long_pos["quantity"],
                                         best_new["bid"], best_new["ask"])
                                     if r_buy["status"] == "filled":
+                                        log_fill(key, best_new["strike"], str(new_exp), "BTO",
+                                                 best_new["mid"], r_buy["fill_price"],
+                                                 long_pos["quantity"],
+                                                 str(r_buy.get("order_id", "")))
                                         # STC old long
                                         old_quote = client.get_quote(long_pos["symbol"])
                                         old_bid   = float(old_quote.get("bid", 0.10))
@@ -648,12 +671,21 @@ def run(sandbox: bool = True, preview: bool = False, check_only: bool = False):
                             continue
                         LOG.log(f"  STO ${best['strike']:.0f}C {sh_exp} "
                                 f"δ={best['delta']:.3f} bid=${best['bid']:.2f}")
+                        liq_ok, liq_reason = check_liquidity(best["bid"], best["ask"])
+                        if not liq_ok:
+                            log_skip(key, best["strike"], str(sh_exp),
+                                     best["bid"], best["ask"], liq_reason)
+                            LOG.log(f"  ⚠️ Liquidity check failed: {liq_reason}")
+                            continue
                         if not preview:
                             result = place_with_reprice(
                                 client, "UVXY", best["symbol"],
                                 "sell_to_open", 1,
                                 best["bid"], best["ask"])
                             if result["status"] == "filled":
+                                log_fill(key, best["strike"], str(sh_exp), "STO",
+                                         best["mid"], result["fill_price"], 1,
+                                         str(result.get("order_id", "")))
                                 variant_state["short"] = {
                                     "symbol":     best["symbol"],
                                     "strike":     best["strike"],
