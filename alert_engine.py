@@ -499,12 +499,14 @@ def send_alert(dry_run: bool = False) -> bool:
         _h   = _now.hour
         _m   = _now.minute
         _in_window = (_h == 10 and 0 <= _m <= 45)
-        if ms["ok"] and _in_window and _wd in (3, 4):
+        if ms["ok"] and _in_window and _wd in (0, 3, 4):
             import subprocess, sys
             if _wd == 3:
                 _script = "thursday_member_alert.py"
-            else:
+            elif _wd == 4:
                 _script = "friday_member_signal.py"
+            else:
+                _script = "monday_member_signal.py"
             print(f"[Member Email] Triggering {_script}...")
             subprocess.Popen(
                 [sys.executable, f"/home/shin/vix_suite/{_script}"],
