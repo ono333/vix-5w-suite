@@ -747,7 +747,7 @@ def build_email(snap: dict, batch: dict,
       4. No strike meets all three → <strong>extend DTE and repeat</strong><br>
       5. 21 DTE still fails → <strong>accept small debit — delta safety is non-negotiable</strong><br>
       6. <strong>Skip the week</strong> if conditions don't make sense.<br>
-      7. <strong>Limit orders only</strong> — never market orders on options.
+      7. <strong style="color:#c62828;">⚠️ Limit orders ONLY — NEVER market orders on options.</strong> Market orders on illiquid options can fill 20–40% below bid price.
     </div>
   </td></tr>
 
