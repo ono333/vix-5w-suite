@@ -643,6 +643,12 @@ def build_email(snap: dict, batch: dict,
       <strong>Step 1 — Buy to Open (Long Call / LEAP):</strong><br>
       Target: UVXY Sep 2026 call &nbsp;·&nbsp; Delta target: 0.65–0.75<br>
       Reference strike: ~${round(uvxy * 0.90)}–${round(uvxy * 0.95)}<br>
+      <div style="font-size:11px;color:#666;margin-top:8px;padding:8px 10px;
+                   background:#fff8e1;border-radius:4px;border-left:3px solid #f59e0b;">
+        <strong>⚠️ Wide spread?</strong> If the Sep bid/ask spread exceeds $3,
+        try the Aug expiry instead — same delta target, better liquidity.
+        Never pay more than ask price for the long leg.
+      </div>
       <span style="color:#dc2626;font-weight:700;">
         ⚠️ You MUST own the long call before selling any short call.</span><br><br>
       <strong>Step 2 — After long fills:</strong> Sell short using signal below.
