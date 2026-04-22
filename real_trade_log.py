@@ -20,7 +20,16 @@ from pathlib import Path
 from typing import Optional, List, Dict
 
 # ── Storage location (separate from paper trades)
-REAL_LOG_PATH = Path.home() / ".vix_suite" / "real_trade_log.json"
+# Multi-account support
+ACCOUNTS = {
+    "fidelity": Path.home() / ".vix_suite" / "real_trade_log_fidelity.json",
+    "ib":       Path.home() / ".vix_suite" / "real_trade_log_ib.json",
+}
+# Legacy path — kept for migration
+REAL_LOG_PATH = Path.home() / ".vix_suite" / "real_trade_log_fidelity.json"
+
+# Per-account cache
+_real_trade_log_cache: dict = {}
 
 # ── Supported brokers
 BROKERS = ["Fidelity", "IB", "Schwab", "TD", "Other"]
@@ -97,8 +106,8 @@ class RealShortLeg:
     strike:           float
     expiration_date:  str
     entry_credit:     float       # estimated mid at order time
-    fill_price:       float       # actual fill (can differ)
     contracts:        int
+    fill_price:       float       = 0.0  # actual fill (can differ)
     broker:           str         = "Fidelity"
     account_id:       str         = ""
     commission:       float       = 0.65  # per contract (Fidelity: $0.65)
@@ -212,7 +221,16 @@ class RealShortLeg:
             long_exp  = date.fromisoformat(self.long_expiration)
             long_dte  = (long_exp - today).days
         except Exception:
-            long_dte  = 999
+            # Fallback: try alternate date formats before giving up
+            try:
+                long_exp  = datetime.strptime(self.long_expiration, "%Y-%m-%d").date()
+                long_dte  = (long_exp - today).days
+            except Exception:
+                try:
+                    long_exp  = datetime.strptime(self.long_expiration, "%m/%d/%Y").date()
+                    long_dte  = (long_exp - today).days
+                except Exception:
+                    long_dte  = 0   # unknown expiry — show 0d not 999d
 
         # Overall status
         if short_status in ("expired", "roll_now"):
@@ -673,7 +691,16 @@ class RealRollRecord:
             long_exp  = date.fromisoformat(self.long_expiration)
             long_dte  = (long_exp - today).days
         except Exception:
-            long_dte  = 999
+            # Fallback: try alternate date formats before giving up
+            try:
+                long_exp  = datetime.strptime(self.long_expiration, "%Y-%m-%d").date()
+                long_dte  = (long_exp - today).days
+            except Exception:
+                try:
+                    long_exp  = datetime.strptime(self.long_expiration, "%m/%d/%Y").date()
+                    long_dte  = (long_exp - today).days
+                except Exception:
+                    long_dte  = 0   # unknown expiry — show 0d not 999d
 
         # Overall status
         if short_status in ("expired", "roll_now"):
@@ -1264,7 +1291,16 @@ class RealDiagonalPosition:
             long_exp  = date.fromisoformat(self.long_expiration)
             long_dte  = (long_exp - today).days
         except Exception:
-            long_dte  = 999
+            # Fallback: try alternate date formats before giving up
+            try:
+                long_exp  = datetime.strptime(self.long_expiration, "%Y-%m-%d").date()
+                long_dte  = (long_exp - today).days
+            except Exception:
+                try:
+                    long_exp  = datetime.strptime(self.long_expiration, "%m/%d/%Y").date()
+                    long_dte  = (long_exp - today).days
+                except Exception:
+                    long_dte  = 0   # unknown expiry — show 0d not 999d
 
         # Overall status
         if short_status in ("expired", "roll_now"):
@@ -1742,12 +1778,13 @@ class RealTradeLog:
         long_commission:   float     = 0.65,
         short_commission:  float     = 0.65,
         notes:             str       = "",
+        entry_date:        str       = "",
     ) -> RealDiagonalPosition:
 
         ts = datetime.now().strftime("%Y%m%d%H%M%S")
         position_id = f"{variant_id[:2].upper()}-REAL-{ts}"
         leg_id      = f"{position_id}-S1"
-        entry_date  = date.today().isoformat()
+        entry_date  = (entry_date if entry_date else date.today().isoformat())
 
         slippage = short_fill_price - short_credit
 
@@ -1808,6 +1845,7 @@ class RealTradeLog:
         commission:       float     = 1.30,  # both legs combined
         roll_reason:      str       = "order_roll",
         notes:            str       = "",
+        **kwargs,
     ) -> Optional[RealRollRecord]:
 
         pos = self.diagonal_positions.get(position_id)
@@ -2015,12 +2053,13 @@ class RealTradeLog:
         account_id:       str      = "",
         long_commission:  float    = 0.65,
         notes:            str      = "",
+        entry_date:       str      = "",
     ) -> "RealDiagonalPosition":
         """Open a diagonal with only the long leg — short to be added later."""
         from datetime import datetime, date
         ts          = datetime.now().strftime("%Y%m%d%H%M%S")
         position_id = f"{variant_id[:2].upper()}-REAL-{ts}"
-        entry_date  = date.today().isoformat()
+        entry_date  = (entry_date if entry_date else date.today().isoformat())
 
         pos = RealDiagonalPosition(
             position_id      = position_id,
@@ -2168,12 +2207,21 @@ class RealTradeLog:
 # ── Singleton ────────────────────────────────────────────────
 _real_log_instance: Optional[RealTradeLog] = None
 
-def get_real_trade_log() -> RealTradeLog:
+def get_real_trade_log(account: str = "fidelity") -> "RealTradeLog":
     global _real_log_instance
-    if _real_log_instance is None:
-        _real_log_instance = RealTradeLog()
+    _real_log_instance = RealTradeLog()
     return _real_log_instance
 
-def reset_real_trade_log_cache():
+def reset_real_trade_log_cache(account: str = None):
+    """Reset cache for one account or all accounts if account is None."""
+    global _real_trade_log_cache, _real_log_instance
+    if account:
+        _real_trade_log_cache.pop(account, None)
+    else:
+        _real_trade_log_cache.clear()
+    _real_log_instance = None
+
+def _reset_real_trade_log_cache_legacy():
+    """Legacy reset — clears all accounts."""
     global _real_log_instance
     _real_log_instance = None

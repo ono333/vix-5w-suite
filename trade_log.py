@@ -304,6 +304,7 @@ class DiagonalPosition:
     long_strike: float = 0.0
     long_expiration: str = ""
     long_entry_price: float = 0.0  # Debit paid
+    long_entry_date: str = ""
     long_current_price: float = 0.0
     long_status: str = "open"
     
@@ -574,14 +575,14 @@ class DiagonalPosition:
             return False  # No short to roll
         return short.days_to_expiry() <= roll_dte_threshold
     
-    def add_short_leg(self, strike: float, expiration: str, credit: float, contracts: Optional[int] = None) -> ShortLeg:
+    def add_short_leg(self, strike: float, expiration: str, credit: float, contracts: Optional[int] = None, entry_date: str = "") -> ShortLeg:
         """Add a new short leg. If contracts not specified, uses position's contracts."""
         num_contracts = contracts if contracts else self.contracts
         leg_num = len(self.short_legs) + 1
         leg = ShortLeg(
             leg_id=f"{self.position_id}-S{leg_num}",
             position_id=self.position_id,
-            entry_date=datetime.now().strftime("%Y-%m-%d"),
+            entry_date=(entry_date if entry_date else datetime.now().strftime("%Y-%m-%d")),
             strike=strike,
             expiration_date=expiration,
             entry_credit=credit,
@@ -602,6 +603,8 @@ class DiagonalPosition:
         new_credit: float,
         underlying_price: float,
         regime: str,
+        vix_level: float = 0.0,
+        vix_percentile: float = 0.0,
         notes: str = "",
         contracts: Optional[int] = None,
     ) -> Tuple[ShortLeg, RollRecord]:
@@ -962,6 +965,7 @@ class TradeLog:
         stop_pct: float = 0.60,
         fee_per_contract: float = 0.65,
         notes: str = "",
+        entry_date: str = "",
     ) -> DiagonalPosition:
         """Open a new diagonal spread position with roll tracking and commission tracking."""
         position_id = f"{variant_id[:2]}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
