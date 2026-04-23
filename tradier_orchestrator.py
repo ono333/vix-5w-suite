@@ -538,24 +538,52 @@ def run(sandbox: bool = True, preview: bool = False, check_only: bool = False):
         if not long_pos:
             LOG.log(f"  ❌ No long leg — needs entry")
             if not check_only:
-                exp = target_long_expiry(expirations, long_dte_weeks)
-                if not exp:
-                    LOG.log(f"  ❌ No expiry available")
+                # ── DTE step-down: try target DTE first, step down if illiquid ──
+                # Step down: target → target-4w → target-8w → min 4w
+                _dte_candidates = []
+                _base = long_dte_weeks
+                for _step in [0, 4, 8]:
+                    _w = max(_base - _step, 4)
+                    _e = target_long_expiry(expirations, _w)
+                    if _e and _e not in _dte_candidates:
+                        _dte_candidates.append(_e)
+
+                exp  = None
+                best = None
+                for _cand_exp in _dte_candidates:
+                    _dte_days = (_cand_exp - date.today()).days
+                    LOG.log(f"  Trying {_cand_exp} ({_dte_days}d)...")
+                    try:
+                        _chain = client.get_option_chain("UVXY", _cand_exp)
+                        _best  = find_long_strike(_chain)
+                        if not _best:
+                            LOG.log(f"  ⚠️ No strike in delta range")
+                            continue
+                        _liq_ok, _liq_reason = check_liquidity(_best["bid"], _best["ask"])
+                        if _liq_ok:
+                            exp  = _cand_exp
+                            best = _best
+                            if _cand_exp != _dte_candidates[0]:
+                                LOG.log(f"  ℹ️ DTE adjusted: target was "
+                                        f"{_dte_candidates[0]}, using {_cand_exp} "
+                                        f"(better liquidity)")
+                            break
+                        else:
+                            LOG.log(f"  ⚠️ {_cand_exp} illiquid: {_liq_reason} "
+                                    f"(bid=${_best['bid']:.2f} ask=${_best['ask']:.2f})")
+                            log_skip(key, _best["strike"], str(_cand_exp),
+                                     _best["bid"], _best["ask"], _liq_reason)
+                    except Exception as _e:
+                        LOG.log(f"  ❌ Chain error for {_cand_exp}: {_e}")
+
+                if not exp or not best:
+                    LOG.log(f"  ❌ No liquid expiry found after step-down")
                     continue
+
                 try:
-                    chain = client.get_option_chain("UVXY", exp)
-                    best  = find_long_strike(chain)
-                    if not best:
-                        LOG.log(f"  ⚠️ No long strike found")
-                        continue
                     LOG.log(f"  BTO ${best['strike']:.0f}C {exp} "
                             f"δ={best['delta']:.3f} ask=${best['ask']:.2f}")
-                    liq_ok, liq_reason = check_liquidity(best["bid"], best["ask"])
-                    if not liq_ok:
-                        log_skip(key, best["strike"], str(exp),
-                                 best["bid"], best["ask"], liq_reason)
-                        LOG.log(f"  ⚠️ Liquidity check failed: {liq_reason}")
-                        continue
+                    liq_ok, liq_reason = True, None  # already checked above
                     if not preview:
                         result = place_with_reprice(
                             client, "UVXY", best["symbol"],

@@ -544,7 +544,7 @@ def build_email(snap: dict, batch: dict,
                   'border-radius:12px;font-size:11px;">'
                   '⚡ Aftershock Risk: HIGH</span>')
 
-    subject = (f"📊 Volatility Harvest Signal | {today_str} | "
+    subject = (f"📊 Monday Entry Signal | {today_str} | "
                f"UVXY ${uvxy:.2f} · {phase}")
 
     html = f"""<!DOCTYPE html>
@@ -568,7 +568,7 @@ def build_email(snap: dict, batch: dict,
     <div style="font-size:22px;font-weight:800;color:#ffffff;">
       {pcfg['emoji']} {pcfg['title']}</div>
     <div style="font-size:12px;color:rgba(255,255,255,0.85);margin-top:6px;">
-      {today_str} &nbsp;·&nbsp; Execute today from 10:00am ET</div>
+      {today_str} &nbsp;·&nbsp; Execute today from 10:00am ET — Shorts expired Friday</div>
   </td></tr>
 
   <!-- MARKET STATE -->
@@ -617,82 +617,28 @@ def build_email(snap: dict, batch: dict,
     <div style="font-size:10px;letter-spacing:2px;color:{rc};
                 text-transform:uppercase;margin-bottom:12px;font-weight:700;">
       What's Your Situation?</div>
-    <table width="100%" cellpadding="0" cellspacing="0">
-      <tr>
-        <td style="padding:10px 12px;background:#e8f5e9;border-radius:6px;
-                   border-left:3px solid #16a34a;vertical-align:top;width:31%;">
-          <div style="font-weight:700;color:#1a1a1a;font-size:12px;">
-            A) Short expires TODAY</div>
-          <div style="font-size:11px;color:#555;margin-top:4px;line-height:1.5;">
-            Let expire at 4pm ET, then sell new short using signal below.
-            Or buy to close now and sell immediately.</div>
-        </td>
-        <td style="width:3%;"></td>
-        <td style="padding:10px 12px;background:#fff8e6;border-radius:6px;
-                   border-left:3px solid #d97706;vertical-align:top;width:31%;">
-          <div style="font-weight:700;color:#1a1a1a;font-size:12px;">
-            B) Short open, not expiring</div>
-          <div style="font-size:11px;color:#555;margin-top:4px;line-height:1.5;">
-            Check your delta below. If approaching 0.35+,
-            use the signal below to roll early.</div>
-        </td>
-        <td style="width:3%;"></td>
-        <td style="padding:10px 12px;background:#eff6ff;border-radius:6px;
-                   border-left:3px solid #2563eb;vertical-align:top;width:31%;">
-          <div style="font-weight:700;color:#1a1a1a;font-size:12px;">
-            C) No open position</div>
-          <div style="font-size:11px;color:#555;margin-top:4px;line-height:1.5;">
-            Buy long call (LEAP) <strong>first</strong>, then sell short.
-            Never sell short without owning the long.</div>
-        </td>
-      </tr>
-    </table>
+    <div style="background:#fff8e1;border-left:4px solid #f59e0b;
+                border-radius:6px;padding:14px 16px;margin-bottom:8px;">
+      <div style="font-size:13px;font-weight:700;color:#b45309;margin-bottom:8px;">
+        📅 Your shorts expired Friday at 4pm ET</div>
+      <div style="font-size:12px;color:#444;line-height:1.8;">
+        Sell new short calls today using the signal table below.<br>
+        <strong>Long leg must be in place before selling any short.</strong><br>
+        If you need a new long leg first — buy that first, then sell short.
+      </div>
+    </div>
   </td></tr>
 
   {transition_html}
   <!-- POSITION CHECK -->
-  <tr><td style="padding:20px 28px;border-bottom:1px solid #e8ede8;">
-    <div style="font-size:10px;letter-spacing:2px;color:{rc};
-                text-transform:uppercase;margin-bottom:10px;font-weight:700;">
-      B) Position Check — Check Your Delta Now</div>
-    {f'<div style="font-size:12px;color:#444;margin-bottom:10px;">{last_note}</div>' if last_note else ''}
-    <table width="100%" cellpadding="0" cellspacing="0"
-           style="border-collapse:collapse;font-size:12px;">
-      <tr style="background:#f0f7f2;">
-        <th style="padding:8px 12px;text-align:left;color:#1E4D2B;">Delta</th>
-        <th style="padding:8px 12px;text-align:left;color:#1E4D2B;">Action</th>
-      </tr>
-      <tr style="border-top:1px solid #e8ede8;background:#f0fdf4;">
-        <td style="padding:8px 12px;font-weight:700;color:#16a34a;">≤ 0.20</td>
-        <td style="padding:8px 12px;color:#444;">✅ Hold — no action needed today</td>
-      </tr>
-      <tr style="border-top:1px solid #e8ede8;">
-        <td style="padding:8px 12px;font-weight:700;color:#d97706;">0.21 – 0.34</td>
-        <td style="padding:8px 12px;color:#444;">👀 Monitor — prepare to roll next week</td>
-      </tr>
-      <tr style="border-top:1px solid #e8ede8;background:#fffbf0;">
-        <td style="padding:8px 12px;font-weight:700;color:#ea580c;">0.35 – 0.49</td>
-        <td style="padding:8px 12px;color:#444;">🔄 Roll this week — use signal below</td>
-      </tr>
-      <tr style="border-top:1px solid #e8ede8;background:#fff5f5;">
-        <td style="padding:8px 12px;font-weight:700;color:#dc2626;">≥ 0.50</td>
-        <td style="padding:8px 12px;color:#444;">🚨 Roll today before close</td>
-      </tr>
-    </table>
-    <div style="margin-top:12px;text-align:center;">
-      <a href="{BARCHART_URL}"
-         style="background:{rc};color:#ffffff;padding:8px 20px;
-                border-radius:4px;text-decoration:none;font-size:12px;
-                font-weight:700;">📊 Check UVXY Delta on Barchart →</a>
-    </div>
-  </td></tr>
+  
 
   <!-- NEW ENTRY -->
   <tr><td style="padding:20px 28px;border-bottom:1px solid #e8ede8;
                  background:#eff6ff;">
     <div style="font-size:10px;letter-spacing:2px;color:#2563eb;
                 text-transform:uppercase;margin-bottom:10px;font-weight:700;">
-      C) New Entry — Long Leg First</div>
+      New Entry — Long Leg First</div>
     <div style="font-size:12px;color:#444;line-height:1.8;">
       <strong>Step 1 — Buy to Open (Long Call / LEAP):</strong><br>
       Target: UVXY Sep 2026 call &nbsp;·&nbsp; Delta target: 0.65–0.75<br>
