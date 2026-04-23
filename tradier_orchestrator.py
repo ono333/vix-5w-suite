@@ -789,6 +789,146 @@ def _send_confirmation(actions: list[str], uvxy: float, phase: str):
         LOG.log(f"⚠️ Email failed: {e}")
 
 
+# ── Live delta check (Layer 6) ────────────────────────────────────────────────
+
+def check_position_deltas(sandbox: bool = True) -> list[dict]:
+    """
+    Check live deltas for all open short legs via Tradier chain.
+    Sends alert email if any delta >= 0.35.
+    """
+    today = date.today()
+    if today.weekday() >= 5:
+        return []
+
+    client   = TradierClient(sandbox=sandbox)
+    state    = load_state()
+    variants = state.get("variants", {})
+    batch    = load_batch()
+    role_map = build_role_map(batch)
+
+    LOG.log("\n── check_position_deltas ──")
+    flagged = []
+
+    for key in ["V1", "V2", "V3", "V4", "V5"]:
+        v_state = variants.get(key, {})
+        short   = v_state.get("short")
+        if not short:
+            continue
+
+        short_exp = short.get("expiry")
+        if isinstance(short_exp, str):
+            try:
+                short_exp = date.fromisoformat(short_exp)
+            except Exception:
+                continue
+        if not short_exp or short_exp < today:
+            continue
+
+        short_strike = float(short.get("strike", 0))
+        v  = role_map.get(key, {})
+        dc = delta_ceil(v) if v else 0.22
+
+        try:
+            chain    = client.get_option_chain("UVXY", short_exp)
+            live_opt = next(
+                (c for c in chain
+                 if abs(float(c.get("strike", 0)) - short_strike) < 0.01
+                 and c.get("option_type", "").lower() == "call"),
+                None,
+            )
+            if not live_opt:
+                LOG.log(f"  {key}: no chain match for ${short_strike}C {short_exp}")
+                continue
+
+            greeks     = live_opt.get("greeks") or {}
+            live_delta = abs(float(greeks.get("delta", 0) or 0))
+            LOG.log(f"  {key}: ${short_strike}C {short_exp} "
+                    f"δ={live_delta:.3f} (ceil={dc:.2f})")
+
+            if live_delta >= 0.35:
+                flagged.append({
+                    "variant":    key,
+                    "strike":     short_strike,
+                    "expiry":     short_exp,
+                    "delta":      live_delta,
+                    "delta_ceil": dc,
+                })
+        except Exception as e:
+            LOG.log(f"  {key}: delta check error: {e}")
+
+    if flagged:
+        _send_delta_alert(flagged)
+
+    return flagged
+
+
+def _send_delta_alert(flagged: list[dict]):
+    try:
+        smtp_user = os.environ.get("SMTP_USER", "")
+        smtp_pass = os.environ.get("SMTP_PASS", "")
+        if not smtp_user or not smtp_pass:
+            LOG.log("⚠️ SMTP not configured — delta alert not sent")
+            return
+
+        now  = datetime.now().strftime("%b %d %Y %I:%M %p ET")
+        rows = "".join(
+            f"<tr>"
+            f"<td style='padding:8px 14px;color:#fff;font-weight:700'>{f['variant']}</td>"
+            f"<td style='padding:8px 14px;color:#ff9800'>${f['strike']:.0f}C {f['expiry']}</td>"
+            f"<td style='padding:8px 14px;color:#ff3366;font-weight:700'>δ={f['delta']:.3f}</td>"
+            f"<td style='padding:8px 14px;color:#aaa'>ceil {f['delta_ceil']:.2f}</td>"
+            f"</tr>"
+            for f in flagged
+        )
+        html = f"""
+        <div style="background:#05080a;color:#ccc;font-family:'IBM Plex Mono',monospace;
+                    padding:24px;max-width:700px;margin:0 auto">
+          <div style="font-size:20px;font-weight:800;color:#ff3366;margin-bottom:4px">
+            ⚡ Delta Alert — Roll Review Needed
+          </div>
+          <div style="font-size:11px;color:#555;margin-bottom:20px">{now}</div>
+          <table style="width:100%;border-collapse:collapse;background:#0c1215;
+                        border:1px solid #1a252c;border-radius:6px;overflow:hidden">
+            <thead>
+              <tr style="background:#111820">
+                <th style="padding:8px 14px;text-align:left;font-size:10px;color:#444;
+                           text-transform:uppercase;letter-spacing:2px">Variant</th>
+                <th style="padding:8px 14px;text-align:left;font-size:10px;color:#444;
+                           text-transform:uppercase;letter-spacing:2px">Short</th>
+                <th style="padding:8px 14px;text-align:left;font-size:10px;color:#444;
+                           text-transform:uppercase;letter-spacing:2px">Live Delta</th>
+                <th style="padding:8px 14px;text-align:left;font-size:10px;color:#444;
+                           text-transform:uppercase;letter-spacing:2px">Ceiling</th>
+              </tr>
+            </thead>
+            <tbody>{rows}</tbody>
+          </table>
+          <div style="margin-top:16px;padding:12px;background:#1a0000;
+                      border:1px solid #ff3366;border-radius:4px;
+                      color:#ff6666;font-size:12px">
+            ⚠ Delta ≥ 0.35 detected. Review positions — consider early roll.
+          </div>
+          <div style="margin-top:20px;font-size:10px;color:#333">
+            VIX 5W Suite · Tradier Orchestrator · Sandbox
+          </div>
+        </div>"""
+
+        subject = (f"[VIX DELTA] ⚡ {len(flagged)} position(s) δ≥0.35 — "
+                   f"{now[:12]}")
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"]    = smtp_user
+        msg["To"]      = smtp_user
+        msg.attach(MIMEText(html, "html"))
+
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
+            s.login(smtp_user, smtp_pass)
+            s.sendmail(smtp_user, smtp_user, msg.as_string())
+        LOG.log(f"📧 Delta alert sent: {subject[:60]}")
+    except Exception as e:
+        LOG.log(f"⚠️ Delta alert email failed: {e}")
+
+
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
 def main():
