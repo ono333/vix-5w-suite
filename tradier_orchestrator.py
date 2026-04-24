@@ -56,10 +56,11 @@ ROLL_THRESHOLD = {"V1": 30, "V2": 21, "V3": 14, "V4": 21, "V5": 21}
 LONG_DELTA_MIN = 0.65
 LONG_DELTA_MAX = 0.75
 SHORT_EMERGENCY_DELTA = 0.50
-REPRICE_SEC    = 300
-MAX_REPRICE    = 8
+REPRICE_SEC    = 900
+MAX_REPRICE    = 20
 NUDGE_BUY      = 0.05
 NUDGE_SELL     = 0.01
+STO_FLOOR_DROP = 0.20  # max drop from mid before giving up
 
 
 # ── Logger ────────────────────────────────────────────────────────────────────
@@ -365,7 +366,14 @@ def place_with_reprice(client: TradierClient, underlying: str,
         if is_buy:
             new_price = min(round(price + nudge, 2), limit)
         else:
-            new_price = max(round(price - nudge, 2), limit)
+            # STO: floor = mid - STO_FLOOR_DROP
+            sto_floor = round(mid - STO_FLOOR_DROP, 2)
+            new_price = max(round(price - nudge, 2), sto_floor)
+            if new_price <= sto_floor and new_price == price:
+                LOG.log(f"   ⛔ Floor ${sto_floor:.2f} reached — giving up")
+                try: client.cancel_order(oid)
+                except Exception: pass
+                return {"status": "floor_reached", "order_id": oid, "floor": sto_floor}
 
         if new_price == price:
             LOG.log(f"   At limit ${price:.2f} — waiting")
@@ -787,26 +795,28 @@ def run(sandbox: bool = True, preview: bool = False, check_only: bool = False):
                                     LOG.log(f"  STO ${best['strike']:.0f}C {sh_exp} "
                                             f"δ={best['delta']:.3f} bid=${best['bid']:.2f}")
                                     if not preview:
-                                        # Place at bid — sandbox fills instantly at bid
-                                        r = client.place_order(
-                                            "UVXY", best["symbol"],
-                                            "sell_to_open", 1, best["bid"])
-                                        oid = r.get("order", {}).get("id", 0)
-                                        LOG.log(f"  ✅ Order placed #{oid} @ ${best['bid']:.2f}")
-                                        log_fill(key, best["strike"], str(sh_exp), "STO",
-                                                 best["mid"], best["bid"], 1, str(oid))
-                                        variant_state["short"] = {
-                                            "symbol":     best["symbol"],
-                                            "strike":     best["strike"],
-                                            "expiry":     str(sh_exp),
-                                            "quantity":   1,
-                                            "fill_price": best["bid"],
-                                        }
-                                        variants[key] = variant_state
-                                        save_state({**state, "variants": variants})
-                                        actions_taken.append(
-                                            f"{key}: STO ${best['strike']:.0f}C {sh_exp} "
-                                            f"@ ${best['bid']:.2f}")
+                                        result = place_with_reprice(
+                                            client, "UVXY", best["symbol"],
+                                            "sell_to_open", 1,
+                                            best["bid"], best["ask"])
+                                        if result["status"] == "filled":
+                                            log_fill(key, best["strike"], str(sh_exp), "STO",
+                                                     best["mid"], result["fill_price"], 1,
+                                                     str(result.get("order_id", "")))
+                                            variant_state["short"] = {
+                                                "symbol":     best["symbol"],
+                                                "strike":     best["strike"],
+                                                "expiry":     str(sh_exp),
+                                                "quantity":   1,
+                                                "fill_price": result["fill_price"],
+                                            }
+                                            variants[key] = variant_state
+                                            save_state({**state, "variants": variants})
+                                            actions_taken.append(
+                                                f"{key}: STO ${best['strike']:.0f}C {sh_exp} "
+                                                f"@ ${result['fill_price']:.2f}")
+                                        elif result["status"] == "floor_reached":
+                                            LOG.log(f"  ⛔ {key}: floor reached — skipping")
                     except Exception as e:
                         LOG.log(f"  ❌ Short entry error: {e}")
                 elif preview:
