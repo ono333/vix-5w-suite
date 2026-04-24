@@ -201,7 +201,7 @@ class TradierClient:
             "class": "option", "symbol": symbol,
             "option_symbol": option_symbol, "side": side,
             "quantity": str(quantity), "type": "limit",
-            "duration": "gtc", "price": f"{price:.2f}",
+            "duration": "day", "price": f"{price:.2f}",
         })
 
     def cancel_order(self, order_id: int) -> dict:
@@ -217,7 +217,7 @@ class TradierClient:
 
     def modify_order(self, order_id: int, new_price: float) -> dict:
         return self._post(f"/accounts/{self.account}/orders/{order_id}", {
-            "type": "limit", "duration": "gtc",
+            "type": "limit", "duration": "day",
             "price": f"{new_price:.2f}",
         })
 
