@@ -359,6 +359,25 @@ def place_with_reprice(client: TradierClient, underlying: str,
             return {"status": "filled", "order_id": oid,
                     "fill_price": fill_px, "quantity": quantity}
 
+        if state == "partially_filled":
+            filled_qty = int(status.get("exec_quantity", 0) or 0)
+            fill_px    = float(status.get("avg_fill_price", price))
+            remaining  = quantity - filled_qty
+            LOG.log(f"   ⚡ Partial fill: {filled_qty}/{quantity} @ ${fill_px:.2f} — {remaining} remaining")
+            import pytz
+            et_now = datetime.now(pytz.timezone("America/New_York"))
+            cutoff = et_now.hour > 14 or (et_now.hour == 14 and et_now.minute >= 30)
+            if cutoff:
+                LOG.log(f"   ⏰ 2:30pm ET cutoff — canceling {remaining} remaining")
+                try: client.cancel_order(oid)
+                except Exception: pass
+                if filled_qty > 0:
+                    return {"status": "filled", "order_id": oid,
+                            "fill_price": fill_px, "quantity": filled_qty,
+                            "partial": True, "remaining": 0}
+                return {"status": "canceled", "order_id": oid}
+            LOG.log(f"   ⏳ Waiting for remainder ({remaining} contracts) — next check in {REPRICE_SEC//60}min")
+
         if state in ("canceled", "expired", "rejected"):
             return {"status": state, "order_id": oid}
 
