@@ -56,7 +56,7 @@ ROLL_THRESHOLD = {"V1": 30, "V2": 21, "V3": 14, "V4": 21, "V5": 21}
 LONG_DELTA_MIN = 0.65
 LONG_DELTA_MAX = 0.75
 SHORT_EMERGENCY_DELTA = 0.50
-REPRICE_SEC    = 60
+REPRICE_SEC    = 300
 MAX_REPRICE    = 8
 NUDGE_BUY      = 0.05
 NUDGE_SELL     = 0.01
@@ -200,7 +200,7 @@ class TradierClient:
             "class": "option", "symbol": symbol,
             "option_symbol": option_symbol, "side": side,
             "quantity": str(quantity), "type": "limit",
-            "duration": "day", "price": f"{price:.2f}",
+            "duration": "gtc", "price": f"{price:.2f}",
         })
 
     def cancel_order(self, order_id: int) -> dict:
@@ -216,7 +216,7 @@ class TradierClient:
 
     def modify_order(self, order_id: int, new_price: float) -> dict:
         return self._post(f"/accounts/{self.account}/orders/{order_id}", {
-            "type": "limit", "duration": "day",
+            "type": "limit", "duration": "gtc",
             "price": f"{new_price:.2f}",
         })
 
@@ -759,9 +759,58 @@ def run(sandbox: bool = True, preview: bool = False, check_only: bool = False):
                 except Exception:
                     pass
 
-            # Let expire if DTE ≤ 2 and OTM
-            if short_dte <= 2:
+            # Let expire if DTE 1-2
+            if short_dte > 0 and short_dte <= 2:
                 LOG.log(f"  ⏳ DTE={short_dte} — letting expire Friday")
+                continue
+
+            # DTE=0 — expiry day, enter new short now
+            if short_dte == 0:
+                LOG.log(f"  ♻️  DTE=0 — expiry day, entering new short")
+                if is_short_day and not check_only:
+                    try:
+                        sh_exp = next_friday(expirations, min_dte=7)
+                        if not sh_exp:
+                            LOG.log(f"  ❌ No short expiry found")
+                        else:
+                            chain = client.get_option_chain("UVXY", sh_exp)
+                            best  = find_short_strike(chain, dc)
+                            if not best:
+                                LOG.log(f"  ⚠️ No short strike found in delta range")
+                            else:
+                                liq_ok, liq_reason = check_liquidity(best["bid"], best["ask"])
+                                if not liq_ok:
+                                    log_skip(key, best["strike"], str(sh_exp),
+                                             best["bid"], best["ask"], liq_reason)
+                                    LOG.log(f"  ⚠️ Liquidity check failed: {liq_reason}")
+                                else:
+                                    LOG.log(f"  STO ${best['strike']:.0f}C {sh_exp} "
+                                            f"δ={best['delta']:.3f} bid=${best['bid']:.2f}")
+                                    if not preview:
+                                        # Place at bid — sandbox fills instantly at bid
+                                        r = client.place_order(
+                                            "UVXY", best["symbol"],
+                                            "sell_to_open", 1, best["bid"])
+                                        oid = r.get("order", {}).get("id", 0)
+                                        LOG.log(f"  ✅ Order placed #{oid} @ ${best['bid']:.2f}")
+                                        log_fill(key, best["strike"], str(sh_exp), "STO",
+                                                 best["mid"], best["bid"], 1, str(oid))
+                                        variant_state["short"] = {
+                                            "symbol":     best["symbol"],
+                                            "strike":     best["strike"],
+                                            "expiry":     str(sh_exp),
+                                            "quantity":   1,
+                                            "fill_price": best["bid"],
+                                        }
+                                        variants[key] = variant_state
+                                        save_state({**state, "variants": variants})
+                                        actions_taken.append(
+                                            f"{key}: STO ${best['strike']:.0f}C {sh_exp} "
+                                            f"@ ${best['bid']:.2f}")
+                    except Exception as e:
+                        LOG.log(f"  ❌ Short entry error: {e}")
+                elif preview:
+                    LOG.log(f"  [PREVIEW] Would enter new short for {key}")
 
     # ── Summary ────────────────────────────────────────────────────────────
     LOG.log(f"\n{'='*60}")
