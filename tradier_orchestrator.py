@@ -344,7 +344,13 @@ def place_with_reprice(client: TradierClient, underlying: str,
         return {"status": "failed"}
 
     for attempt in range(MAX_REPRICE):
-        time.sleep(REPRICE_SEC)
+        import pytz
+        _et = datetime.now(pytz.timezone("America/New_York"))
+        _past_230 = _et.hour > 14 or (_et.hour == 14 and _et.minute >= 30)
+        _sleep = 300 if _past_230 else REPRICE_SEC  # 5min after 2:30pm, 15min before
+        if _past_230 and attempt == 0:
+            LOG.log(f"   🔴 2:30pm mode — repricing every 5 min")
+        time.sleep(_sleep)
         try:
             status = client.get_order(oid)
             state  = status.get("status", "")
