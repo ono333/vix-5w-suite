@@ -459,29 +459,42 @@ def sync_state_from_tradier(client: TradierClient) -> dict:
             for key in ["V2","V4","V5"]:
                 variants.setdefault(key, {})["long"] = dict(lg, quantity=1)
 
-    # Map shorts to variants by strike
-    strike_to_variant = {
-        43.0: "V1", 44.5: ["V2","V5"], 46.0: "V3", 48.0: "V4"
-    }
-    for sh in shorts:
-        mapping = strike_to_variant.get(sh["strike"])
-        if not mapping: continue
-        if isinstance(mapping, list):
-            for k in mapping:
-                variants.setdefault(k, {})["short"] = sh
-        else:
-            variants.setdefault(mapping, {})["short"] = sh
-
-    # Clear expired shorts
+    # Clear expired shorts first (expiry <= today)
     for key, v in variants.items():
         sh = v.get("short")
         if sh:
             exp = sh.get("expiry")
             if isinstance(exp, str):
                 exp = date.fromisoformat(exp)
-            if isinstance(exp, date) and exp < today:
+            if isinstance(exp, date) and exp <= today:
                 v["short"] = None
                 LOG.log(f"   {key}: short expired — cleared")
+
+    # Map shorts to variants — pick shortest DTE active short per variant
+    # Sort by expiry so nearest expiry assigned first
+    active_shorts = [s for s in shorts if date.fromisoformat(str(s["expiry"])) > today]
+    active_shorts.sort(key=lambda x: x["expiry"])
+
+    # Assign shorts to variants — tightest delta ceiling gets highest strike
+    # V4 (0.15) → highest strike, V1 (0.28) → lowest strike
+    # Always reassign all from scratch using live Tradier positions
+    variant_ceilings = {"V1": 0.28, "V2": 0.22, "V3": 0.18, "V4": 0.15, "V5": 0.22}
+    for key in ["V1","V2","V3","V4","V5"]:
+        variants.setdefault(key, {})["short"] = None  # clear all first
+    needs_short = ["V1","V2","V3","V4","V5"]
+    needs_short.sort(key=lambda k: variant_ceilings[k])  # tightest first
+    # Expand multi-contract shorts into individual assignments
+    expanded = []
+    for s in sorted(active_shorts, key=lambda x: x["strike"], reverse=True):
+        qty = int(s.get("quantity", 1))
+        for _ in range(qty):
+            expanded.append(dict(s, quantity=1))
+
+    for key in needs_short:
+        if expanded:
+            best = expanded.pop(0)  # highest remaining strike
+            variants.setdefault(key, {})["short"] = best
+            LOG.log(f"   {key}: assigned short ${best['strike']}C {best['expiry']}")
 
     state["variants"] = variants
     save_state(state)
