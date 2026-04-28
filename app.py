@@ -1623,6 +1623,64 @@ Score = 0.30×VIX_pct + 0.25×VVIX_pct + 0.20×UVXY_momentum
     except Exception as _e:
         st.warning(f"Activation map unavailable: {_e}")
 
+    # ── Live Strike Finder ─────────────────────────────────────────────────────
+    st.markdown("---")
+    st.subheader("🎯 Live Strike Finder")
+    try:
+        from live_strike_finder import fetch_live_strikes, DELTA_CEILINGS
+        import pandas as pd
+
+        _lsf_col1, _lsf_col2 = st.columns([3, 1])
+        with _lsf_col2:
+            _lsf_refresh = st.button("🔄 Refresh Strikes", key="lsf_refresh")
+
+        if _lsf_refresh or "lsf_results" not in st.session_state:
+            with st.spinner("Fetching live chain from Tradier..."):
+                st.session_state["lsf_results"] = fetch_live_strikes()
+
+        _lsf = st.session_state.get("lsf_results", {})
+
+        if _lsf:
+            _lsf_rows = []
+            for _vk in ["V1", "V2", "V3", "V4", "V5"]:
+                _r = _lsf.get(_vk, {})
+                _st = _r.get("status", "unavailable")
+                if _st == "ok":
+                    _lsf_rows.append({
+                        "Variant":      _vk,
+                        "Rec. Strike":  f"${_r['strike']:.0f}C",
+                        "Delta":        f"{_r['delta']:.3f}",
+                        "Bid":          f"${_r['bid']:.2f}",
+                        "Mid":          f"${_r['mid']:.2f}",
+                        "δ Ceiling":    f"{DELTA_CEILINGS[_vk]:.2f}",
+                        "Expiry":       str(_r.get("expiry", ""))[-5:],
+                        "Status":       "✅ live",
+                    })
+                else:
+                    _lsf_rows.append({
+                        "Variant":      _vk,
+                        "Rec. Strike":  "—",
+                        "Delta":        "—",
+                        "Bid":          "—",
+                        "Mid":          "—",
+                        "δ Ceiling":    f"{DELTA_CEILINGS[_vk]:.2f}",
+                        "Expiry":       "—",
+                        "Status":       f"⚠️ {_st}",
+                    })
+
+            st.dataframe(pd.DataFrame(_lsf_rows), use_container_width=True, hide_index=True)
+
+            _lsf_ok = sum(1 for r in _lsf.values() if r.get("status") == "ok")
+            if _lsf_ok > 0:
+                _any_expiry = next((str(r["expiry"]) for r in _lsf.values() if r.get("expiry")), "")
+                st.caption(f"Tradier Sandbox · UVXY {_any_expiry} chain · {_lsf_ok}/5 variants with live data")
+            else:
+                st.info("Tradier unavailable — connect TRADIER_SANDBOX_TOKEN to see live strikes.")
+        else:
+            st.info("Click Refresh Strikes to fetch live chain.")
+    except Exception as _lsf_e:
+        st.warning(f"Live Strike Finder unavailable: {_lsf_e}")
+
     # Generate signals
     st.markdown("---")
     st.subheader("Generate Signals")

@@ -1137,6 +1137,13 @@ def build_position_aware_email(
       Paper testing only. Use only if scaling permitted. {_short_strike_band(vix_level)} OTM band active.
     </div>
 """
+    # Try fetching live strikes from Tradier; fall back silently if unavailable
+    try:
+        from live_strike_finder import fetch_live_strikes as _fetch_live
+        _live_strikes = _fetch_live()
+    except Exception:
+        _live_strikes = {}
+
     PAPER_CONTRACTS = 5
     for state in all_variants:
         variant = state.variant
@@ -1157,13 +1164,24 @@ def build_position_aware_email(
         _vp = _v_strike_params.get(_v_role, {"long_itm": 3.0, "short_otm": 3.0})
         _fresh_long_k  = round(uvxy_price - _vp["long_itm"])
         _fresh_short_k = round(uvxy_price + _vp["short_otm"])
+
+        # Overlay live strike data when Tradier is available
+        _vkey = _v_role[:2].upper()  # "v1_..." → "V1"
+        _live = _live_strikes.get(_vkey, {})
+        _live_ok = _live.get("status") == "ok"
+        if _live_ok:
+            _fresh_short_k = int(_live["strike"])
+            entry_cred     = _live["mid"]
+        _live_expiry_str = str(_live.get("expiry", ""))[-5:] if _live_ok else ""
+
         today  = datetime.now()
         long_expiry  = snap_to_uvxy_expiry((today + timedelta(weeks=variant.long_dte_weeks)).date())
         short_expiry = today + timedelta(weeks=variant.short_dte_weeks)
         days_fri = (4 - short_expiry.weekday()) % 7 or 7
         short_expiry = short_expiry + timedelta(days=days_fri)
         long_exp_str  = long_expiry.strftime("%b %d")
-        short_exp_str = short_expiry.strftime("%b %d")
+        short_exp_str = (_live_expiry_str if _live_ok and _live_expiry_str
+                         else short_expiry.strftime("%b %d"))
         bc = "#4CAF50" if is_rec else "#9e9e9e"
         bg = "#f1f8e9" if is_rec else "#fafafa"
         badge = ('<span style="background:#4CAF50;color:#fff;padding:2px 7px;'
@@ -1174,6 +1192,11 @@ def build_position_aware_email(
         pos_badge = ('<span style="background:#2196F3;color:#fff;padding:2px 7px;'
                      'border-radius:3px;font-size:10px;margin-left:5px;">HAS POSITION</span>'
                      if has_pos else "")
+        _live_badge = ('<span style="background:#00897b;color:#fff;padding:2px 6px;'
+                       'border-radius:3px;font-size:9px;margin-left:5px;">LIVE</span>'
+                       if _live_ok else "")
+        _delta_str = (f'δ={_live["delta"]:.3f} &nbsp; bid=${_live["bid"]:.2f}'
+                      if _live_ok else f'est. ${entry_cred:.2f}/c')
         html += f"""
     <div style="background:{bg};border-left:4px solid {bc};border-radius:4px;
                 padding:12px;margin-bottom:10px;">
@@ -1186,14 +1209,12 @@ def build_position_aware_email(
         <tr>
           <td style="padding:3px 0;color:#555;">Long:</td>
           <td>${_fresh_long_k:.0f} exp {long_exp_str} ({variant.long_dte_weeks}w)</td>
-          <td style="padding:3px 0;color:#555;">Short:</td>
-          <td>${_fresh_short_k:.0f} exp {short_exp_str}</td>
+          <td style="padding:3px 0;color:#555;">Short:{_live_badge}</td>
+          <td><strong>${_fresh_short_k:.0f}</strong> exp {short_exp_str}</td>
         </tr>
         <tr style="background:rgba(76,175,80,0.1);">
-          <td style="padding:3px 0;color:#555;">Est. Credit:</td>
-          <td style="font-weight:700;color:#2e7d32;">${entry_cred:.2f}/c</td>
-          <td style="padding:3px 0;color:#555;">Contracts:</td>
-          <td>{PAPER_CONTRACTS} (paper)</td>
+          <td style="padding:3px 0;color:#555;">Credit:</td>
+          <td style="font-weight:700;color:#2e7d32;" colspan="3">{_delta_str}</td>
         </tr>
       </table>
     </div>
