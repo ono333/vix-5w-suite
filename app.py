@@ -6905,6 +6905,29 @@ def main():
                     st.sidebar.error(f"❌ Member email error: {_me}")
                     st.sidebar.code(traceback.format_exc())
 
+    # ── Japan Mode toggle ────────────────────────────────────────────────────
+    st.sidebar.markdown("---")
+    try:
+        from vix_suite_config import load_config as _load_cfg, save_config as _save_cfg
+        _jcfg     = _load_cfg()
+        _japan_on = _jcfg.get("japan_mode", False)
+        _japan_new = st.sidebar.checkbox(
+            "🇯🇵 Japan Mode",
+            value=_japan_on,
+            key="japan_mode_toggle",
+            help="δ alert 0.45→0.35 · Adds JST time to alert email subjects",
+        )
+        if _japan_new != _japan_on:
+            _jcfg["japan_mode"] = _japan_new
+            _save_cfg(_jcfg)
+            st.sidebar.success("Japan Mode " + ("ON 🇯🇵" if _japan_new else "OFF"))
+        if _japan_new:
+            from datetime import timezone as _tz
+            _jst_now = datetime.utcnow() + timedelta(hours=9)
+            st.sidebar.caption(f"JST: {_jst_now.strftime('%H:%M')} · δ trigger: 0.35")
+    except Exception as _je:
+        st.sidebar.caption(f"⚠️ Japan Mode config: {_je}")
+
     st.sidebar.markdown("---")
 
     if "Real Trading" in mode:

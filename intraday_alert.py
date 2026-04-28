@@ -152,10 +152,17 @@ def get_uvxy_price() -> float:
 # ── Email builder ─────────────────────────────────────────────────────────────
 
 def build_alert_email(alerts: list, watches: list, uvxy: float,
-                      all_entries: list = None) -> tuple[str, str]:
+                      all_entries: list = None,
+                      japan_mode: bool = False) -> tuple[str, str]:
     now     = datetime.now().strftime("%b %d %Y %I:%M %p ET")
     urgency = "URGENT ACTION REQUIRED" if alerts else "WATCH ALERT"
-    subject = f"{ALERT_SUBJECT_PREFIX} {urgency} -- UVXY ${uvxy:.2f} -- {now}"
+    if japan_mode:
+        from datetime import timezone
+        _jst = datetime.now(tz=timezone.utc) + timedelta(hours=9)
+        _jst_tag = f"🇯🇵 JST {_jst.strftime('%H:%M')} · "
+    else:
+        _jst_tag = ""
+    subject = f"{ALERT_SUBJECT_PREFIX} {_jst_tag}{urgency} -- UVXY ${uvxy:.2f} -- {now}"
 
     rows = ""
     for a in alerts:
@@ -281,6 +288,17 @@ def main(force_send: bool = False):
     if today.weekday() >= 5:
         print("Weekend -- skipping")
         return
+
+    # Japan Mode — read once at startup
+    try:
+        from vix_suite_config import load_config as _load_cfg
+        _cfg = _load_cfg()
+    except Exception:
+        _cfg = {}
+    _japan = bool(_cfg.get("japan_mode", False))
+    _delta_trigger = 0.35 if _japan else 0.45
+    if _japan:
+        print(f"[intraday] Japan Mode ON — delta trigger lowered to {_delta_trigger}")
     try:
         from market_calendar import is_market_open
         if not is_market_open(today):
@@ -334,7 +352,7 @@ def main(force_send: bool = False):
             short_delta      = getattr(short, "delta", None),
             uvxy_price       = uvxy_price,
             short_strike     = short.strike,
-            variant_params   = {"roll_dte_days": 0, "delta_trigger": 0.45,
+            variant_params   = {"roll_dte_days": 0, "delta_trigger": _delta_trigger,
                                 "spike_guard_days": 2},
             last_spike_date  = None,
             original_premium = short.entry_credit,
@@ -377,7 +395,8 @@ def main(force_send: bool = False):
             watches.append(entry)
 
     if alerts or watches or force_send:
-        subject, html = build_alert_email(alerts, watches, uvxy_price, all_entries)
+        subject, html = build_alert_email(alerts, watches, uvxy_price, all_entries,
+                                          japan_mode=_japan)
         send_email(subject, html)
         if not alerts and not watches:
             print("Force-send test email sent")
