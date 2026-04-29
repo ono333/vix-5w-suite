@@ -6661,6 +6661,19 @@ def main():
     
     # Mode selector
     st.sidebar.title("VIX 5% Weekly Suite")
+    # Snapshot timestamp
+    try:
+        import json
+        from datetime import datetime
+        from pathlib import Path as _P
+        _snap = json.loads((_P.home() / ".vix_suite" / "vol_snapshots.json").read_text())
+        _snaps = _snap if isinstance(_snap, list) else _snap.get("snapshots", [])
+        _last = _snaps[-1]["captured_at"]
+        _age = (datetime.now() - datetime.fromisoformat(_last)).seconds // 60
+        _age_str = f"{_age}m ago" if _age > 0 else "just now"
+        st.sidebar.caption(f"🕐 Data: {_last[11:16]} ET · {_age_str}")
+    except Exception:
+        st.sidebar.caption("🕐 No snapshot")
     
     mode = st.sidebar.radio(
         "Mode",

@@ -1617,7 +1617,7 @@ def build_real_capital_email(
           <td style="padding:4px 8px;color:#aa8866;">Long</td>
           <td style="padding:4px 8px;">${pos.long_strike:.0f} exp {pos.long_expiration}</td>
           <td style="padding:4px 8px;color:#aa8866;">Short</td>
-          <td style="padding:4px 8px;">${short.strike:.0f} exp {short.expiration_date if short else '—'}</td>
+          <td style="padding:4px 8px;">${f"{short.strike:.0f} exp {short.expiration_date}" if short else '—'}</td>
         </tr>
         <tr>
           <td style="padding:4px 8px;color:#aa8866;">Roll Trigger</td>
