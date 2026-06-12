@@ -757,13 +757,22 @@ def run(sandbox: bool = True, preview: bool = False, check_only: bool = False):
                         # 2. Next Friday (+1 week), delta ≤ ceiling
                         # 3. Nearest Friday, delta ≤ ceiling + 0.05
                         # 4. Next Friday, delta ≤ ceiling + 0.05
-                        sh_exp2   = next_friday(expirations, min_dte=14)
+                        sh_exp2    = next_friday(expirations, min_dte=14)
                         dc_relaxed = round(dc + 0.05, 2)
+                        # Only relax delta ceiling in calm/low-vol environments
+                        # Never relax during spikes or collapse — too close to money
+                        _safe_to_relax = (not collapse) and (uvxy < 40.0)
+                        if not _safe_to_relax:
+                            LOG.log(f"  ℹ️ Delta relaxation disabled "
+                                    f"(UVXY=${uvxy:.2f} collapse={collapse})")
                         ladder = [
                             (sh_exp,  dc,         ""),
                             (sh_exp2, dc,         "extended to 2-week expiry"),
-                            (sh_exp,  dc_relaxed, f"delta ceiling relaxed to {dc_relaxed:.2f}"),
-                            (sh_exp2, dc_relaxed, f"extended + relaxed to {dc_relaxed:.2f}"),
+                            *([(sh_exp,  dc_relaxed,
+                                f"delta ceiling relaxed to {dc_relaxed:.2f}"),
+                               (sh_exp2, dc_relaxed,
+                                f"extended + relaxed to {dc_relaxed:.2f}")]
+                              if _safe_to_relax else []),
                         ]
 
                         best      = None
@@ -873,14 +882,21 @@ def run(sandbox: bool = True, preview: bool = False, check_only: bool = False):
                 LOG.log(f"  ♻️  DTE=0 — expiry day, entering new short")
                 if is_short_day and not check_only:
                     try:
-                        sh_exp  = next_friday(expirations, min_dte=7)
-                        sh_exp2 = next_friday(expirations, min_dte=14)
+                        sh_exp     = next_friday(expirations, min_dte=7)
+                        sh_exp2    = next_friday(expirations, min_dte=14)
                         dc_relaxed = round(dc + 0.05, 2)
+                        _safe_to_relax = (not collapse) and (uvxy < 40.0)
+                        if not _safe_to_relax:
+                            LOG.log(f"  ℹ️ Delta relaxation disabled "
+                                    f"(UVXY=${uvxy:.2f} collapse={collapse})")
                         ladder = [
                             (sh_exp,  dc,         ""),
                             (sh_exp2, dc,         "extended to 2-week expiry"),
-                            (sh_exp,  dc_relaxed, f"delta ceiling relaxed to {dc_relaxed:.2f}"),
-                            (sh_exp2, dc_relaxed, f"extended + relaxed to {dc_relaxed:.2f}"),
+                            *([(sh_exp,  dc_relaxed,
+                                f"delta ceiling relaxed to {dc_relaxed:.2f}"),
+                               (sh_exp2, dc_relaxed,
+                                f"extended + relaxed to {dc_relaxed:.2f}")]
+                              if _safe_to_relax else []),
                         ]
                         best      = None
                         used_exp  = None
