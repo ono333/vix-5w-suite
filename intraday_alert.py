@@ -323,6 +323,70 @@ def main(force_send: bool = False):
 
     print(f"UVXY: ${uvxy_price:.2f}  |  {datetime.now().strftime('%H:%M ET')}")
 
+    # ── Long leg guardian ─────────────────────────────────────────────────────
+    # Check every variant's long leg DTE daily — alert if expiry approaching
+    try:
+        import pytz
+        _long_state_path = Path.home() / ".vix_suite" / "tradier_long_state.json"
+        if _long_state_path.exists():
+            _long_state = json.loads(_long_state_path.read_text())
+            _long_alerts = []
+            for _vk, _vs in _long_state.get("variants", {}).items():
+                _lg = _vs.get("long")
+                if not _lg:
+                    _long_alerts.append((_vk, 0, "NO LONG LEG"))
+                    continue
+                _exp_str = str(_lg.get("expiry", ""))
+                try:
+                    _exp = date.fromisoformat(_exp_str)
+                    _dte = (_exp - today).days
+                    if _dte <= 14:
+                        _long_alerts.append((_vk, _dte, f"${_lg['strike']:.0f}C exp {_exp_str} DTE={_dte}"))
+                except Exception:
+                    pass
+            if _long_alerts:
+                _rows = "".join(
+                    f"<tr><td style='padding:8px 14px;font-weight:700'>{v}</td>"
+                    f"<td style='padding:8px 14px;color:{'#cc0000' if d<=7 else '#cc6600'}'>"
+                    f"DTE={d}</td>"
+                    f"<td style='padding:8px 14px'>{note}</td></tr>"
+                    for v, d, note in _long_alerts
+                )
+                _html = f"""
+                <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;
+                            padding:20px;background:#fff8f0;border-left:4px solid #ff9800;">
+                  <h3 style="color:#cc6600;">⚠️ Long Leg Expiry Warning</h3>
+                  <p>{datetime.now(pytz.timezone('America/New_York')).strftime('%b %d %Y %I:%M %p ET')}</p>
+                  <table style="border-collapse:collapse;width:100%;background:#fff">
+                    <tr style="background:#f0f0f0">
+                      <th style="padding:8px 14px;text-align:left">Variant</th>
+                      <th style="padding:8px 14px;text-align:left">DTE</th>
+                      <th style="padding:8px 14px;text-align:left">Position</th>
+                    </tr>
+                    {_rows}
+                  </table>
+                  <p style="margin-top:16px;color:#cc6600;font-size:12px">
+                    Roll needed before expiry — orchestrator runs Mon/Fri 10:15am ET.
+                    If expiry is within 7 days and today is not Mon/Fri, manual roll required.
+                  </p>
+                  <p style="font-size:10px;color:#999">VIX 5W Suite · Long Leg Guardian</p>
+                </div>"""
+                _subj = (f"[VIX LONG] ⚠️ {len(_long_alerts)} long leg(s) expiring soon "
+                         f"— {', '.join(v for v,d,n in _long_alerts)}")
+                _msg = MIMEMultipart("alternative")
+                _msg["Subject"] = _subj
+                _msg["From"]    = SMTP_USER
+                _msg["To"]      = SMTP_USER
+                _msg.attach(MIMEText(_html, "html"))
+                if SMTP_USER and SMTP_PASS:
+                    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as _s:
+                        _s.login(SMTP_USER, SMTP_PASS)
+                        _s.sendmail(SMTP_USER, SMTP_USER, _msg.as_string())
+                    print(f"📧 Long leg guardian alert sent: {len(_long_alerts)} variant(s)")
+    except Exception as _lge:
+        print(f"Long leg guardian error: {_lge}")
+    # ── End long leg guardian ──────────────────────────────────────────────────
+
     batch    = _load_batch()
     role_map = _build_role_map(batch)
 

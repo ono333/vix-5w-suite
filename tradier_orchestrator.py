@@ -311,6 +311,19 @@ def find_short_strike(chain: list[dict], dc: float,
 
 # ── Order executor ────────────────────────────────────────────────────────────
 
+def _et_now():
+    import pytz
+    return datetime.now(pytz.timezone("America/New_York"))
+
+def _market_open() -> bool:
+    """True if current ET time is between 9:30am and 3:55pm on a weekday."""
+    et = _et_now()
+    if et.weekday() >= 5:
+        return False
+    open_time  = et.replace(hour=9,  minute=30, second=0, microsecond=0)
+    close_time = et.replace(hour=15, minute=55, second=0, microsecond=0)
+    return open_time <= et <= close_time
+
 def place_with_reprice(client: TradierClient, underlying: str,
                        option_symbol: str, side: str,
                        quantity: int, bid: float, ask: float) -> dict:
@@ -319,6 +332,11 @@ def place_with_reprice(client: TradierClient, underlying: str,
     BTO: nudge toward ask. STO: nudge toward bid.
     Sandbox: cancel + re-place. Live: modify.
     """
+    if not _market_open():
+        et = _et_now()
+        LOG.log(f"   🚫 Market closed ({et.strftime('%H:%M ET')}) — order blocked")
+        return {"status": "market_closed"}
+
     is_buy  = "buy" in side.lower()
     mid     = round((bid + ask) / 2, 2)
     price   = mid
@@ -734,45 +752,85 @@ def run(sandbox: bool = True, preview: bool = False, check_only: bool = False):
                         LOG.log(f"  ❌ No short expiry found")
                         continue
                     try:
-                        chain = client.get_option_chain("UVXY", sh_exp)
-                        best  = find_short_strike(chain, dc)
+                        # ── 4-step fallback ladder ─────────────────────────
+                        # 1. Nearest Friday, delta ≤ ceiling
+                        # 2. Next Friday (+1 week), delta ≤ ceiling
+                        # 3. Nearest Friday, delta ≤ ceiling + 0.05
+                        # 4. Next Friday, delta ≤ ceiling + 0.05
+                        sh_exp2   = next_friday(expirations, min_dte=14)
+                        dc_relaxed = round(dc + 0.05, 2)
+                        ladder = [
+                            (sh_exp,  dc,         ""),
+                            (sh_exp2, dc,         "extended to 2-week expiry"),
+                            (sh_exp,  dc_relaxed, f"delta ceiling relaxed to {dc_relaxed:.2f}"),
+                            (sh_exp2, dc_relaxed, f"extended + relaxed to {dc_relaxed:.2f}"),
+                        ]
+
+                        best      = None
+                        used_exp  = None
+                        used_note = ""
+
+                        for _exp, _dc, _note in ladder:
+                            if not _exp:
+                                continue
+                            try:
+                                _chain = client.get_option_chain("UVXY", _exp)
+                                _best  = find_short_strike(_chain, _dc)
+                            except Exception as _e:
+                                LOG.log(f"  ❌ Chain error {_exp}: {_e}")
+                                continue
+                            if not _best:
+                                LOG.log(f"  ↳ No strike at {_exp} δ≤{_dc:.2f}")
+                                continue
+                            if _best["strike"] <= long_strike:
+                                LOG.log(f"  ↳ ${_best['strike']:.0f}C ≤ long ${long_strike:.0f}C — skip")
+                                continue
+                            liq_ok, liq_reason = check_liquidity(_best["bid"], _best["ask"])
+                            if not liq_ok:
+                                LOG.log(f"  ↳ {_exp} illiquid: {liq_reason}")
+                                log_skip(key, _best["strike"], str(_exp),
+                                         _best["bid"], _best["ask"], liq_reason)
+                                continue
+                            best      = _best
+                            used_exp  = _exp
+                            used_note = _note
+                            break
+
                         if not best:
-                            LOG.log(f"  ⚠️ No short strike found for δ≤{dc:.2f}")
+                            LOG.log(f"  ⚠️ No short strike found after 4-step ladder — skipping")
+                            _send_no_strike_alert(key, dc, uvxy, phase)
                             continue
-                        if best["strike"] <= long_strike:
-                            LOG.log(f"  ❌ Short ${best['strike']:.0f}C ≤ "
-                                    f"long ${long_strike:.0f}C — blocked")
-                            continue
-                        LOG.log(f"  STO ${best['strike']:.0f}C {sh_exp} "
+
+                        if used_note:
+                            LOG.log(f"  ℹ️ Fallback used: {used_note}")
+
+                        LOG.log(f"  STO ${best['strike']:.0f}C {used_exp} "
                                 f"δ={best['delta']:.3f} bid=${best['bid']:.2f}")
-                        liq_ok, liq_reason = check_liquidity(best["bid"], best["ask"])
-                        if not liq_ok:
-                            log_skip(key, best["strike"], str(sh_exp),
-                                     best["bid"], best["ask"], liq_reason)
-                            LOG.log(f"  ⚠️ Liquidity check failed: {liq_reason}")
-                            continue
                         if not preview:
                             result = place_with_reprice(
                                 client, "UVXY", best["symbol"],
                                 "sell_to_open", 1,
                                 best["bid"], best["ask"])
                             if result["status"] == "filled":
-                                log_fill(key, best["strike"], str(sh_exp), "STO",
+                                log_fill(key, best["strike"], str(used_exp), "STO",
                                          best["mid"], result["fill_price"], 1,
                                          str(result.get("order_id", "")))
                                 variant_state["short"] = {
                                     "symbol":     best["symbol"],
                                     "strike":     best["strike"],
-                                    "expiry":     str(sh_exp),
-                                    "dte":        (sh_exp-today).days,
+                                    "expiry":     str(used_exp),
+                                    "dte":        (used_exp-today).days,
                                     "quantity":   1,
                                     "fill_price": result["fill_price"],
                                 }
                                 variants[key] = variant_state
                                 save_state({**state, "variants": variants})
                                 actions_taken.append(
-                                    f"{key}: STO ${best['strike']:.0f}C {sh_exp} "
-                                    f"@ ${result['fill_price']:.2f}")
+                                    f"{key}: STO ${best['strike']:.0f}C {used_exp} "
+                                    f"@ ${result['fill_price']:.2f}"
+                                    + (f" [{used_note}]" if used_note else ""))
+                            elif result["status"] == "market_closed":
+                                LOG.log(f"  🚫 {key}: order blocked — market closed")
                     except Exception as e:
                         LOG.log(f"  ❌ Short entry error: {e}")
             else:
@@ -815,46 +873,78 @@ def run(sandbox: bool = True, preview: bool = False, check_only: bool = False):
                 LOG.log(f"  ♻️  DTE=0 — expiry day, entering new short")
                 if is_short_day and not check_only:
                     try:
-                        sh_exp = next_friday(expirations, min_dte=7)
-                        if not sh_exp:
-                            LOG.log(f"  ❌ No short expiry found")
+                        sh_exp  = next_friday(expirations, min_dte=7)
+                        sh_exp2 = next_friday(expirations, min_dte=14)
+                        dc_relaxed = round(dc + 0.05, 2)
+                        ladder = [
+                            (sh_exp,  dc,         ""),
+                            (sh_exp2, dc,         "extended to 2-week expiry"),
+                            (sh_exp,  dc_relaxed, f"delta ceiling relaxed to {dc_relaxed:.2f}"),
+                            (sh_exp2, dc_relaxed, f"extended + relaxed to {dc_relaxed:.2f}"),
+                        ]
+                        best      = None
+                        used_exp  = None
+                        used_note = ""
+                        for _exp, _dc, _note in ladder:
+                            if not _exp:
+                                continue
+                            try:
+                                _chain = client.get_option_chain("UVXY", _exp)
+                                _best  = find_short_strike(_chain, _dc)
+                            except Exception as _e:
+                                LOG.log(f"  ❌ Chain error {_exp}: {_e}")
+                                continue
+                            if not _best:
+                                LOG.log(f"  ↳ No strike at {_exp} δ≤{_dc:.2f}")
+                                continue
+                            if _best["strike"] <= long_strike:
+                                LOG.log(f"  ↳ ${_best['strike']:.0f}C ≤ long ${long_strike:.0f}C — skip")
+                                continue
+                            liq_ok, liq_reason = check_liquidity(_best["bid"], _best["ask"])
+                            if not liq_ok:
+                                LOG.log(f"  ↳ {_exp} illiquid: {liq_reason}")
+                                log_skip(key, _best["strike"], str(_exp),
+                                         _best["bid"], _best["ask"], liq_reason)
+                                continue
+                            best      = _best
+                            used_exp  = _exp
+                            used_note = _note
+                            break
+                        if not best:
+                            LOG.log(f"  ⚠️ No short strike found after 4-step ladder — skipping")
+                            _send_no_strike_alert(key, dc, uvxy, phase)
                         else:
-                            chain = client.get_option_chain("UVXY", sh_exp)
-                            best  = find_short_strike(chain, dc)
-                            if not best:
-                                LOG.log(f"  ⚠️ No short strike found in delta range")
-                            else:
-                                liq_ok, liq_reason = check_liquidity(best["bid"], best["ask"])
-                                if not liq_ok:
-                                    log_skip(key, best["strike"], str(sh_exp),
-                                             best["bid"], best["ask"], liq_reason)
-                                    LOG.log(f"  ⚠️ Liquidity check failed: {liq_reason}")
-                                else:
-                                    LOG.log(f"  STO ${best['strike']:.0f}C {sh_exp} "
-                                            f"δ={best['delta']:.3f} bid=${best['bid']:.2f}")
-                                    if not preview:
-                                        result = place_with_reprice(
-                                            client, "UVXY", best["symbol"],
-                                            "sell_to_open", 1,
-                                            best["bid"], best["ask"])
-                                        if result["status"] == "filled":
-                                            log_fill(key, best["strike"], str(sh_exp), "STO",
-                                                     best["mid"], result["fill_price"], 1,
-                                                     str(result.get("order_id", "")))
-                                            variant_state["short"] = {
-                                                "symbol":     best["symbol"],
-                                                "strike":     best["strike"],
-                                                "expiry":     str(sh_exp),
-                                                "quantity":   1,
-                                                "fill_price": result["fill_price"],
-                                            }
-                                            variants[key] = variant_state
-                                            save_state({**state, "variants": variants})
-                                            actions_taken.append(
-                                                f"{key}: STO ${best['strike']:.0f}C {sh_exp} "
-                                                f"@ ${result['fill_price']:.2f}")
-                                        elif result["status"] == "floor_reached":
-                                            LOG.log(f"  ⛔ {key}: floor reached — skipping")
+                            if used_note:
+                                LOG.log(f"  ℹ️ Fallback used: {used_note}")
+                            LOG.log(f"  STO ${best['strike']:.0f}C {used_exp} "
+                                    f"δ={best['delta']:.3f} bid=${best['bid']:.2f}")
+                            if not preview:
+                                result = place_with_reprice(
+                                    client, "UVXY", best["symbol"],
+                                    "sell_to_open", 1,
+                                    best["bid"], best["ask"])
+                                if result["status"] == "filled":
+                                    log_fill(key, best["strike"], str(used_exp), "STO",
+                                             best["mid"], result["fill_price"], 1,
+                                             str(result.get("order_id", "")))
+                                    variant_state["short"] = {
+                                        "symbol":     best["symbol"],
+                                        "strike":     best["strike"],
+                                        "expiry":     str(used_exp),
+                                        "dte":        (used_exp-today).days,
+                                        "quantity":   1,
+                                        "fill_price": result["fill_price"],
+                                    }
+                                    variants[key] = variant_state
+                                    save_state({**state, "variants": variants})
+                                    actions_taken.append(
+                                        f"{key}: STO ${best['strike']:.0f}C {used_exp} "
+                                        f"@ ${result['fill_price']:.2f}"
+                                        + (f" [{used_note}]" if used_note else ""))
+                                elif result["status"] == "market_closed":
+                                    LOG.log(f"  🚫 {key}: order blocked — market closed")
+                                elif result["status"] == "floor_reached":
+                                    LOG.log(f"  ⛔ {key}: floor reached — skipping")
                     except Exception as e:
                         LOG.log(f"  ❌ Short entry error: {e}")
                 elif preview:
@@ -872,6 +962,96 @@ def run(sandbox: bool = True, preview: bool = False, check_only: bool = False):
         _send_confirmation(actions_taken, uvxy, phase)
 
     return {"status": "ok", "actions": actions_taken}
+
+
+# ── Unfilled order alert ──────────────────────────────────────────────────────
+
+def _send_unfilled_alert(option_symbol: str, side: str, last_price: float, order_id):
+    try:
+        smtp_user = os.environ.get("SMTP_USER", "")
+        smtp_pass = os.environ.get("SMTP_PASS", "")
+        if not smtp_user or not smtp_pass:
+            return
+        import pytz
+        now = datetime.now(pytz.timezone("America/New_York")).strftime("%b %d %Y %I:%M %p ET")
+        subject = f"[Tradier] ❌ Unfilled order canceled — {option_symbol}"
+        html = f"""
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;
+                    background:#fff0f0;border-left:4px solid #cc0000;">
+          <h3 style="color:#cc0000;">❌ Order Canceled After Max Reprice</h3>
+          <p>Reached maximum reprice attempts without a fill at {now}.</p>
+          <table style="border-collapse:collapse;width:100%">
+            <tr><td style="padding:6px;color:#666">Symbol</td>
+                <td style="padding:6px;font-weight:700">{option_symbol}</td></tr>
+            <tr><td style="padding:6px;color:#666">Side</td>
+                <td style="padding:6px">{side}</td></tr>
+            <tr><td style="padding:6px;color:#666">Last price</td>
+                <td style="padding:6px">${last_price:.2f}</td></tr>
+            <tr><td style="padding:6px;color:#666">Order ID</td>
+                <td style="padding:6px">{order_id}</td></tr>
+          </table>
+          <p style="margin-top:16px;color:#cc0000;font-size:12px">
+            Order has been canceled. Manual review recommended.
+          </p>
+          <p style="font-size:10px;color:#999">VIX 5W Suite · Tradier Orchestrator</p>
+        </div>"""
+        msg = __import__("email.mime.multipart", fromlist=["MIMEMultipart"]).MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"]    = smtp_user
+        msg["To"]      = smtp_user
+        msg.attach(__import__("email.mime.text", fromlist=["MIMEText"]).MIMEText(html, "html"))
+        import smtplib
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
+            s.login(smtp_user, smtp_pass)
+            s.sendmail(smtp_user, smtp_user, msg.as_string())
+        LOG.log(f"📧 Unfilled alert sent: {option_symbol}")
+    except Exception as e:
+        LOG.log(f"⚠️ Unfilled alert failed: {e}")
+
+
+# ── No-strike alert email ─────────────────────────────────────────────────────
+
+def _send_no_strike_alert(variant: str, dc: float, uvxy: float, phase: str):
+    try:
+        smtp_user = os.environ.get("SMTP_USER", "")
+        smtp_pass = os.environ.get("SMTP_PASS", "")
+        if not smtp_user or not smtp_pass:
+            return
+        import pytz
+        now = datetime.now(pytz.timezone("America/New_York")).strftime("%b %d %Y %I:%M %p ET")
+        subject = f"[Tradier] ⚠️ {variant}: no short strike found — UVXY ${uvxy:.2f}"
+        html = f"""
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;
+                    background:#fff8f0;border-left:4px solid #ff9800;">
+          <h3 style="color:#cc6600;">⚠️ No Short Strike Found — {variant}</h3>
+          <p>All 4 fallback attempts failed at {now}.</p>
+          <table style="border-collapse:collapse;width:100%">
+            <tr><td style="padding:6px;color:#666">Variant</td>
+                <td style="padding:6px;font-weight:700">{variant}</td></tr>
+            <tr><td style="padding:6px;color:#666">Delta ceiling</td>
+                <td style="padding:6px">≤{dc:.2f} (tried up to {dc+0.05:.2f})</td></tr>
+            <tr><td style="padding:6px;color:#666">UVXY</td>
+                <td style="padding:6px">${uvxy:.2f}</td></tr>
+            <tr><td style="padding:6px;color:#666">Phase</td>
+                <td style="padding:6px">{phase}</td></tr>
+          </table>
+          <p style="margin-top:16px;color:#cc6600;font-size:12px">
+            {variant} will have no short this week. Manual review recommended.
+          </p>
+          <p style="font-size:10px;color:#999">VIX 5W Suite · Tradier Orchestrator</p>
+        </div>"""
+        msg = __import__("email.mime.multipart", fromlist=["MIMEMultipart"]).MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"]    = smtp_user
+        msg["To"]      = smtp_user
+        msg.attach(__import__("email.mime.text", fromlist=["MIMEText"]).MIMEText(html, "html"))
+        import smtplib
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
+            s.login(smtp_user, smtp_pass)
+            s.sendmail(smtp_user, smtp_user, msg.as_string())
+        LOG.log(f"📧 No-strike alert sent for {variant}")
+    except Exception as e:
+        LOG.log(f"⚠️ No-strike alert failed: {e}")
 
 
 # ── Confirmation email ────────────────────────────────────────────────────────
