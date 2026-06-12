@@ -377,6 +377,14 @@ def place_with_reprice(client: TradierClient, underlying: str,
 
         LOG.log(f"   [{attempt+1}] status={state} @ ${price:.2f}")
 
+        # Hard stop if market closed during reprice loop
+        if not _market_open():
+            et = _et_now()
+            LOG.log(f"   🚫 Market closed ({et.strftime('%H:%M ET')}) — stopping reprice loop")
+            try: client.cancel_order(oid)
+            except Exception: pass
+            return {"status": "market_closed", "order_id": oid}
+
         if state == "filled":
             fill_px = float(status.get("avg_fill_price", price))
             LOG.log(f"   ✅ Filled @ ${fill_px:.2f}")
