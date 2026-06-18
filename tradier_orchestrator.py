@@ -1261,6 +1261,16 @@ def _send_delta_alert(flagged: list[dict]):
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
 def main():
+    # ── Holiday guard ─────────────────────────────────────────────────────────
+    from market_calendar import is_market_open, get_next_trading_day
+    from datetime import date
+    today = date.today()
+    if not is_market_open(today):
+        next_day = get_next_trading_day(today)
+        print(f"⛔ Market closed today ({today}). Next trading day: {next_day}. Exiting.")
+        return
+    # ─────────────────────────────────────────────────────────────────────────
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--check",   action="store_true", help="Status only")
     parser.add_argument("--preview", action="store_true", help="Show decisions only")
