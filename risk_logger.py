@@ -11,10 +11,11 @@ Logs, per trading day, the measures that gate short-premium edge:
   spread_flag_rate  share of own reprice/placement quote rows flagged wide-spread
                     that day (market-maker stress from your own database)
 
-Data: yfinance (^VIX, ^VIX3M, ^VIX9D, ^VVIX, ^GSPC) + own quotes table.
+Data: yfinance (^VIX, ^VVIX, ^GSPC) + CBOE daily CSVs (VIX3M, VIX9D — Yahoo
+lags these by ~a week) + own quotes table.
 Writes only the risk_measures table in ~/.vix_suite/market_data.db. Additive;
 never touches existing tables. Idempotent — safe to run any day, any number
-of times (rows are upserted by date).
+of times (rows are upserted by date; spread_flag_rate is preserved).
 
 Usage:
   python3 risk_logger.py            # upsert last ~3 months (the daily run)
@@ -69,12 +70,39 @@ def connect():
 
 
 # ------------------------------------------------------------- fetching -----
+CBOE_URL = "https://cdn.cboe.com/api/global/us_indices/daily_prices/{}_History.csv"
+
+
+def fetch_cboe_close(name):
+    """CLOSE series from a CBOE daily-prices CSV (DATE,OPEN,HIGH,LOW,CLOSE)."""
+    import io
+    import pandas as pd
+    import requests
+    r = requests.get(CBOE_URL.format(name), timeout=30)
+    r.raise_for_status()
+    df = pd.read_csv(io.StringIO(r.text))
+    df["DATE"] = pd.to_datetime(df["DATE"])
+    return df.set_index("DATE")["CLOSE"]
+
+
 def fetch_closes(period):
-    """Daily closes for all tickers as a DataFrame with friendly column names."""
+    """Daily closes as a DataFrame with friendly column names.
+    VIX/VVIX/SPX via yfinance; VIX3M/VIX9D via CBOE CSVs (Yahoo lags them)."""
+    import pandas as pd
     import yfinance as yf
-    df = yf.download(list(TICKERS.values()), period=period, interval="1d",
-                     progress=False, auto_adjust=False)["Close"]
-    df = df.rename(columns={v: k for k, v in TICKERS.items()})
+    yf_keys = ("vix", "vvix", "spx")
+    df = yf.download([TICKERS[k] for k in yf_keys], period=period,
+                     interval="1d", progress=False, auto_adjust=False)["Close"]
+    df = df.rename(columns={TICKERS[k]: k for k in yf_keys})
+    df.index = pd.to_datetime(df.index).tz_localize(None).normalize()
+    for key, sym in (("vix3m", "VIX3M"), ("vix9d", "VIX9D")):
+        try:
+            s = fetch_cboe_close(sym)
+            s.index = pd.to_datetime(s.index).tz_localize(None).normalize()
+            df[key] = s.reindex(df.index)
+        except Exception as e:
+            log(f"risk: CBOE {sym} fetch failed ({e}); column left empty")
+            df[key] = float("nan")
     return df.dropna(how="all")
 
 
