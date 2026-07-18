@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+</head>
+<body style="margin:0;padding:0;background:#f4f4f4;font-family:Arial,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f4;padding:20px 0;">
+<tr><td align="center">
+<table width="620" cellpadding="0" cellspacing="0"
+       style="background:#ffffff;border-radius:8px;
+              border:1px solid #e0e0e0;overflow:hidden;">
+
+  <!-- HEADER -->
+  <tr><td style="background:#d97706;padding:20px 28px;">
+    <div style="font-size:11px;color:rgba(255,255,255,0.8);
+                letter-spacing:2px;text-transform:uppercase;margin-bottom:4px;">
+      Volatility Harvest · Weekly Signal
+    </div>
+    <div style="font-size:22px;font-weight:800;color:#ffffff;">
+      🟡 Neutral Market Conditions
+    </div>
+    <div style="font-size:12px;color:rgba(255,255,255,0.85);margin-top:6px;">
+      April 10, 2026 &nbsp;·&nbsp; Execute today from 10:00am ET
+    </div>
+  </td></tr>
+
+  <!-- MARKET STATE -->
+  <tr><td style="padding:16px 28px;background:#fafafa;
+                 border-bottom:1px solid #e8ede8;">
+    <table width="100%" cellpadding="0" cellspacing="0">
+      <tr>
+        <td style="padding:4px 16px 4px 0;text-align:center;">
+          <div style="font-size:10px;color:#888;text-transform:uppercase;
+                      letter-spacing:1px;">UVXY</div>
+          <div style="font-size:20px;font-weight:800;color:#1a1a1a;">$41.92</div>
+        </td>
+        <td style="padding:4px 16px;text-align:center;
+                   border-left:1px solid #e0e0e0;">
+          <div style="font-size:10px;color:#888;text-transform:uppercase;
+                      letter-spacing:1px;">VIX</div>
+          <div style="font-size:20px;font-weight:800;color:#1a1a1a;">19.23</div>
+        </td>
+        <td style="padding:4px 16px;text-align:center;
+                   border-left:1px solid #e0e0e0;">
+          <div style="font-size:10px;color:#888;text-transform:uppercase;
+                      letter-spacing:1px;">VIX Percentile</div>
+          <div style="font-size:20px;font-weight:800;color:#d97706;">
+            50th
+          </div>
+        </td>
+        <td style="padding:4px 16px;text-align:center;
+                   border-left:1px solid #e0e0e0;">
+          <div style="font-size:10px;color:#888;text-transform:uppercase;
+                      letter-spacing:1px;">Term Structure</div>
+          <div style="font-size:14px;font-weight:700;color:#1a1a1a;">Unknown</div>
+        </td>
+        <td style="padding:4px 0 4px 16px;text-align:center;
+                   border-left:1px solid #e0e0e0;">
+          <div style="font-size:10px;color:#888;text-transform:uppercase;
+                      letter-spacing:1px;">Next Expiry</div>
+          <div style="font-size:14px;font-weight:700;color:#1a1a1a;">Apr 17</div>
+        </td>
+      </tr>
+    </table>
+    <div style="margin-top:12px;font-size:13px;color:#444;line-height:1.6;">
+      VIX is in the middle of its historical range. Be selective — reduce V1 size, favor V2 and V3. Use wider strikes and 14-day DTE for more buffer.
+    </div>
+  </td></tr>
+
+  <!-- WHAT'S YOUR SITUATION -->
+  <tr><td style="padding:20px 28px;border-bottom:1px solid #e8ede8;">
+    <div style="font-size:10px;letter-spacing:2px;color:#d97706;
+                text-transform:uppercase;margin-bottom:12px;font-weight:700;">
+      What's Your Situation?
+    </div>
+    <table width="100%" cellpadding="0" cellspacing="0">
+      <tr>
+        <td style="padding:10px 12px;background:#e8f5e9;border-radius:6px;
+                   border-left:3px solid #16a34a;margin-bottom:8px;
+                   vertical-align:top;width:31%;">
+          <div style="font-weight:700;color:#1a1a1a;font-size:12px;">
+            A) Short expires TODAY
+          </div>
+          <div style="font-size:11px;color:#555;margin-top:4px;line-height:1.5;">
+            Let it expire at 4pm ET, then sell new short using signal below.
+            Or buy to close now + sell new short immediately.
+          </div>
+        </td>
+        <td style="width:3%;"></td>
+        <td style="padding:10px 12px;background:#fff8e6;border-radius:6px;
+                   border-left:3px solid #d97706;vertical-align:top;width:31%;">
+          <div style="font-weight:700;color:#1a1a1a;font-size:12px;">
+            B) Short open, not expiring
+          </div>
+          <div style="font-size:11px;color:#555;margin-top:4px;line-height:1.5;">
+            Check your delta below.
+            If delta is approaching 0.35+, use the signal below to roll early.
+          </div>
+        </td>
+        <td style="width:3%;"></td>
+        <td style="padding:10px 12px;background:#eff6ff;border-radius:6px;
+                   border-left:3px solid #2563eb;vertical-align:top;width:31%;">
+          <div style="font-weight:700;color:#1a1a1a;font-size:12px;">
+            C) No open position
+          </div>
+          <div style="font-size:11px;color:#555;margin-top:4px;line-height:1.5;">
+            Buy your long call (LEAP) <strong>first</strong>, then sell
+            the short using signal below. Never sell short without the long.
+          </div>
+        </td>
+      </tr>
+    </table>
+  </td></tr>
+
+  <!-- POSITION CHECK (B) -->
+  <tr><td style="padding:20px 28px;border-bottom:1px solid #e8ede8;">
+    <div style="font-size:10px;letter-spacing:2px;color:#d97706;
+                text-transform:uppercase;margin-bottom:10px;font-weight:700;">
+      B) Position Check — Check Your Delta Now
+    </div>
+    <div style="font-size:12px;color:#444;margin-bottom:12px;line-height:1.6;">
+      <strong>Last week's V1 reference strike: <strong>$46</strong> (signal 2026-04-10, UVXY was $41.99)</strong><br>
+      Find your short call in your broker's options chain and check the delta column.
+    </div>
+    <table width="100%" cellpadding="0" cellspacing="0"
+           style="border-collapse:collapse;font-size:12px;">
+      <tr style="background:#f0f7f2;">
+        <th style="padding:8px 12px;text-align:left;color:#1E4D2B;">Delta</th>
+        <th style="padding:8px 12px;text-align:left;color:#1E4D2B;">Action</th>
+      </tr>
+      <tr style="border-top:1px solid #e8ede8;background:#f0fdf4;">
+        <td style="padding:8px 12px;font-weight:700;color:#16a34a;">≤ 0.20</td>
+        <td style="padding:8px 12px;color:#444;">
+          ✅ Hold — no action needed today
+        </td>
+      </tr>
+      <tr style="border-top:1px solid #e8ede8;">
+        <td style="padding:8px 12px;font-weight:700;color:#d97706;">0.21 – 0.34</td>
+        <td style="padding:8px 12px;color:#444;">
+          👀 Monitor — prepare to roll next week
+        </td>
+      </tr>
+      <tr style="border-top:1px solid #e8ede8;background:#fffbf0;">
+        <td style="padding:8px 12px;font-weight:700;color:#ea580c;">0.35 – 0.49</td>
+        <td style="padding:8px 12px;color:#444;">
+          🔄 Roll this week — use signal below
+        </td>
+      </tr>
+      <tr style="border-top:1px solid #e8ede8;background:#fff5f5;">
+        <td style="padding:8px 12px;font-weight:700;color:#dc2626;">≥ 0.50</td>
+        <td style="padding:8px 12px;color:#444;">
+          🚨 Roll today before close — use signal below
+        </td>
+      </tr>
+    </table>
+    <div style="margin-top:12px;text-align:center;">
+      <a href="https://www.barchart.com/etfs-funds/quotes/UVXY/options"
+         style="background:#d97706;color:#ffffff;padding:8px 20px;
+                border-radius:4px;text-decoration:none;font-size:12px;
+                font-weight:700;">
+        📊 Check UVXY Delta on Barchart →
+      </a>
+    </div>
+  </td></tr>
+
+  <!-- NEW ENTRY (C) -->
+  <tr><td style="padding:20px 28px;border-bottom:1px solid #e8ede8;
+                 background:#eff6ff;">
+    <div style="font-size:10px;letter-spacing:2px;color:#2563eb;
+                text-transform:uppercase;margin-bottom:10px;font-weight:700;">
+      C) New Entry — Long Leg First
+    </div>
+    <div style="font-size:12px;color:#444;line-height:1.8;">
+      <strong>Step 1 — Buy to Open (Long Call / LEAP):</strong><br>
+      Target: UVXY Sep 2026 call &nbsp;·&nbsp;
+      Delta target: 0.65 – 0.75 &nbsp;·&nbsp;
+      Reference strike: ~$38–$40<br>
+      <span style="color:#dc2626;font-weight:700;">
+        ⚠️ You MUST own the long call before selling any short call.
+      </span><br><br>
+      <strong>Step 2 — After long fills:</strong>
+      Sell short using the signal below.
+    </div>
+  </td></tr>
+
+  <!-- POSITION SIZING -->
+  <tr><td style="padding:20px 28px;border-bottom:1px solid #e8ede8;">
+    <div style="font-size:10px;letter-spacing:2px;color:#d97706;
+                text-transform:uppercase;margin-bottom:10px;font-weight:700;">
+      Position Sizing This Week
+    </div>
+    
+    <table style="width:100%;border-collapse:collapse;font-size:12px;">
+      <thead>
+        <tr style="background:#f0f7f2;">
+          <th style="padding:8px 12px;text-align:left;color:#1E4D2B;">Variant</th>
+          <th style="padding:8px 12px;text-align:left;color:#1E4D2B;">Status</th>
+          <th style="padding:8px 12px;text-align:left;color:#1E4D2B;">Sizing</th>
+          <th style="padding:8px 12px;text-align:left;color:#1E4D2B;">Parameters</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="background:#fffbf0;border-top:1px solid #e8ede8;">
+          <td style="padding:10px 12px;font-weight:600;color:#1a1a1a;width:30%;">
+            V1 Income Harvester
+          </td>
+          <td style="padding:10px 12px;width:18%;">
+            <span style="background:#d97706;color:#ffffff;
+                         padding:3px 8px;border-radius:12px;font-size:11px;
+                         font-weight:700;">
+              ⚠️ REDUCED
+            </span>
+          </td>
+          <td style="padding:10px 12px;font-size:11px;color:#444;">50% size only</td>
+          <td style="padding:10px 12px;font-size:11px;color:#666;">Credit: $1.30–$1.60 &nbsp;·&nbsp; δ ≤ 0.22 &nbsp;·&nbsp; Ref. strike: ~$46 &nbsp;·&nbsp; 7 DTE (exp ~Apr 17)</td>
+        </tr>
+        <tr style="background:#f0f7f2;border-top:1px solid #e8ede8;">
+          <td style="padding:10px 12px;font-weight:600;color:#1a1a1a;width:30%;">
+            V2 Mean Reversion
+          </td>
+          <td style="padding:10px 12px;width:18%;">
+            <span style="background:#16a34a;color:#ffffff;
+                         padding:3px 8px;border-radius:12px;font-size:11px;
+                         font-weight:700;">
+              ✅ ACTIVE
+            </span>
+          </td>
+          <td style="padding:10px 12px;font-size:11px;color:#444;">Full allocation</td>
+          <td style="padding:10px 12px;font-size:11px;color:#666;">Credit: $1.50–$1.80 &nbsp;·&nbsp; δ ≤ 0.25 &nbsp;·&nbsp; Ref. strike: ~$46 &nbsp;·&nbsp; 7 DTE (exp ~Apr 17)</td>
+        </tr>
+        <tr style="background:#f0f7f2;border-top:1px solid #e8ede8;">
+          <td style="padding:10px 12px;font-weight:600;color:#1a1a1a;width:30%;">
+            V3 Shock Absorber
+          </td>
+          <td style="padding:10px 12px;width:18%;">
+            <span style="background:#16a34a;color:#ffffff;
+                         padding:3px 8px;border-radius:12px;font-size:11px;
+                         font-weight:700;">
+              ✅ ACTIVE
+            </span>
+          </td>
+          <td style="padding:10px 12px;font-size:11px;color:#444;">Full allocation</td>
+          <td style="padding:10px 12px;font-size:11px;color:#666;">Credit: $1.25–$1.55 &nbsp;·&nbsp; δ ≤ 0.20 &nbsp;·&nbsp; Ref. strike: ~$47 &nbsp;·&nbsp; 14 DTE (exp ~Apr 24)</td>
+        </tr>
+        <tr style="background:#fafafa;border-top:1px solid #e8ede8;">
+          <td style="padding:10px 12px;font-weight:600;color:#1a1a1a;width:30%;">
+            V4 Tail Hunter
+          </td>
+          <td style="padding:10px 12px;width:18%;">
+            <span style="background:#9ca3af;color:#ffffff;
+                         padding:3px 8px;border-radius:12px;font-size:11px;
+                         font-weight:700;">
+              ❌ INACTIVE
+            </span>
+          </td>
+          <td style="padding:10px 12px;font-size:11px;color:#444;">Do not enter this week</td>
+          <td style="padding:10px 12px;font-size:11px;color:#666;">—</td>
+        </tr>
+        <tr style="background:#f0f7f2;border-top:1px solid #e8ede8;">
+          <td style="padding:10px 12px;font-weight:600;color:#1a1a1a;width:30%;">
+            V5 Regime Allocator
+          </td>
+          <td style="padding:10px 12px;width:18%;">
+            <span style="background:#16a34a;color:#ffffff;
+                         padding:3px 8px;border-radius:12px;font-size:11px;
+                         font-weight:700;">
+              ✅ ACTIVE
+            </span>
+          </td>
+          <td style="padding:10px 12px;font-size:11px;color:#444;">Full allocation</td>
+          <td style="padding:10px 12px;font-size:11px;color:#666;">Credit: $1.30–$1.60 &nbsp;·&nbsp; δ ≤ 0.20 &nbsp;·&nbsp; Ref. strike: ~$46 &nbsp;·&nbsp; 14 DTE (exp ~Apr 24)</td>
+        </tr></tbody>
+    </table>
+    <div style="margin-top:10px;font-size:11px;color:#888;">
+      Size based on your account. See:
+      <a href="https://volatilityharvest.com/sizing" style="color:#d97706;">
+        volatilityharvest.com/sizing
+      </a>
+    </div>
+  </td></tr>
+
+  <!-- SIGNAL TABLE -->
+  <tr><td style="padding:20px 28px;border-bottom:1px solid #e8ede8;">
+    <div style="font-size:10px;letter-spacing:2px;color:#d97706;
+                text-transform:uppercase;margin-bottom:6px;font-weight:700;">
+      This Week's Signal — UVXY Movement Table
+    </div>
+    <div style="font-size:12px;color:#666;margin-bottom:12px;">
+      Centered on current UVXY $41.92.
+      Find the row closest to UVXY when you execute.
+      Use the reference strike as a starting point —
+      then find the strike paying the target credit with delta at or below the ceiling.
+    </div>
+    
+    <table style="width:100%;border-collapse:collapse;font-size:12px;">
+      <thead>
+        <tr style="background:#f0f7f2;">
+          <th style="padding:8px 8px;text-align:left;color:#1E4D2B;">
+            UVXY price</th>
+          <th style="padding:8px 6px;text-align:left;color:#1E4D2B;">
+            DTE</th>
+          <th style="padding:8px 4px;text-align:left;color:#1E4D2B;font-size:11px;">⚠️ V1<br><span style="font-weight:400;color:#d97706;font-size:10px;">Income Harvester<br>δ≤0.22</span></th><th style="padding:8px 4px;text-align:left;color:#1E4D2B;font-size:11px;">✅ V2<br><span style="font-weight:400;color:#16a34a;font-size:10px;">Mean Reversion<br>δ≤0.25</span></th><th style="padding:8px 4px;text-align:left;color:#1E4D2B;font-size:11px;">✅ V3<br><span style="font-weight:400;color:#16a34a;font-size:10px;">Shock Absorber<br>δ≤0.20</span></th><th style="padding:8px 4px;text-align:left;color:#1E4D2B;font-size:11px;">❌ V4<br><span style="font-weight:400;color:#9ca3af;font-size:10px;">Tail Hunter<br>δ≤0.00</span></th><th style="padding:8px 4px;text-align:left;color:#1E4D2B;font-size:11px;">✅ V5<br><span style="font-weight:400;color:#16a34a;font-size:10px;">Regime Allocator<br>δ≤0.20</span></th>
+          <th style="padding:8px 6px;text-align:left;color:#1E4D2B;">
+            Note</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="background:#ffffff;border-top:1px solid #e8ede8;">
+          <td style="padding:8px 8px;font-weight:400;color:#1a1a1a;
+                     white-space:nowrap;">
+            $34
+            <span style="font-size:10px;color:#999;margin-left:2px;">
+              (-19%)
+            </span>
+          </td>
+          <td style="padding:8px 6px;font-size:11px;color:#555;
+                     white-space:nowrap;">7d</td>
+          <td style="padding:8px 4px;font-weight:400;font-size:12px;color:#d97706;">$37<br><span style="font-size:10px;color:#1E4D2B;font-weight:400;">$1.20–1.50</span><br><span style="font-size:9px;color:#d97706;">50% size</span></td><td style="padding:8px 4px;font-weight:400;font-size:12px;color:#1a1a1a;">$37<br><span style="font-size:10px;color:#1E4D2B;font-weight:400;">$1.40–1.70</span></td><td style="padding:8px 4px;font-weight:400;font-size:12px;color:#1a1a1a;">$34<br><span style="font-size:10px;color:#1E4D2B;font-weight:400;">$0.00–0.00</span></td><td style="padding:8px 4px;font-size:11px;color:#aaa;">$34<br><span style="font-size:9px;color:#1E4D2B;opacity:0.7;">$0.00–0.00</span><br><span style="font-size:9px;color:#bbb;">roll only</span></td><td style="padding:8px 4px;font-weight:400;font-size:12px;color:#1a1a1a;">$37<br><span style="font-size:10px;color:#1E4D2B;font-weight:400;">$1.20–1.50</span></td>
+          <td style="padding:8px 6px;font-size:11px;
+                     color:#16a34a;">Normal</td>
+        </tr>
+        <tr style="background:#ffffff;border-top:1px solid #e8ede8;">
+          <td style="padding:8px 8px;font-weight:400;color:#1a1a1a;
+                     white-space:nowrap;">
+            $36
+            <span style="font-size:10px;color:#999;margin-left:2px;">
+              (-14%)
+            </span>
+          </td>
+          <td style="padding:8px 6px;font-size:11px;color:#555;
+                     white-space:nowrap;">7d</td>
+          <td style="padding:8px 4px;font-weight:400;font-size:12px;color:#d97706;">$39<br><span style="font-size:10px;color:#1E4D2B;font-weight:400;">$1.50–1.80</span><br><span style="font-size:9px;color:#d97706;">50% size</span></td><td style="padding:8px 4px;font-weight:400;font-size:12px;color:#1a1a1a;">$39<br><span style="font-size:10px;color:#1E4D2B;font-weight:400;">$1.60–1.90</span></td><td style="padding:8px 4px;font-weight:400;font-size:12px;color:#1a1a1a;">$36<br><span style="font-size:10px;color:#1E4D2B;font-weight:400;">$0.00–0.00</span></td><td style="padding:8px 4px;font-size:11px;color:#aaa;">$36<br><span style="font-size:9px;color:#1E4D2B;opacity:0.7;">$0.00–0.00</span><br><span style="font-size:9px;color:#bbb;">roll only</span></td><td style="padding:8px 4px;font-weight:400;font-size:12px;color:#1a1a1a;">$39<br><span style="font-size:10px;color:#1E4D2B;font-weight:400;">$1.40–1.70</span></td>
+          <td style="padding:8px 6px;font-size:11px;
+                     color:#2563eb;">Good premium</td>
+        </tr>
+        <tr style="background:#ffffff;border-top:1px solid #e8ede8;">
+          <td style="padding:8px 8px;font-weight:400;color:#1a1a1a;
+                     white-space:nowrap;">
+            $38
+            <span style="font-size:10px;color:#999;margin-left:2px;">
+              (-9%)
+            </span>
+          </td>
+          <td style="padding:8px 6px;font-size:11px;color:#555;
+                     white-space:nowrap;">7d</td>
+          <td style="padding:8px 4px;font-weight:400;font-size:12px;color:#d97706;">$41<br><span style="font-size:10px;color:#1E4D2B;font-weight:400;">$1.50–1.80</span><br><span style="font-size:9px;color:#d97706;">50% size</span></td><td style="padding:8px 4px;font-weight:400;font-size:12px;color:#1a1a1a;">$41<br><span style="font-size:10px;color:#1E4D2B;font-weight:400;">$1.60–1.90</span></td><td style="padding:8px 4px;font-weight:400;font-size:12px;color:#1a1a1a;">$38<br><span style="font-size:10px;color:#1E4D2B;font-weight:400;">$0.00–0.00</span></td><td style="padding:8px 4px;font-size:11px;color:#aaa;">$38<br><span style="font-size:9px;color:#1E4D2B;opacity:0.7;">$0.00–0.00</span><br><span style="font-size:9px;color:#bbb;">roll only</span></td><td style="padding:8px 4px;font-weight:400;font-size:12px;color:#1a1a1a;">$41<br><span style="font-size:10px;color:#1E4D2B;font-weight:400;">$1.40–1.70</span></td>
+          <td style="padding:8px 6px;font-size:11px;
+                     color:#2563eb;">Good premium</td>
+        </tr>
+        <tr style="background:#ffffff;border-top:1px solid #e8ede8;">
+          <td style="padding:8px 8px;font-weight:400;color:#1a1a1a;
+                     white-space:nowrap;">
+            $40
+            <span style="font-size:10px;color:#999;margin-left:2px;">
+              (-5%)
+            </span>
+          </td>
+          <td style="padding:8px 6px;font-size:11px;color:#555;
+                     white-space:nowrap;">7d</td>
+          <td style="padding:8px 4px;font-weight:400;font-size:12px;color:#d97706;">$44<br><span style="font-size:10px;color:#1E4D2B;font-weight:400;">$1.30–1.60</span><br><span style="font-size:9px;color:#d97706;">50% size</span></td><td style="padding:8px 4px;font-weight:400;font-size:12px;color:#1a1a1a;">$44<br><span style="font-size:10px;color:#1E4D2B;font-weight:400;">$1.50–1.80</span></td><td style="padding:8px 4px;font-weight:400;font-size:12px;color:#1a1a1a;">$45<br><span style="font-size:10px;color:#1E4D2B;font-weight:400;">$1.25–1.55</span></td><td style="padding:8px 4px;font-size:11px;color:#aaa;">$40<br><span style="font-size:9px;color:#1E4D2B;opacity:0.7;">$0.00–0.00</span><br><span style="font-size:9px;color:#bbb;">roll only</span></td><td style="padding:8px 4px;font-weight:400;font-size:12px;color:#1a1a1a;">$44<br><span style="font-size:10px;color:#1E4D2B;font-weight:400;">$1.30–1.60</span></td>
+          <td style="padding:8px 6px;font-size:11px;
+                     color:#1E4D2B;"></td>
+        </tr>
+        <tr style="background:#e8f5e9;border-top:1px solid #e8ede8;">
+          <td style="padding:8px 8px;font-weight:700;color:#1a1a1a;
+                     white-space:nowrap;">
+            $42
+            <span style="font-size:10px;color:#999;margin-left:2px;">
+              (+0%)
+            </span>
+          </td>
+          <td style="padding:8px 6px;font-size:11px;color:#555;
+                     white-space:nowrap;">7d</td>
+          <td style="padding:8px 4px;font-weight:700;font-size:12px;color:#d97706;">$46<br><span style="font-size:10px;color:#1E4D2B;font-weight:400;">$1.30–1.60</span><br><span style="font-size:9px;color:#d97706;">50% size</span></td><td style="padding:8px 4px;font-weight:700;font-size:12px;color:#1a1a1a;">$46<br><span style="font-size:10px;color:#1E4D2B;font-weight:400;">$1.50–1.80</span></td><td style="padding:8px 4px;font-weight:700;font-size:12px;color:#1a1a1a;">$47<br><span style="font-size:10px;color:#1E4D2B;font-weight:400;">$1.25–1.55</span></td><td style="padding:8px 4px;font-size:11px;color:#aaa;">$42<br><span style="font-size:9px;color:#1E4D2B;opacity:0.7;">$0.00–0.00</span><br><span style="font-size:9px;color:#bbb;">roll only</span></td><td style="padding:8px 4px;font-weight:700;font-size:12px;color:#1a1a1a;">$46<br><span style="font-size:10px;color:#1E4D2B;font-weight:400;">$1.30–1.60</span></td>
+          <td style="padding:8px 6px;font-size:11px;
+                     color:#1E4D2B;">← Signal</td>
+        </tr>
+        <tr style="background:#ffffff;border-top:1px solid #e8ede8;">
+          <td style="padding:8px 8px;font-weight:400;color:#1a1a1a;
+                     white-space:nowrap;">
+            $44
+            <span style="font-size:10px;color:#999;margin-left:2px;">
+              (+5%)
+            </span>
+          </td>
+          <td style="padding:8px 6px;font-size:11px;color:#555;
+                     white-space:nowrap;">7d</td>
+          <td style="padding:8px 4px;font-weight:400;font-size:12px;color:#d97706;">$48<br><span style="font-size:10px;color:#1E4D2B;font-weight:400;">$1.30–1.60</span><br><span style="font-size:9px;color:#d97706;">50% size</span></td><td style="padding:8px 4px;font-weight:400;font-size:12px;color:#1a1a1a;">$48<br><span style="font-size:10px;color:#1E4D2B;font-weight:400;">$1.50–1.80</span></td><td style="padding:8px 4px;font-weight:400;font-size:12px;color:#1a1a1a;">$49<br><span style="font-size:10px;color:#1E4D2B;font-weight:400;">$1.25–1.55</span></td><td style="padding:8px 4px;font-size:11px;color:#aaa;">$44<br><span style="font-size:9px;color:#1E4D2B;opacity:0.7;">$0.00–0.00</span><br><span style="font-size:9px;color:#bbb;">roll only</span></td><td style="padding:8px 4px;font-weight:400;font-size:12px;color:#1a1a1a;">$48<br><span style="font-size:10px;color:#1E4D2B;font-weight:400;">$1.30–1.60</span></td>
+          <td style="padding:8px 6px;font-size:11px;
+                     color:#1E4D2B;"></td>
+        </tr>
+        <tr style="background:#ffffff;border-top:1px solid #e8ede8;">
+          <td style="padding:8px 8px;font-weight:400;color:#1a1a1a;
+                     white-space:nowrap;">
+            $46
+            <span style="font-size:10px;color:#999;margin-left:2px;">
+              (+10%)
+            </span>
+          </td>
+          <td style="padding:8px 6px;font-size:11px;color:#555;
+                     white-space:nowrap;">14d</td>
+          <td style="padding:8px 4px;font-weight:400;font-size:12px;color:#d97706;">$46<br><span style="font-size:10px;color:#d97706;font-weight:400;">$0.00–0.00</span><br><span style="font-size:9px;color:#d97706;">50% size</span></td><td style="padding:8px 4px;font-weight:400;font-size:12px;color:#1a1a1a;">$52<br><span style="font-size:10px;color:#d97706;font-weight:400;">$1.50–1.80</span></td><td style="padding:8px 4px;font-weight:400;font-size:12px;color:#1a1a1a;">$53<br><span style="font-size:10px;color:#d97706;font-weight:400;">$1.50–1.80</span></td><td style="padding:8px 4px;font-size:11px;color:#aaa;">$53<br><span style="font-size:9px;color:#d97706;opacity:0.7;">$1.80–2.20</span><br><span style="font-size:9px;color:#bbb;">roll only</span></td><td style="padding:8px 4px;font-weight:400;font-size:12px;color:#1a1a1a;">$53<br><span style="font-size:10px;color:#d97706;font-weight:400;">$1.50–1.80</span></td>
+          <td style="padding:8px 6px;font-size:11px;
+                     color:#d97706;">⚠️ 14d</td>
+        </tr>
+        <tr style="background:#ffffff;border-top:1px solid #e8ede8;">
+          <td style="padding:8px 8px;font-weight:400;color:#1a1a1a;
+                     white-space:nowrap;">
+            $48
+            <span style="font-size:10px;color:#999;margin-left:2px;">
+              (+15%)
+            </span>
+          </td>
+          <td style="padding:8px 6px;font-size:11px;color:#555;
+                     white-space:nowrap;">14d</td>
+          <td style="padding:8px 4px;font-weight:400;font-size:12px;color:#d97706;">$48<br><span style="font-size:10px;color:#d97706;font-weight:400;">$0.00–0.00</span><br><span style="font-size:9px;color:#d97706;">50% size</span></td><td style="padding:8px 4px;font-weight:400;font-size:12px;color:#1a1a1a;">$54<br><span style="font-size:10px;color:#d97706;font-weight:400;">$1.50–1.80</span></td><td style="padding:8px 4px;font-weight:400;font-size:12px;color:#1a1a1a;">$55<br><span style="font-size:10px;color:#d97706;font-weight:400;">$1.50–1.80</span></td><td style="padding:8px 4px;font-size:11px;color:#aaa;">$55<br><span style="font-size:9px;color:#d97706;opacity:0.7;">$1.80–2.20</span><br><span style="font-size:9px;color:#bbb;">roll only</span></td><td style="padding:8px 4px;font-weight:400;font-size:12px;color:#1a1a1a;">$55<br><span style="font-size:10px;color:#d97706;font-weight:400;">$1.50–1.80</span></td>
+          <td style="padding:8px 6px;font-size:11px;
+                     color:#d97706;">⚠️ 14d</td>
+        </tr>
+        <tr style="background:#ffffff;border-top:1px solid #e8ede8;">
+          <td style="padding:8px 8px;font-weight:400;color:#1a1a1a;
+                     white-space:nowrap;">
+            $50
+            <span style="font-size:10px;color:#999;margin-left:2px;">
+              (+19%)
+            </span>
+          </td>
+          <td style="padding:8px 6px;font-size:11px;color:#555;
+                     white-space:nowrap;">14d</td>
+          <td style="padding:8px 4px;font-weight:400;font-size:12px;color:#d97706;">$50<br><span style="font-size:10px;color:#d97706;font-weight:400;">$0.00–0.00</span><br><span style="font-size:9px;color:#d97706;">50% size</span></td><td style="padding:8px 4px;font-weight:400;font-size:12px;color:#1a1a1a;">$56<br><span style="font-size:10px;color:#d97706;font-weight:400;">$1.50–1.80</span></td><td style="padding:8px 4px;font-weight:400;font-size:12px;color:#1a1a1a;">$57<br><span style="font-size:10px;color:#d97706;font-weight:400;">$1.50–1.80</span></td><td style="padding:8px 4px;font-size:11px;color:#aaa;">$57<br><span style="font-size:9px;color:#d97706;opacity:0.7;">$1.80–2.20</span><br><span style="font-size:9px;color:#bbb;">roll only</span></td><td style="padding:8px 4px;font-weight:400;font-size:12px;color:#1a1a1a;">$57<br><span style="font-size:10px;color:#d97706;font-weight:400;">$1.50–1.80</span></td>
+          <td style="padding:8px 6px;font-size:11px;
+                     color:#d97706;">⚠️ 14d</td>
+        </tr></tbody>
+    </table>
+    <div style="font-size:10px;color:#999;margin-top:6px;padding:0 4px;">
+      Strike shown is reference only — find the strike paying target credit
+      with delta at or below the ceiling. † = theoretical, no historical fills.
+      Default 7 DTE — extend to 14d if delta ceiling exceeded at 7 DTE.
+      21d only in spike territory (UVXY +20%+).
+    </div>
+  </td></tr>
+
+  <!-- EXECUTION RULES -->
+  <tr><td style="padding:20px 28px;border-bottom:1px solid #e8ede8;
+                 background:#fafafa;">
+    <div style="font-size:10px;letter-spacing:2px;color:#d97706;
+                text-transform:uppercase;margin-bottom:10px;font-weight:700;">
+      Execution Rules
+    </div>
+    <div style="font-size:12px;color:#444;line-height:2.0;">
+      1. Find the strike paying the <strong>target credit</strong><br>
+      2. Confirm delta is <strong>at or below the ceiling</strong><br>
+      3. Confirm strike is <strong>at or above the OTM floor</strong><br>
+      4. If no strike meets all three → <strong>extend DTE and repeat</strong><br>
+      5. If 21 DTE still fails →
+         <strong>accept a small debit — delta safety is non-negotiable</strong><br>
+      6. <strong>Skip the week</strong> if conditions don't make sense.
+         Missing one week is better than a bad trade.<br>
+      7. Use <strong>limit orders only</strong> — never market orders on options.
+    </div>
+  </td></tr>
+
+  <!-- CALENDAR -->
+  <tr><td style="padding:16px 28px;border-bottom:1px solid #e8ede8;">
+    <div style="font-size:10px;letter-spacing:2px;color:#d97706;
+                text-transform:uppercase;margin-bottom:10px;font-weight:700;">
+      Notable Events Next 3 Weeks
+    </div>
+    <table width="100%" cellpadding="0" cellspacing="0">
+      
+        <tr><td style="padding:4px 0;">
+          <table style="width:100%;border-collapse:collapse;"><tr><td style='padding:4px 8px;color:#555;font-size:12px;'>⚠️ <strong>Wed Apr 15</strong> — VIX Monthly Expiration</td></tr></table>
+        </td></tr>
+    </table>
+  </td></tr>
+
+  <!-- FOOTER -->
+  <tr><td style="padding:16px 28px;background:#f9f9f9;
+                 border-top:1px solid #e8ede8;">
+    <div style="font-size:11px;color:#888;line-height:1.8;text-align:center;">
+      <a href="https://volatilityharvest.com" style="color:#d97706;font-weight:700;">
+        Volatility Harvest
+      </a>
+      &nbsp;·&nbsp; Questions? Reply to this email.
+      &nbsp;·&nbsp; Always verify live prices before placing any order.
+      <br>
+      This signal is generated at market open Friday.
+      UVXY may move before you execute — use the table above to adjust.
+      <br><br>
+      <span style="color:#bbb;font-size:10px;">
+        This email is for informational purposes only and does not constitute
+        investment advice. Options trading involves significant risk of loss.
+      </span>
+    </div>
+  </td></tr>
+
+</table>
+</td></tr>
+</table>
+</body>
+</html>

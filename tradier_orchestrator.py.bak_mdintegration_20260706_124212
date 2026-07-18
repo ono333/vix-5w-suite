@@ -44,7 +44,6 @@ from typing import Optional
 
 from tradier_liquidity import check_liquidity, log_skip
 from tradier_exec_log import log_fill
-import market_data
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 STORAGE_DIR        = Path.home() / ".vix_suite"
@@ -218,23 +217,8 @@ class TradierClient:
             "Accept":        "application/json",
         })
 
-    def _retry_5xx(self, fn, *args, **kwargs):
-        """Call fn (a requests method); retry on transient 5xx with backoff.
-        Only 500/502/503/504 retry; 4xx and success return/raise immediately."""
-        backoffs = [1, 3, 7]
-        for attempt in range(len(backoffs) + 1):
-            try:
-                r = fn(*args, **kwargs)
-            except requests.exceptions.RequestException:
-                if attempt < len(backoffs):
-                    time.sleep(backoffs[attempt]); continue
-                raise
-            if r.status_code in (500, 502, 503, 504) and attempt < len(backoffs):
-                time.sleep(backoffs[attempt]); continue
-            return r
-
     def _get(self, path, params=None):
-        r = self._retry_5xx(self.session.get, f"{self.base}{path}", params=params, timeout=15)
+        r = self.session.get(f"{self.base}{path}", params=params, timeout=15)
         r.raise_for_status()
         return r.json()
 
@@ -276,52 +260,13 @@ class TradierClient:
         q = data.get("quotes", {}).get("quote", {})
         return q if isinstance(q, dict) else {}
 
-    def has_working_order(self, option_symbol: str) -> bool:
-        """True if an open/pending order already exists for this option_symbol.
-        Used to avoid double-placing after a 500 that actually created the order."""
-        try:
-            data = self._get(f"/accounts/{self.account}/orders")
-            o = data.get("orders", {})
-            if not o or o == "null":
-                return False
-            orders = o.get("order", [])
-            if isinstance(orders, dict): orders = [orders]
-            for x in orders:
-                if x.get("option_symbol") == option_symbol and \
-                   x.get("status") in ("open", "pending", "partially_filled"):
-                    return True
-        except Exception:
-            pass
-        return False
-
     def place_order(self, symbol, option_symbol, side, quantity, price) -> dict:
-        payload = {
+        return self._post(f"/accounts/{self.account}/orders", {
             "class": "option", "symbol": symbol,
             "option_symbol": option_symbol, "side": side,
             "quantity": str(quantity), "type": "limit",
             "duration": "day", "price": f"{price:.2f}",
-        }
-        url = f"{self.base}/accounts/{self.account}/orders"
-        backoffs = [1, 3, 7]
-        for attempt in range(len(backoffs) + 1):
-            # Before a RETRY (not the first try), verify the prior 500 didn't
-            # already create the order -> if it did, don't double-place.
-            if attempt > 0 and self.has_working_order(option_symbol):
-                return {"order": {"status": "already_working",
-                                  "note": "order existed after 5xx; not re-placed"}}
-            try:
-                r = self.session.post(url, data=payload,
-                                      headers={"Authorization": f"Bearer {self.token}",
-                                               "Accept": "application/json"},
-                                      timeout=15)
-            except requests.exceptions.RequestException:
-                if attempt < len(backoffs):
-                    time.sleep(backoffs[attempt]); continue
-                raise
-            if r.status_code in (500, 502, 503, 504) and attempt < len(backoffs):
-                time.sleep(backoffs[attempt]); continue
-            r.raise_for_status()
-            return r.json()
+        })
 
     def cancel_order(self, order_id: int) -> dict:
         r = self.session.delete(
@@ -462,18 +407,10 @@ def place_with_reprice(client, underlying: str, option_symbol: str, side: str,
         LOG.log(f"   \u26a0\ufe0f Bid ${bid:.2f} too low \u2014 skipping")
         return {"status": "skipped_low_bid"}
 
-    # ── freshness guard on the INCOMING quote (phantom-price protection) ──
-    _incoming_q = {"bid": bid, "ask": ask}
-    _ok, _reason = market_data.check_and_log(_incoming_q, option_symbol, "placement", client.sandbox)
-    if not _ok:
-        LOG.log(f"   \U0001f6d1 Placement quote rejected ({_reason}) \u2014 not placing")
-        return {"status": "rejected_quote", "reason": _reason}
-
     # UVXY open + baseline for micro-regime and spike tripwire (live quote).
     uvxy_open = uvxy_base = 0.0
     try:
         uq = client.get_quote("UVXY")
-        market_data.log_quote(uq, "UVXY", "placement_uvxy", "info", client.sandbox)
         uvxy_open = float(uq.get("open") or uq.get("prevclose") or 0)
         uvxy_base = float(uq.get("last") or uq.get("close") or 0)
     except Exception:
@@ -514,7 +451,6 @@ def place_with_reprice(client, underlying: str, option_symbol: str, side: str,
         if not is_buy and uvxy_base > 0:
             try:
                 uq = client.get_quote("UVXY")
-                market_data.log_quote(uq, "UVXY", "tripwire", "info", client.sandbox)
                 un = float(uq.get("last") or uq.get("close") or 0)
                 if un > 0 and (un - uvxy_base)/uvxy_base >= UVXY_SPIKE_ABORT_PCT:
                     LOG.log(f"   \U0001f6d1 UVXY spike +{(un-uvxy_base)/uvxy_base*100:.1f}% \u2014 ABORT")
@@ -553,15 +489,11 @@ def place_with_reprice(client, underlying: str, option_symbol: str, side: str,
         if state in ("canceled", "expired", "rejected"):
             return {"status": state, "order_id": oid}
 
-        # ── re-quote the live option (freshness-guarded) ──
+        # ── re-quote the live option ──
         try:
             q = client.get_quote(option_symbol)
-            _ok, _reason = market_data.check_and_log(q, option_symbol, "reprice", client.sandbox)
-            if _ok:
-                nb = float(q.get("bid", bid) or bid); na = float(q.get("ask", ask) or ask)
-                if nb > 0 and na > 0: bid, ask = nb, na
-            else:
-                LOG.log(f"   ⚠️ Re-quote rejected ({_reason}) — holding last good ${bid:.2f}/{ask:.2f}")
+            nb = float(q.get("bid", bid) or bid); na = float(q.get("ask", ask) or ask)
+            if nb > 0 and na > 0: bid, ask = nb, na
         except Exception:
             pass
         live_mid = round((bid + ask) / 2, 2)
@@ -569,7 +501,6 @@ def place_with_reprice(client, underlying: str, option_symbol: str, side: str,
         # ── re-fetch UVXY for micro-regime ──
         try:
             uq = client.get_quote("UVXY")
-            market_data.log_quote(uq, "UVXY", "micro", "info", client.sandbox)
             uvxy_now = float(uq.get("last") or uq.get("close") or uvxy_base)
         except Exception:
             uvxy_now = uvxy_base
@@ -919,7 +850,6 @@ def run(sandbox: bool = True, preview: bool = False, check_only: bool = False):
                                                  str(r_buy.get("order_id", "")))
                                         # STC old long
                                         old_quote = client.get_quote(long_pos["symbol"])
-                                        market_data.check_and_log(old_quote, long_pos["symbol"], "roll", client.sandbox)
                                         old_bid   = float(old_quote.get("bid", 0.10))
                                         old_ask   = float(old_quote.get("ask", 0.20))
                                         r_sell = place_with_reprice(

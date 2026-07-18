@@ -88,6 +88,14 @@ class VariantParams:
             "suppressed_in_regimes": [r.value for r in self.suppressed_in_regimes],
             "long_strike": self.long_strike,
             "short_strike": self.short_strike,
+            "delta_ceiling": (
+                0.28 if self.sigma_mult <= 0.8 else
+                0.25 if self.sigma_mult <= 0.9 else
+                0.22 if self.sigma_mult <= 1.0 else
+                0.18 if self.sigma_mult <= 1.2 else
+                0.15
+            ),
+            "role": self.role.value if hasattr(self.role, "value") else str(self.role),
         }
 
 

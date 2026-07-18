@@ -34,7 +34,6 @@ import json
 import os
 import smtplib
 import sys
-import fcntl
 import time
 from datetime import date, datetime, timedelta
 from email.mime.multipart import MIMEMultipart
@@ -44,7 +43,6 @@ from typing import Optional
 
 from tradier_liquidity import check_liquidity, log_skip
 from tradier_exec_log import log_fill
-import market_data
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 STORAGE_DIR        = Path.home() / ".vix_suite"
@@ -79,52 +77,7 @@ def _reprice_profile(phase_label: str) -> dict:
     # default + explicit guarded set → less patient
     return dict(fast_tries=3, fast_sec=20, slow_sec=90, descent_hhmm=(12, 0), step=0.03)
 
-UVXY_SPIKE_ABORT_PCT = 0.08
-
-# ── Reprice v2: regime-gated chase + guaranteed descent (Jun 26 fix) ──
-REPRICE_TIERS = {
-    "CALM":    dict(target_min=180, hard_min=210, chase=True,  chase_cap0=1.00),
-    "NORMAL":  dict(target_min=120, hard_min=180, chase=True,  chase_cap0=0.50),
-    "GUARDED": dict(target_min=45,  hard_min=60,  chase=False, chase_cap0=0.00),
-}
-CALM_REGIMES    = {"CALM", "RISING", "Spike Exhaustion", "Calm"}
-GUARDED_REGIMES = {"EXPANSION", "Possible Peak", "STRESSED", "EXTREME"}
-MICRO_STEEPEN_PCT = 0.03   # UVXY +3% vs open -> one tier more guarded
-TAKE_BID_TOL = 0.05              # take the bid if within this of a reference mid
-TAKE_BID_OPEN_DELAY_MIN = 15    # opening-mid rescue trigger activates after this many min
-
-def _base_tier(regime: str) -> str:
-    if regime in CALM_REGIMES: return "CALM"
-    if regime in GUARDED_REGIMES: return "GUARDED"
-    return "NORMAL"
-
-def _apply_micro(tier: str, uvxy_open: float, uvxy_now: float) -> str:
-    if uvxy_open and uvxy_now and (uvxy_now - uvxy_open)/uvxy_open >= MICRO_STEEPEN_PCT:
-        return {"CALM":"NORMAL","NORMAL":"GUARDED","GUARDED":"GUARDED"}[tier]
-    return tier
-
-def _descent_floor(mid0, bid, elapsed_min, target_min, hard_min):
-    if elapsed_min >= hard_min: return bid
-    frac = min(max(elapsed_min/target_min,0.0),1.0) if target_min>0 else 1.0
-    return round(mid0 - (mid0-bid)*frac, 2)
-
-def _chase_cap_now(cap0, elapsed_min, hard_min):
-    if hard_min<=0: return 0.0
-    return cap0 * max(0.0, 1.0 - elapsed_min/hard_min)
-
-def _reprice_target(regime, mid0, live_mid, live_bid, live_ask, elapsed_min, uo, un):
-    tier = _apply_micro(_base_tier(regime), uo, un)
-    t = REPRICE_TIERS[tier]
-    floor = _descent_floor(mid0, live_bid, elapsed_min, t["target_min"], t["hard_min"])
-    price = max(floor, live_bid)
-    if t["chase"] and live_mid > price:
-        cap = _chase_cap_now(t["chase_cap0"], elapsed_min, t["hard_min"])
-        ceiling = price + (live_ask - price)*cap
-        price = min(max(price, live_mid), ceiling)
-    if elapsed_min >= t["hard_min"]:
-        price = live_bid
-    return round(max(price, 0.01), 2), tier
-   # +8% live UVXY move vs placement baseline → abort (Phase 2/3 only)
+UVXY_SPIKE_ABORT_PCT = 0.08   # +8% live UVXY move vs placement baseline → abort (Phase 2/3 only)
 
 
 
@@ -218,23 +171,8 @@ class TradierClient:
             "Accept":        "application/json",
         })
 
-    def _retry_5xx(self, fn, *args, **kwargs):
-        """Call fn (a requests method); retry on transient 5xx with backoff.
-        Only 500/502/503/504 retry; 4xx and success return/raise immediately."""
-        backoffs = [1, 3, 7]
-        for attempt in range(len(backoffs) + 1):
-            try:
-                r = fn(*args, **kwargs)
-            except requests.exceptions.RequestException:
-                if attempt < len(backoffs):
-                    time.sleep(backoffs[attempt]); continue
-                raise
-            if r.status_code in (500, 502, 503, 504) and attempt < len(backoffs):
-                time.sleep(backoffs[attempt]); continue
-            return r
-
     def _get(self, path, params=None):
-        r = self._retry_5xx(self.session.get, f"{self.base}{path}", params=params, timeout=15)
+        r = self.session.get(f"{self.base}{path}", params=params, timeout=15)
         r.raise_for_status()
         return r.json()
 
@@ -276,52 +214,13 @@ class TradierClient:
         q = data.get("quotes", {}).get("quote", {})
         return q if isinstance(q, dict) else {}
 
-    def has_working_order(self, option_symbol: str) -> bool:
-        """True if an open/pending order already exists for this option_symbol.
-        Used to avoid double-placing after a 500 that actually created the order."""
-        try:
-            data = self._get(f"/accounts/{self.account}/orders")
-            o = data.get("orders", {})
-            if not o or o == "null":
-                return False
-            orders = o.get("order", [])
-            if isinstance(orders, dict): orders = [orders]
-            for x in orders:
-                if x.get("option_symbol") == option_symbol and \
-                   x.get("status") in ("open", "pending", "partially_filled"):
-                    return True
-        except Exception:
-            pass
-        return False
-
     def place_order(self, symbol, option_symbol, side, quantity, price) -> dict:
-        payload = {
+        return self._post(f"/accounts/{self.account}/orders", {
             "class": "option", "symbol": symbol,
             "option_symbol": option_symbol, "side": side,
             "quantity": str(quantity), "type": "limit",
             "duration": "day", "price": f"{price:.2f}",
-        }
-        url = f"{self.base}/accounts/{self.account}/orders"
-        backoffs = [1, 3, 7]
-        for attempt in range(len(backoffs) + 1):
-            # Before a RETRY (not the first try), verify the prior 500 didn't
-            # already create the order -> if it did, don't double-place.
-            if attempt > 0 and self.has_working_order(option_symbol):
-                return {"order": {"status": "already_working",
-                                  "note": "order existed after 5xx; not re-placed"}}
-            try:
-                r = self.session.post(url, data=payload,
-                                      headers={"Authorization": f"Bearer {self.token}",
-                                               "Accept": "application/json"},
-                                      timeout=15)
-            except requests.exceptions.RequestException:
-                if attempt < len(backoffs):
-                    time.sleep(backoffs[attempt]); continue
-                raise
-            if r.status_code in (500, 502, 503, 504) and attempt < len(backoffs):
-                time.sleep(backoffs[attempt]); continue
-            r.raise_for_status()
-            return r.json()
+        })
 
     def cancel_order(self, order_id: int) -> dict:
         r = self.session.delete(
@@ -450,166 +349,152 @@ def _market_open() -> bool:
 def place_with_reprice(client, underlying: str, option_symbol: str, side: str,
                        quantity: int, bid: float, ask: float,
                        phase_label: str = "") -> dict:
-    """Regime-gated chase + guaranteed descent. phase_label = snapshot regime.
-    Fixes the Jun 26 park-at-mid-never-fill bug. See REPRICE_TIERS."""
+    """Regime-aware three-phase order management with +8% UVXY spike abort.
+
+    phase_label comes from the orchestrator's snapshot (regime/spike_label).
+      P1 fast mid discovery · P2 patient hold (time favors seller) · P3 near-close
+      descent to live bid. Tripwire (P2/P3 only): if live UVXY rises
+      >= UVXY_SPIKE_ABORT_PCT vs the price at placement, CANCEL and abort —
+      never complete a short into a spike.
+    Sandbox: cancel+re-place. Live: modify.
+    """
     if not _market_open():
-        LOG.log(f"   \U0001f6ab Market closed \u2014 order blocked")
+        et = _et_now()
+        LOG.log(f"   \U0001f6ab Market closed ({et.strftime('%H:%M ET')}) \u2014 order blocked")
         return {"status": "market_closed"}
 
     is_buy = "buy" in side.lower()
+    prof   = _reprice_profile(phase_label)
 
     if not is_buy and bid <= 0.05:
         LOG.log(f"   \u26a0\ufe0f Bid ${bid:.2f} too low \u2014 skipping")
         return {"status": "skipped_low_bid"}
 
-    # ── freshness guard on the INCOMING quote (phantom-price protection) ──
-    _incoming_q = {"bid": bid, "ask": ask}
-    _ok, _reason = market_data.check_and_log(_incoming_q, option_symbol, "placement", client.sandbox)
-    if not _ok:
-        LOG.log(f"   \U0001f6d1 Placement quote rejected ({_reason}) \u2014 not placing")
-        return {"status": "rejected_quote", "reason": _reason}
-
-    # UVXY open + baseline for micro-regime and spike tripwire (live quote).
-    uvxy_open = uvxy_base = 0.0
+    # UVXY baseline for the spike tripwire (live quote, not the stale snapshot).
+    uvxy_base = 0.0
     try:
-        uq = client.get_quote("UVXY")
-        market_data.log_quote(uq, "UVXY", "placement_uvxy", "info", client.sandbox)
-        uvxy_open = float(uq.get("open") or uq.get("prevclose") or 0)
-        uvxy_base = float(uq.get("last") or uq.get("close") or 0)
+        qd = client.get_quote("UVXY")
+        uvxy_base = float(qd.get("last") or qd.get("close")
+                          or ((float(qd.get("bid",0) or 0)+float(qd.get("ask",0) or 0))/2) or 0)
     except Exception:
-        pass
+        uvxy_base = 0.0
 
-    mid0 = round((bid + ask) / 2, 2)
-    price = mid0
-    placed_at = _et_now()
-    open_mid = mid0          # opening mid reference for the take-bid rescue
-    prev_mid = mid0          # previous-cycle mid for the take-bid pop trigger
+    mid   = round((bid + ask) / 2, 2)
+    price = mid
     LOG.log(f"   {'BTO' if is_buy else 'STO'} {option_symbol} \u00d7{quantity} @ ${price:.2f} "
             f"(bid=${bid:.2f} ask=${ask:.2f}) regime='{phase_label}' "
-            f"tier={_apply_micro(_base_tier(phase_label), uvxy_open, uvxy_base)} "
-            f"uvxy_open=${uvxy_open:.2f}")
+            f"[{prof['fast_tries']} fast, descend@{prof['descent_hhmm'][0]:02d}:{prof['descent_hhmm'][1]:02d}, "
+            f"uvxy_base=${uvxy_base:.2f}]")
 
     try:
         result = client.place_order(underlying, option_symbol, side, quantity, price)
         oid = result.get("order", {}).get("id")
         if not oid:
-            LOG.log(f"   \u274c Place failed: {result}"); return {"status": "failed"}
+            LOG.log(f"   \u274c Place failed: {result}")
+            return {"status": "failed"}
         LOG.log(f"   Order {oid} placed")
     except Exception as e:
-        LOG.log(f"   \u274c Place error: {e}"); return {"status": "failed"}
+        LOG.log(f"   \u274c Place error: {e}")
+        return {"status": "failed"}
 
-    attempt = 0
-    while _market_open():
-        elapsed_min = (_et_now() - placed_at).total_seconds() / 60.0
-        if elapsed_min > 400:  # backstop: longer than any trading day -> clock bug, bail
-            LOG.log(f"   \u26a0\ufe0f Elapsed {elapsed_min:.0f}m > 400m backstop \u2014 stopping")
-            try: client.cancel_order(oid)
-            except Exception: pass
-            return {"status": "working", "order_id": oid, "last_price": price}
-        attempt += 1
-        # cadence: faster early, also bounded so we re-check responsively
-        time.sleep(30 if elapsed_min < 5 else 90)
+    for attempt in range(MAX_REPRICE):
+        et = _et_now()
+        now_hhmm = (et.hour, et.minute)
+        if now_hhmm >= prof["descent_hhmm"]:
+            phase, interval = 3, 60
+        elif attempt < prof["fast_tries"]:
+            phase, interval = 1, prof["fast_sec"]
+        else:
+            phase, interval = 2, prof["slow_sec"]
+        if phase == 3 and attempt == 0:
+            LOG.log(f"   \U0001f534 Descent window ('{phase_label}') \u2014 stepping toward bid")
+        time.sleep(interval)
 
-        # ── spike tripwire: UVXY +8% vs placement baseline -> abort short ──
-        if not is_buy and uvxy_base > 0:
+        # ── +8% UVXY spike tripwire (Phase 2/3 only) ──
+        if phase in (2, 3) and not is_buy and uvxy_base > 0:
             try:
-                uq = client.get_quote("UVXY")
-                market_data.log_quote(uq, "UVXY", "tripwire", "info", client.sandbox)
-                un = float(uq.get("last") or uq.get("close") or 0)
-                if un > 0 and (un - uvxy_base)/uvxy_base >= UVXY_SPIKE_ABORT_PCT:
-                    LOG.log(f"   \U0001f6d1 UVXY spike +{(un-uvxy_base)/uvxy_base*100:.1f}% \u2014 ABORT")
+                qd = client.get_quote("UVXY")
+                uvxy_now = float(qd.get("last") or qd.get("close")
+                                 or ((float(qd.get("bid",0) or 0)+float(qd.get("ask",0) or 0))/2) or 0)
+                if uvxy_now > 0 and (uvxy_now - uvxy_base) / uvxy_base >= UVXY_SPIKE_ABORT_PCT:
+                    LOG.log(f"   \U0001f6d1 UVXY spike +{(uvxy_now-uvxy_base)/uvxy_base*100:.1f}% "
+                            f"(${uvxy_base:.2f}\u2192${uvxy_now:.2f}) \u2014 ABORTING short")
                     try: client.cancel_order(oid)
                     except Exception: pass
-                    return {"status": "aborted_uvxy_spike", "order_id": oid}
+                    return {"status": "aborted_uvxy_spike", "order_id": oid,
+                            "uvxy_base": uvxy_base, "uvxy_now": uvxy_now}
             except Exception:
-                pass
+                pass  # quote failure: do not abort on missing data
 
         try:
-            status = client.get_order(oid); state = status.get("status", "")
+            status = client.get_order(oid)
+            state = status.get("status", "")
         except Exception:
             state = "unknown"
-        LOG.log(f"   [{attempt+1}] t={elapsed_min:.0f}m state={state} @ ${price:.2f}")
+        LOG.log(f"   [{attempt+1}] phase={phase} state={state} @ ${price:.2f}")
 
         if not _market_open():
-            LOG.log(f"   \U0001f6ab Market closed \u2014 stopping")
+            LOG.log(f"   \U0001f6ab Market closed \u2014 stopping reprice loop")
             try: client.cancel_order(oid)
             except Exception: pass
             return {"status": "market_closed", "order_id": oid}
 
         if state == "filled":
-            fp = float(status.get("avg_fill_price", price))
-            LOG.log(f"   \u2705 Filled @ ${fp:.2f}")
-            return {"status": "filled", "order_id": oid, "fill_price": fp, "quantity": quantity}
+            fill_px = float(status.get("avg_fill_price", price))
+            LOG.log(f"   \u2705 Filled @ ${fill_px:.2f}")
+            return {"status": "filled", "order_id": oid, "fill_price": fill_px, "quantity": quantity}
+
         if state == "partially_filled":
-            fq = int(status.get("exec_quantity", 0) or 0)
-            fp = float(status.get("avg_fill_price", price))
-            if elapsed_min >= 60:
+            filled_qty = int(status.get("exec_quantity", 0) or 0)
+            fill_px = float(status.get("avg_fill_price", price))
+            remaining = quantity - filled_qty
+            LOG.log(f"   \u26a1 Partial: {filled_qty}/{quantity} @ ${fill_px:.2f} \u2014 {remaining} left")
+            if phase == 3:
                 try: client.cancel_order(oid)
                 except Exception: pass
-                if fq > 0:
-                    return {"status": "filled", "order_id": oid, "fill_price": fp,
-                            "quantity": fq, "partial": True}
+                if filled_qty > 0:
+                    return {"status": "filled", "order_id": oid, "fill_price": fill_px,
+                            "quantity": filled_qty, "partial": True}
                 return {"status": "canceled", "order_id": oid}
+
         if state in ("canceled", "expired", "rejected"):
             return {"status": state, "order_id": oid}
 
-        # ── re-quote the live option (freshness-guarded) ──
+        # ── re-fetch live option quote (graceful fallback) ──
         try:
             q = client.get_quote(option_symbol)
-            _ok, _reason = market_data.check_and_log(q, option_symbol, "reprice", client.sandbox)
-            if _ok:
-                nb = float(q.get("bid", bid) or bid); na = float(q.get("ask", ask) or ask)
-                if nb > 0 and na > 0: bid, ask = nb, na
-            else:
-                LOG.log(f"   ⚠️ Re-quote rejected ({_reason}) — holding last good ${bid:.2f}/{ask:.2f}")
+            nb = float(q.get("bid", bid) or bid)
+            na = float(q.get("ask", ask) or ask)
+            if nb > 0 and na > 0:
+                bid, ask = nb, na
         except Exception:
             pass
-        live_mid = round((bid + ask) / 2, 2)
+        fresh_mid = round((bid + ask) / 2, 2)
 
-        # ── re-fetch UVXY for micro-regime ──
-        try:
-            uq = client.get_quote("UVXY")
-            market_data.log_quote(uq, "UVXY", "micro", "info", client.sandbox)
-            uvxy_now = float(uq.get("last") or uq.get("close") or uvxy_base)
-        except Exception:
-            uvxy_now = uvxy_base
-
-        # ── take-the-bid rule (sells): fill into buying rather than hold/chase ──
-        take_bid = False
-        if not is_buy and bid > 0:
-            if bid >= prev_mid - TAKE_BID_TOL:
-                take_bid = True
-                LOG.log(f"   \U0001f3af Take-bid: bid {bid:.2f} \u2248 prev mid {prev_mid:.2f} \u2014 filling")
-            elif elapsed_min >= TAKE_BID_OPEN_DELAY_MIN and bid >= open_mid - TAKE_BID_TOL:
-                take_bid = True
-                LOG.log(f"   \U0001f3af Take-bid (rescue): bid {bid:.2f} \u2248 open mid {open_mid:.2f} \u2014 filling")
-        prev_mid = live_mid   # update for next cycle (after the comparison)
-
-        if take_bid:
-            new_price = bid
-        elif is_buy:
-            new_price = min(round(price + 0.05, 2), ask)
+        if phase in (1, 2):
+            new_price = fresh_mid
         else:
-            new_price, tier = _reprice_target(phase_label, mid0, live_mid, bid, ask,
-                                              elapsed_min, uvxy_open, uvxy_now)
+            new_price = max(round(price - prof["step"], 2), bid)
 
         if new_price == price:
-            LOG.log(f"   Holding ${price:.2f} (mid {live_mid}, bid {bid})")
+            LOG.log(f"   Holding ${price:.2f} (mid {fresh_mid}, bid {bid})")
             continue
-        LOG.log(f"   Repricing ${price:.2f} \u2192 ${new_price:.2f} (mid {live_mid}, bid {bid})")
+        LOG.log(f"   Repricing ${price:.2f} \u2192 ${new_price:.2f} (phase {phase}, mid {fresh_mid}, bid {bid})")
 
         if client.sandbox:
             try: client.cancel_order(oid)
             except Exception: pass
             try:
                 result = client.place_order(underlying, option_symbol, side, quantity, new_price)
-                noid = result.get("order", {}).get("id")
-                if noid: oid, price = noid, new_price
+                new_oid = result.get("order", {}).get("id")
+                if new_oid:
+                    oid, price = new_oid, new_price
             except Exception as e:
                 LOG.log(f"   \u26a0\ufe0f Re-place failed: {e}")
         else:
             try:
-                client.modify_order(oid, new_price); price = new_price
+                client.modify_order(oid, new_price)
+                price = new_price
             except Exception as e:
                 LOG.log(f"   \u26a0\ufe0f Modify failed: {e}")
 
@@ -689,45 +574,6 @@ def sync_state_from_tradier(client: TradierClient) -> dict:
 
 # ── Main orchestrator ─────────────────────────────────────────────────────────
 
-def _is_short_entry_day(today) -> bool:
-    """True if today should be treated as a short-entry day.
-
-    Normal: today is Mon or Fri and the market is open.
-    Holiday shift: if a scheduled Mon/Fri entry day is CLOSED (holiday) and today
-    is the last open trading day before it, enter today instead of skipping.
-    Example: Fri Jul 3 is a holiday -> Thu Jul 2 becomes the entry day.
-
-    Safe against double entry: the caller separately syncs live Tradier state and
-    only enters a variant whose short is None, so shifting the day cannot double up.
-    """
-    from datetime import timedelta
-    try:
-        from market_calendar import is_market_open
-    except Exception:
-        # If the calendar is unavailable, fall back to the plain Mon/Fri rule.
-        return today.weekday() in (0, 4)
-
-    # Must be an open trading day to place anything at all.
-    if not is_market_open(today):
-        return False
-
-    # Normal scheduled entry day.
-    if today.weekday() in (0, 4):
-        return True
-
-    # Holiday-shift: walk forward over consecutive CLOSED days. If any of those
-    # closed days is a scheduled entry day (Mon/Fri), then today (the last open
-    # day before them) inherits that entry. Stop at the next open day.
-    nxt = today + timedelta(days=1)
-    guard = 0
-    while not is_market_open(nxt) and guard < 10:
-        if nxt.weekday() in (0, 4):
-            return True
-        nxt += timedelta(days=1)
-        guard += 1
-    return False
-
-
 def run(sandbox: bool = True, preview: bool = False, check_only: bool = False):
     today   = date.today()
     weekday = today.weekday()  # 0=Mon, 4=Fri
@@ -783,7 +629,7 @@ def run(sandbox: bool = True, preview: bool = False, check_only: bool = False):
         return {"status": "no_expirations"}
 
     actions_taken = []
-    is_short_day  = _is_short_entry_day(today)  # Mon/Fri, or the trading day before a holiday Mon/Fri
+    is_short_day  = weekday in (0, 4)  # Monday or Friday
 
     LOG.log(f"\n{'─'*60}")
     LOG.log(f"Short entry day: {'YES' if is_short_day else 'NO (hold)'}")
@@ -919,19 +765,12 @@ def run(sandbox: bool = True, preview: bool = False, check_only: bool = False):
                                                  str(r_buy.get("order_id", "")))
                                         # STC old long
                                         old_quote = client.get_quote(long_pos["symbol"])
-                                        market_data.check_and_log(old_quote, long_pos["symbol"], "roll", client.sandbox)
                                         old_bid   = float(old_quote.get("bid", 0.10))
                                         old_ask   = float(old_quote.get("ask", 0.20))
                                         r_sell = place_with_reprice(
                                             client, "UVXY", long_pos["symbol"],
                                             "sell_to_close", long_pos["quantity"],
                                             old_bid, old_ask, phase_label=phase)
-                                        if r_sell.get("status") == "filled":
-                                            log_fill(key, long_pos["strike"], str(long_exp), "STC",
-                                                     round((old_bid + old_ask) / 2, 2),
-                                                     float(r_sell.get("fill_price", 0) or 0),
-                                                     long_pos["quantity"],
-                                                     str(r_sell.get("order_id", "")))
                                         variant_state["long"] = {
                                             "symbol":     best_new["symbol"],
                                             "strike":     best_new["strike"],
@@ -1466,53 +1305,6 @@ def _send_delta_alert(flagged: list[dict]):
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
-LOCK_PATH = os.path.expanduser("~/vix_suite/tradier_orchestrator.lock")
-
-
-def acquire_single_instance_lock():
-    """Refuse to start if another orchestrator instance holds the lock.
-    flock is atomic and auto-released by the OS on process death (no stale locks).
-    Returns: a file handle (lock held, proceed), or None (another instance holds it).
-    On a lockfile I/O problem (missing dir, unwritable), returns the sentinel
-    string 'NO_LOCKFILE' so the caller can proceed WITHOUT crashing — a lock
-    problem must never take down the run."""
-    try:
-        lock_file = open(LOCK_PATH, "w")
-    except OSError as e:
-        print(f"⚠️ Could not open lockfile {LOCK_PATH}: {e} — proceeding without lock.")
-        return "NO_LOCKFILE"
-    try:
-        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except (BlockingIOError, OSError):
-        return None
-    try:
-        lock_file.write(f"{os.getpid()}\n")
-        lock_file.flush()
-    except OSError:
-        pass
-    return lock_file
-
-
-def _send_lock_alert():
-    """Email when a second instance was blocked. Reuses the SMTP env credentials."""
-    try:
-        user = os.environ.get("SMTP_USER", "")
-        pw = os.environ.get("SMTP_PASS", "")
-        if not user or not pw:
-            return
-        msg = MIMEText("A second tradier_orchestrator instance tried to start while one "
-                       "was already running, and was blocked to prevent double-placement. "
-                       "Likely an overlapping timer + manual run \u2014 check before next run.")
-        msg["Subject"] = "\U0001f512 Orchestrator overlap blocked"
-        msg["From"] = user
-        msg["To"] = user
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
-            s.login(user, pw)
-            s.send_message(msg)
-    except Exception:
-        pass
-
-
 def main():
     # ── Holiday guard ─────────────────────────────────────────────────────────
     from market_calendar import is_market_open, get_next_trading_day
@@ -1534,19 +1326,6 @@ def main():
     if args.live:
         print("⚠️ Live mode not yet enabled")
         return
-
-    # ── single-instance lock (order-placing modes only) ──────────────────────
-    _places_orders = args.paper or args.live
-    _lock = None
-    if _places_orders:
-        _lock = acquire_single_instance_lock()
-        if _lock is None:
-            print("\U0001f512 Another orchestrator instance is already running \u2014 "
-                  "exiting to prevent double-placement.")
-            _send_lock_alert()
-            return
-    # _lock stays open (held) for the duration of run() below; released on exit.
-    # ─────────────────────────────────────────────────────────────────────────
 
     run(
         sandbox    = not args.live,

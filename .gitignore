@@ -1,13 +1,6 @@
-*.bak*
-*.bak_*
-nohup.out
 __pycache__/
 *.pyc
-.DS_Store
-*_preview.html
-friday_signal_preview.html
-member_alert_preview*.html
-patch_*.py
-*.log
-nohup.out
 venv/
+*.log
+._*
+VIX_History.csv

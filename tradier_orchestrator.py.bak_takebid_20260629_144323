@@ -34,7 +34,6 @@ import json
 import os
 import smtplib
 import sys
-import fcntl
 import time
 from datetime import date, datetime, timedelta
 from email.mime.multipart import MIMEMultipart
@@ -44,7 +43,6 @@ from typing import Optional
 
 from tradier_liquidity import check_liquidity, log_skip
 from tradier_exec_log import log_fill
-import market_data
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 STORAGE_DIR        = Path.home() / ".vix_suite"
@@ -83,15 +81,13 @@ UVXY_SPIKE_ABORT_PCT = 0.08
 
 # ── Reprice v2: regime-gated chase + guaranteed descent (Jun 26 fix) ──
 REPRICE_TIERS = {
-    "CALM":    dict(target_min=180, hard_min=210, chase=True,  chase_cap0=1.00),
+    "CALM":    dict(target_min=300, hard_min=360, chase=True,  chase_cap0=1.00),
     "NORMAL":  dict(target_min=120, hard_min=180, chase=True,  chase_cap0=0.50),
     "GUARDED": dict(target_min=45,  hard_min=60,  chase=False, chase_cap0=0.00),
 }
 CALM_REGIMES    = {"CALM", "RISING", "Spike Exhaustion", "Calm"}
 GUARDED_REGIMES = {"EXPANSION", "Possible Peak", "STRESSED", "EXTREME"}
 MICRO_STEEPEN_PCT = 0.03   # UVXY +3% vs open -> one tier more guarded
-TAKE_BID_TOL = 0.05              # take the bid if within this of a reference mid
-TAKE_BID_OPEN_DELAY_MIN = 15    # opening-mid rescue trigger activates after this many min
 
 def _base_tier(regime: str) -> str:
     if regime in CALM_REGIMES: return "CALM"
@@ -218,23 +214,8 @@ class TradierClient:
             "Accept":        "application/json",
         })
 
-    def _retry_5xx(self, fn, *args, **kwargs):
-        """Call fn (a requests method); retry on transient 5xx with backoff.
-        Only 500/502/503/504 retry; 4xx and success return/raise immediately."""
-        backoffs = [1, 3, 7]
-        for attempt in range(len(backoffs) + 1):
-            try:
-                r = fn(*args, **kwargs)
-            except requests.exceptions.RequestException:
-                if attempt < len(backoffs):
-                    time.sleep(backoffs[attempt]); continue
-                raise
-            if r.status_code in (500, 502, 503, 504) and attempt < len(backoffs):
-                time.sleep(backoffs[attempt]); continue
-            return r
-
     def _get(self, path, params=None):
-        r = self._retry_5xx(self.session.get, f"{self.base}{path}", params=params, timeout=15)
+        r = self.session.get(f"{self.base}{path}", params=params, timeout=15)
         r.raise_for_status()
         return r.json()
 
@@ -276,52 +257,13 @@ class TradierClient:
         q = data.get("quotes", {}).get("quote", {})
         return q if isinstance(q, dict) else {}
 
-    def has_working_order(self, option_symbol: str) -> bool:
-        """True if an open/pending order already exists for this option_symbol.
-        Used to avoid double-placing after a 500 that actually created the order."""
-        try:
-            data = self._get(f"/accounts/{self.account}/orders")
-            o = data.get("orders", {})
-            if not o or o == "null":
-                return False
-            orders = o.get("order", [])
-            if isinstance(orders, dict): orders = [orders]
-            for x in orders:
-                if x.get("option_symbol") == option_symbol and \
-                   x.get("status") in ("open", "pending", "partially_filled"):
-                    return True
-        except Exception:
-            pass
-        return False
-
     def place_order(self, symbol, option_symbol, side, quantity, price) -> dict:
-        payload = {
+        return self._post(f"/accounts/{self.account}/orders", {
             "class": "option", "symbol": symbol,
             "option_symbol": option_symbol, "side": side,
             "quantity": str(quantity), "type": "limit",
             "duration": "day", "price": f"{price:.2f}",
-        }
-        url = f"{self.base}/accounts/{self.account}/orders"
-        backoffs = [1, 3, 7]
-        for attempt in range(len(backoffs) + 1):
-            # Before a RETRY (not the first try), verify the prior 500 didn't
-            # already create the order -> if it did, don't double-place.
-            if attempt > 0 and self.has_working_order(option_symbol):
-                return {"order": {"status": "already_working",
-                                  "note": "order existed after 5xx; not re-placed"}}
-            try:
-                r = self.session.post(url, data=payload,
-                                      headers={"Authorization": f"Bearer {self.token}",
-                                               "Accept": "application/json"},
-                                      timeout=15)
-            except requests.exceptions.RequestException:
-                if attempt < len(backoffs):
-                    time.sleep(backoffs[attempt]); continue
-                raise
-            if r.status_code in (500, 502, 503, 504) and attempt < len(backoffs):
-                time.sleep(backoffs[attempt]); continue
-            r.raise_for_status()
-            return r.json()
+        })
 
     def cancel_order(self, order_id: int) -> dict:
         r = self.session.delete(
@@ -462,18 +404,10 @@ def place_with_reprice(client, underlying: str, option_symbol: str, side: str,
         LOG.log(f"   \u26a0\ufe0f Bid ${bid:.2f} too low \u2014 skipping")
         return {"status": "skipped_low_bid"}
 
-    # ── freshness guard on the INCOMING quote (phantom-price protection) ──
-    _incoming_q = {"bid": bid, "ask": ask}
-    _ok, _reason = market_data.check_and_log(_incoming_q, option_symbol, "placement", client.sandbox)
-    if not _ok:
-        LOG.log(f"   \U0001f6d1 Placement quote rejected ({_reason}) \u2014 not placing")
-        return {"status": "rejected_quote", "reason": _reason}
-
     # UVXY open + baseline for micro-regime and spike tripwire (live quote).
     uvxy_open = uvxy_base = 0.0
     try:
         uq = client.get_quote("UVXY")
-        market_data.log_quote(uq, "UVXY", "placement_uvxy", "info", client.sandbox)
         uvxy_open = float(uq.get("open") or uq.get("prevclose") or 0)
         uvxy_base = float(uq.get("last") or uq.get("close") or 0)
     except Exception:
@@ -482,8 +416,6 @@ def place_with_reprice(client, underlying: str, option_symbol: str, side: str,
     mid0 = round((bid + ask) / 2, 2)
     price = mid0
     placed_at = _et_now()
-    open_mid = mid0          # opening mid reference for the take-bid rescue
-    prev_mid = mid0          # previous-cycle mid for the take-bid pop trigger
     LOG.log(f"   {'BTO' if is_buy else 'STO'} {option_symbol} \u00d7{quantity} @ ${price:.2f} "
             f"(bid=${bid:.2f} ask=${ask:.2f}) regime='{phase_label}' "
             f"tier={_apply_micro(_base_tier(phase_label), uvxy_open, uvxy_base)} "
@@ -514,7 +446,6 @@ def place_with_reprice(client, underlying: str, option_symbol: str, side: str,
         if not is_buy and uvxy_base > 0:
             try:
                 uq = client.get_quote("UVXY")
-                market_data.log_quote(uq, "UVXY", "tripwire", "info", client.sandbox)
                 un = float(uq.get("last") or uq.get("close") or 0)
                 if un > 0 and (un - uvxy_base)/uvxy_base >= UVXY_SPIKE_ABORT_PCT:
                     LOG.log(f"   \U0001f6d1 UVXY spike +{(un-uvxy_base)/uvxy_base*100:.1f}% \u2014 ABORT")
@@ -553,15 +484,11 @@ def place_with_reprice(client, underlying: str, option_symbol: str, side: str,
         if state in ("canceled", "expired", "rejected"):
             return {"status": state, "order_id": oid}
 
-        # ── re-quote the live option (freshness-guarded) ──
+        # ── re-quote the live option ──
         try:
             q = client.get_quote(option_symbol)
-            _ok, _reason = market_data.check_and_log(q, option_symbol, "reprice", client.sandbox)
-            if _ok:
-                nb = float(q.get("bid", bid) or bid); na = float(q.get("ask", ask) or ask)
-                if nb > 0 and na > 0: bid, ask = nb, na
-            else:
-                LOG.log(f"   ⚠️ Re-quote rejected ({_reason}) — holding last good ${bid:.2f}/{ask:.2f}")
+            nb = float(q.get("bid", bid) or bid); na = float(q.get("ask", ask) or ask)
+            if nb > 0 and na > 0: bid, ask = nb, na
         except Exception:
             pass
         live_mid = round((bid + ask) / 2, 2)
@@ -569,25 +496,12 @@ def place_with_reprice(client, underlying: str, option_symbol: str, side: str,
         # ── re-fetch UVXY for micro-regime ──
         try:
             uq = client.get_quote("UVXY")
-            market_data.log_quote(uq, "UVXY", "micro", "info", client.sandbox)
             uvxy_now = float(uq.get("last") or uq.get("close") or uvxy_base)
         except Exception:
             uvxy_now = uvxy_base
 
-        # ── take-the-bid rule (sells): fill into buying rather than hold/chase ──
-        take_bid = False
-        if not is_buy and bid > 0:
-            if bid >= prev_mid - TAKE_BID_TOL:
-                take_bid = True
-                LOG.log(f"   \U0001f3af Take-bid: bid {bid:.2f} \u2248 prev mid {prev_mid:.2f} \u2014 filling")
-            elif elapsed_min >= TAKE_BID_OPEN_DELAY_MIN and bid >= open_mid - TAKE_BID_TOL:
-                take_bid = True
-                LOG.log(f"   \U0001f3af Take-bid (rescue): bid {bid:.2f} \u2248 open mid {open_mid:.2f} \u2014 filling")
-        prev_mid = live_mid   # update for next cycle (after the comparison)
-
-        if take_bid:
-            new_price = bid
-        elif is_buy:
+        if is_buy:
+            # buys: simple ratchet toward ask (kept minimal; buys are the protective long)
             new_price = min(round(price + 0.05, 2), ask)
         else:
             new_price, tier = _reprice_target(phase_label, mid0, live_mid, bid, ask,
@@ -689,45 +603,6 @@ def sync_state_from_tradier(client: TradierClient) -> dict:
 
 # ── Main orchestrator ─────────────────────────────────────────────────────────
 
-def _is_short_entry_day(today) -> bool:
-    """True if today should be treated as a short-entry day.
-
-    Normal: today is Mon or Fri and the market is open.
-    Holiday shift: if a scheduled Mon/Fri entry day is CLOSED (holiday) and today
-    is the last open trading day before it, enter today instead of skipping.
-    Example: Fri Jul 3 is a holiday -> Thu Jul 2 becomes the entry day.
-
-    Safe against double entry: the caller separately syncs live Tradier state and
-    only enters a variant whose short is None, so shifting the day cannot double up.
-    """
-    from datetime import timedelta
-    try:
-        from market_calendar import is_market_open
-    except Exception:
-        # If the calendar is unavailable, fall back to the plain Mon/Fri rule.
-        return today.weekday() in (0, 4)
-
-    # Must be an open trading day to place anything at all.
-    if not is_market_open(today):
-        return False
-
-    # Normal scheduled entry day.
-    if today.weekday() in (0, 4):
-        return True
-
-    # Holiday-shift: walk forward over consecutive CLOSED days. If any of those
-    # closed days is a scheduled entry day (Mon/Fri), then today (the last open
-    # day before them) inherits that entry. Stop at the next open day.
-    nxt = today + timedelta(days=1)
-    guard = 0
-    while not is_market_open(nxt) and guard < 10:
-        if nxt.weekday() in (0, 4):
-            return True
-        nxt += timedelta(days=1)
-        guard += 1
-    return False
-
-
 def run(sandbox: bool = True, preview: bool = False, check_only: bool = False):
     today   = date.today()
     weekday = today.weekday()  # 0=Mon, 4=Fri
@@ -783,7 +658,7 @@ def run(sandbox: bool = True, preview: bool = False, check_only: bool = False):
         return {"status": "no_expirations"}
 
     actions_taken = []
-    is_short_day  = _is_short_entry_day(today)  # Mon/Fri, or the trading day before a holiday Mon/Fri
+    is_short_day  = weekday in (0, 4)  # Monday or Friday
 
     LOG.log(f"\n{'─'*60}")
     LOG.log(f"Short entry day: {'YES' if is_short_day else 'NO (hold)'}")
@@ -919,7 +794,6 @@ def run(sandbox: bool = True, preview: bool = False, check_only: bool = False):
                                                  str(r_buy.get("order_id", "")))
                                         # STC old long
                                         old_quote = client.get_quote(long_pos["symbol"])
-                                        market_data.check_and_log(old_quote, long_pos["symbol"], "roll", client.sandbox)
                                         old_bid   = float(old_quote.get("bid", 0.10))
                                         old_ask   = float(old_quote.get("ask", 0.20))
                                         r_sell = place_with_reprice(
@@ -1466,53 +1340,6 @@ def _send_delta_alert(flagged: list[dict]):
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
-LOCK_PATH = os.path.expanduser("~/vix_suite/tradier_orchestrator.lock")
-
-
-def acquire_single_instance_lock():
-    """Refuse to start if another orchestrator instance holds the lock.
-    flock is atomic and auto-released by the OS on process death (no stale locks).
-    Returns: a file handle (lock held, proceed), or None (another instance holds it).
-    On a lockfile I/O problem (missing dir, unwritable), returns the sentinel
-    string 'NO_LOCKFILE' so the caller can proceed WITHOUT crashing — a lock
-    problem must never take down the run."""
-    try:
-        lock_file = open(LOCK_PATH, "w")
-    except OSError as e:
-        print(f"⚠️ Could not open lockfile {LOCK_PATH}: {e} — proceeding without lock.")
-        return "NO_LOCKFILE"
-    try:
-        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except (BlockingIOError, OSError):
-        return None
-    try:
-        lock_file.write(f"{os.getpid()}\n")
-        lock_file.flush()
-    except OSError:
-        pass
-    return lock_file
-
-
-def _send_lock_alert():
-    """Email when a second instance was blocked. Reuses the SMTP env credentials."""
-    try:
-        user = os.environ.get("SMTP_USER", "")
-        pw = os.environ.get("SMTP_PASS", "")
-        if not user or not pw:
-            return
-        msg = MIMEText("A second tradier_orchestrator instance tried to start while one "
-                       "was already running, and was blocked to prevent double-placement. "
-                       "Likely an overlapping timer + manual run \u2014 check before next run.")
-        msg["Subject"] = "\U0001f512 Orchestrator overlap blocked"
-        msg["From"] = user
-        msg["To"] = user
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
-            s.login(user, pw)
-            s.send_message(msg)
-    except Exception:
-        pass
-
-
 def main():
     # ── Holiday guard ─────────────────────────────────────────────────────────
     from market_calendar import is_market_open, get_next_trading_day
@@ -1534,19 +1361,6 @@ def main():
     if args.live:
         print("⚠️ Live mode not yet enabled")
         return
-
-    # ── single-instance lock (order-placing modes only) ──────────────────────
-    _places_orders = args.paper or args.live
-    _lock = None
-    if _places_orders:
-        _lock = acquire_single_instance_lock()
-        if _lock is None:
-            print("\U0001f512 Another orchestrator instance is already running \u2014 "
-                  "exiting to prevent double-placement.")
-            _send_lock_alert()
-            return
-    # _lock stays open (held) for the duration of run() below; released on exit.
-    # ─────────────────────────────────────────────────────────────────────────
 
     run(
         sandbox    = not args.live,

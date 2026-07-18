@@ -64,52 +64,6 @@ VIX_EXPIRY_2026 = [
 ]
 
 
-
-# ── Japan trip high-impact dates (Apr 30 – Jun 10 2026) ──
-JAPAN_TRIP_EVENTS = [
-    # FOMC May 5-6: decision announced May 6 at 2pm ET (3am Japan May 7)
-    # Week 1 short expires May 7 — highest risk overlap
-    # FOMC May 6 already in main calendar — kept as Japan-labeled reminder
-    MarketEvent(
-        date=date(2026, 5, 6),
-        name="FOMC Decision — May (⚠️ Japan: 3am May 7 JST — SET ALARM)",
-        event_type="fomc",
-        market_closed=False,
-        high_impact=True,
-    ),
-    MarketEvent(
-        date=date(2026, 5, 5),
-        name="FOMC Day 1 — May",
-        event_type="fomc",
-        market_closed=False,
-        high_impact=True,
-    ),
-    # VIX May expiry — moved to Tuesday May 19 due to Juneteenth
-    MarketEvent(
-        date=date(2026, 5, 19),
-        name="VIX May Expiry (shifted — Juneteenth)",
-        event_type="vix_expiry",
-        market_closed=False,
-        high_impact=True,
-    ),
-    # FOMC June 16-17 (just after return Jun 10)
-    MarketEvent(
-        date=date(2026, 6, 16),
-        name="FOMC Day 1 — June",
-        event_type="fomc",
-        market_closed=False,
-        high_impact=True,
-    ),
-    MarketEvent(
-        date=date(2026, 6, 17),
-        name="FOMC Decision — June",
-        event_type="fomc",
-        market_closed=False,
-        high_impact=True,
-    ),
-]
-
-
 def get_market_events(start_date: date, end_date: date) -> List[MarketEvent]:
     """Get all market events in a date range."""
     events = []
@@ -147,13 +101,6 @@ def get_market_events(start_date: date, end_date: date) -> List[MarketEvent]:
                 high_impact=True,
             ))
     
-    # Add Japan trip high-impact events if in range
-    try:
-        for evt in JAPAN_TRIP_EVENTS:
-            if start_date <= evt.date <= end_date:
-                events.append(evt)
-    except NameError:
-        pass
     return sorted(events, key=lambda e: e.date)
 
 

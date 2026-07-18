@@ -1,313 +1,199 @@
+#!/usr/bin/env python3
 """
-market_data.py — Live market data via yfinance.
+market_data.py — quote freshness/sanity guard + timestamped SQLite logger.
 
-Key fixes vs old codebase:
-  • VIX percentile uses ^VIX 252-day RANK (not UVXY min/max normalisation)
-  • IV estimated from UVXY 30-day historical vol × scaling factor
-    (no Massive REST dependency)
+TWO responsibilities, one module (the chokepoint every quote passes through):
+
+  validate_quote(quote, sandbox)  -> (ok: bool, reason: str)
+      Guards against trading on bad data:
+        - $0 bid            -> BLOCK  (both venues; unsellable)
+        - wide spread       -> LOG-but-ALLOW for now (measure 2 wks, then enforce)
+        - stale timestamp   -> BLOCK in LIVE only (sandbox bid_date is frozen ~15min)
+
+  log_quote(...)                  -> None
+      Appends one timestamped row per quote to ~/.vix_suite/market_data.db,
+      recording bid/ask/mid/spread/age/context/decision — the self-refining
+      dataset. context lets a 90-day prune keep decision-points, drop routine.
+
+Design notes:
+  - Timestamps: Tradier bid_date/ask_date are Unix MILLISECONDS.
+  - Freshness is venue-aware (proven: sandbox bid_date frozen at ~901s while the
+    bid value itself moves -> unusable as a freshness signal in sandbox).
+  - Fails safe: a logging/DB error must NEVER break a trade (all wrapped).
 """
 from __future__ import annotations
-import math
-import json
 import os
-from datetime import date, datetime, timedelta
+import sqlite3
+import datetime
 from typing import Optional, Tuple
 
-import yfinance as yf
-import numpy as np
-import pandas as pd
+DB_PATH = os.path.expanduser("~/.vix_suite/market_data.db")
 
-CACHE_DIR = os.path.expanduser("~/.vix_suite")
-os.makedirs(CACHE_DIR, exist_ok=True)
-
-# Regime percentile thresholds
-REGIME_MAP = [
-    (75, "EXTREME"),
-    (60, "STRESSED"),
-    (45, "RISING"),
-    (30, "DECLINING"),
-    (0,  "CALM"),
-]
+# ── Guard thresholds ────────────────────────────────────────────────────────
+MIN_BID = 0.0                 # bid must be strictly greater than this to trade
+WIDE_SPREAD_PCT = 0.60        # spread/mid above this = "wide" (LOGGED, not blocked yet)
+STALE_AGE_SEC = 60            # live only: reject quotes older than this
+ENFORCE_WIDE_SPREAD = False   # flip to True after ~2 weeks of data to start blocking
 
 
-# ---------------------------------------------------------------------------
-# VIX  (rank-based percentile over 252 trading days)
-# ---------------------------------------------------------------------------
-def get_vix_data(lookback_days: int = 252) -> dict:
-    """
-    Returns:
-      vix       : current VIX level
-      percentile: rank percentile (0-100) over trailing lookback_days closes
-      regime    : CALM / DECLINING / RISING / STRESSED / EXTREME
-      history   : pd.Series of closes used for the rank
-    """
-    try:
-        ticker = yf.Ticker("^VIX")
-        hist = ticker.history(period="3y")["Close"].dropna()
-        if len(hist) < 30:
-            return _vix_fallback()
-        current = float(hist.iloc[-1])
-        window = hist.tail(lookback_days)
-        pct = float((window < current).sum() / len(window) * 100)
-        regime = _pct_to_regime(pct)
-        return {
-            "vix": round(current, 2),
-            "percentile": round(pct, 1),
-            "regime": regime,
-            "history": window,
-            "error": None,
-        }
-    except Exception as e:
-        return _vix_fallback(str(e))
-
-
-def _pct_to_regime(pct: float) -> str:
-    for threshold, name in REGIME_MAP:
-        if pct >= threshold:
-            return name
-    return "CALM"
-
-
-def _vix_fallback(error: str = "fetch failed") -> dict:
-    return {
-        "vix": None,
-        "percentile": None,
-        "regime": "UNKNOWN",
-        "history": pd.Series(dtype=float),
-        "error": error,
-    }
-
-
-# ---------------------------------------------------------------------------
-# UVXY price + HV-based IV estimate
-# ---------------------------------------------------------------------------
-def get_uvxy_data() -> dict:
-    """
-    Returns current price, 30-day HV, and IV estimate.
-    IV ≈ HV × 1.35 (UVXY options consistently trade at premium to realised vol).
-    Capped at 300% to avoid absurd prices after a split-adjusted spike.
-    """
-    try:
-        ticker = yf.Ticker("UVXY")
-        hist = ticker.history(period="90d")["Close"].dropna()
-        if hist.empty:
-            return _uvxy_fallback()
-        price = float(hist.iloc[-1])
-        returns = hist.pct_change().dropna()
-        hv30 = float(returns.tail(30).std() * math.sqrt(252)) if len(returns) >= 20 else 1.20
-        iv_est = min(hv30 * 1.35, 3.00)
-        return {
-            "price": round(price, 2),
-            "hv30": round(hv30, 4),
-            "iv_est": round(iv_est, 4),
-            "history": hist,
-            "error": None,
-        }
-    except Exception as e:
-        return _uvxy_fallback(str(e))
-
-
-def _uvxy_fallback(error: str = "fetch failed") -> dict:
-    return {
-        "price": None,
-        "hv30": None,
-        "iv_est": 1.20,
-        "history": pd.Series(dtype=float),
-        "error": error,
-    }
-
-
-# ---------------------------------------------------------------------------
-# Vol Triangle  (VIX / VVIX / VIX3M / VIX9D)
-# ---------------------------------------------------------------------------
-_VOL_TICKERS = {
-    "VIX": "^VIX",
-    "VVIX": "^VVIX",
-    "VIX3M": "^VIX3M",
-    "VIX9D": "^VIX9D",
-}
-
-
-def get_vol_triangle() -> dict:
-    out = {}
-    for label, sym in _VOL_TICKERS.items():
-        try:
-            h = yf.Ticker(sym).history(period="5d")["Close"].dropna()
-            out[label] = round(float(h.iloc[-1]), 2) if not h.empty else None
-        except Exception:
-            out[label] = None
-    # Spike Exhaustion Score (0-100): high when front-month VIX > long-dated VIX
-    vix = out.get("VIX"); vix3m = out.get("VIX3M"); vvix = out.get("VVIX")
-    ses = None
-    if vix and vix3m and vvix:
-        contango = (vix3m - vix) / vix * 100   # negative = backwardation
-        vvix_z = max(0.0, (vvix - 80) / 40)    # normalise VVIX around 80–120 range
-        raw = 50 - contango * 3 + vvix_z * 20
-        ses = round(min(max(raw, 0), 100), 1)
-    out["spike_exhaustion_score"] = ses
-    return out
-
-
-# ---------------------------------------------------------------------------
-# Option expiry date helpers
-# ---------------------------------------------------------------------------
-def next_friday_from_target(today: date, target_dte: int) -> date:
-    """
-    Return the nearest Friday to (today + target_dte).
-    Ensures the returned date is strictly in the future.
-    """
-    target = today + timedelta(days=target_dte)
-    weekday = target.weekday()           # 0=Mon … 4=Fri … 6=Sun
-    days_ahead = (4 - weekday) % 7       # how many days to next Friday
-    candidate = target + timedelta(days=days_ahead)
-    # If candidate is today or past, push one week
-    if candidate <= today:
-        candidate += timedelta(weeks=1)
-    return candidate
-
-
-def monthly_expiry_from_target(today: date, target_dte: int) -> date:
-    """
-    Third Friday of the month containing (today + target_dte).
-    Ensures the returned date is > today.
-    """
-    target = today + timedelta(days=target_dte)
-    for _ in range(3):  # at most step 3 months forward
-        year, month = target.year, target.month
-        first = date(year, month, 1)
-        first_fri_delta = (4 - first.weekday()) % 7
-        first_fri = first + timedelta(days=first_fri_delta)
-        third_fri = first_fri + timedelta(weeks=2)
-        if third_fri > today:
-            return third_fri
-        # advance one month
-        if month == 12:
-            target = date(year + 1, 1, 1)
-        else:
-            target = date(year, month + 1, 1)
-    return third_fri   # fallback
-
-
-def format_expiry(d: date) -> str:
-    """'Jun 20' display format."""
-    return d.strftime("%b %d")
-
-
-def dte_from_expiry(expiry: date, today: Optional[date] = None) -> int:
-    """Calendar days from today to expiry (never < 0)."""
-    if today is None:
-        today = date.today()
-    return max((expiry - today).days, 0)
-
-
-# ---------------------------------------------------------------------------
-# Live option chain — executable bid/ask + liquidity
-# ---------------------------------------------------------------------------
-def fetch_live_option_price(
-    symbol: str,
-    expiry: date,
-    strike: float,
-    option_type: str = "call",
-) -> dict:
-    """
-    Fetch live bid, ask, volume, OI for a single contract via yfinance.
-    Falls back to all-None on any error.
-
-    Returns dict with keys:
-        bid, ask, mid, volume, open_interest, found,
-        actual_strike, actual_expiry
-    """
-    _empty = {"bid": None, "ask": None, "mid": None,
-              "volume": None, "open_interest": None, "found": False,
-              "actual_strike": None, "actual_expiry": None}
-    try:
-        ticker = yf.Ticker(symbol)
-        available = ticker.options
-        if not available:
-            return _empty
-        # Find nearest available expiry within 5 calendar days
-        exp_dates = [date.fromisoformat(e) for e in available]
-        closest = min(exp_dates, key=lambda d: abs((d - expiry).days))
-        if abs((closest - expiry).days) > 5:
-            return _empty
-        chain = ticker.option_chain(closest.isoformat())
-        df = chain.calls if option_type == "call" else chain.puts
-        if df.empty:
-            return _empty
-        df = df.copy()
-        df["_diff"] = (df["strike"] - strike).abs()
-        row = df.loc[df["_diff"].idxmin()]
-        if float(row["_diff"]) > 5.0:
-            return _empty
-        bid = float(row.get("bid", 0) or 0)
-        ask = float(row.get("ask", 0) or 0)
-        vol = int(row.get("volume", 0) or 0)
-        oi  = int(row.get("openInterest", 0) or 0)
-        mid = round((bid + ask) / 2, 2) if (bid + ask) > 0 else None
-        return {
-            "bid": round(bid, 2), "ask": round(ask, 2), "mid": mid,
-            "volume": vol, "open_interest": oi, "found": True,
-            "actual_strike": float(row["strike"]),
-            "actual_expiry": closest.isoformat(),
-        }
-    except Exception:
-        return _empty
-
-
-def executable_price(
-    bid: Optional[float],
-    ask: Optional[float],
-    side: str,
-    aggressiveness: float = 0.25,
-) -> Optional[float]:
-    """
-    Realistic fill estimate — conservative, not mid-based.
-
-    sell (short leg):  bid + aggressiveness*(ask-bid)
-    buy  (long leg):   ask - aggressiveness*(ask-bid)
-
-    aggressiveness=0.25 = 25% toward mid.
-    aggressiveness=0.0  = pure bid/ask (most pessimistic).
-    aggressiveness=0.5  = mid (what BS gives you — overestimates credit).
-    """
-    if bid is None or ask is None or ask < bid or (bid == 0 and ask == 0):
+def _quote_age_sec(quote: dict) -> Optional[float]:
+    """Age of the quote in seconds from bid_date (ms epoch). None if unavailable."""
+    bd = quote.get("bid_date")
+    if not bd:
         return None
-    spread = ask - bid
-    if side == "sell":
-        return round(bid + aggressiveness * spread, 2)
-    else:
-        return round(ask - aggressiveness * spread, 2)
+    try:
+        ts = int(bd) / 1000.0
+        return (datetime.datetime.now() - datetime.datetime.fromtimestamp(ts)).total_seconds()
+    except (ValueError, TypeError, OSError):
+        return None
 
 
-def fill_quality_score(
-    bid: Optional[float],
-    ask: Optional[float],
-    volume: Optional[int],
-    open_interest: Optional[int],
-) -> int:
-    """
-    0–100 fill quality score.  Higher = tighter spread + more liquid.
-      50 pts — bid/ask spread as % of mid (tight = good)
-      30 pts — volume
-      20 pts — open interest
-    """
-    if bid is None or ask is None:
+def _spread_pct(bid: float, ask: float) -> Optional[float]:
+    mid = (bid + ask) / 2.0
+    if mid <= 0:
+        return None
+    return (ask - bid) / mid
+
+
+def validate_quote(quote: dict, sandbox: bool) -> Tuple[bool, str]:
+    """Return (ok, reason). ok=False means DO NOT trade on this quote.
+    reason is a short machine-loggable string (also used as the DB 'decision')."""
+    try:
+        bid = float(quote.get("bid", 0) or 0)
+        ask = float(quote.get("ask", 0) or 0)
+    except (ValueError, TypeError):
+        return False, "rejected:unparseable_bid_ask"
+
+    # 1. $0-bid — BLOCK, both venues (unsellable; can't sell into a vacuum)
+    if bid <= MIN_BID:
+        return False, "rejected:zero_bid"
+
+    if ask <= 0:
+        return False, "rejected:zero_ask"
+
+    # 2. stale timestamp — BLOCK in LIVE only (sandbox bid_date is frozen/unusable)
+    if not sandbox:
+        age = _quote_age_sec(quote)
+        if age is not None and age > STALE_AGE_SEC:
+            return False, f"rejected:stale_{age:.0f}s"
+
+    # 3. wide spread — LOG but ALLOW for now (measure, then enforce)
+    sp = _spread_pct(bid, ask)
+    if sp is not None and sp > WIDE_SPREAD_PCT:
+        if ENFORCE_WIDE_SPREAD:
+            return False, f"rejected:wide_spread_{sp:.0%}"
+        return True, f"accepted:wide_spread_flagged_{sp:.0%}"
+
+    return True, "accepted"
+
+
+# ── SQLite logging ──────────────────────────────────────────────────────────
+
+def _connect() -> Optional[sqlite3.Connection]:
+    try:
+        os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+        conn = sqlite3.connect(DB_PATH, timeout=5)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS quotes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts TEXT NOT NULL,
+                symbol TEXT,
+                bid REAL, ask REAL, mid REAL,
+                bid_date INTEGER, ask_date INTEGER,
+                spread_pct REAL, age_sec REAL,
+                context TEXT, decision TEXT,
+                sandbox INTEGER
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_quotes_ts ON quotes(ts)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_quotes_ctx ON quotes(context)")
+        return conn
+    except Exception:
+        return None  # DB problems must never break trading
+
+
+def log_quote(quote: dict, symbol: str, context: str, decision: str, sandbox: bool) -> None:
+    """Append one row. Never raises — a logging failure must not stop a trade."""
+    conn = _connect()
+    if conn is None:
+        return
+    try:
+        bid = float(quote.get("bid", 0) or 0)
+        ask = float(quote.get("ask", 0) or 0)
+        mid = round((bid + ask) / 2.0, 4) if (bid or ask) else None
+        sp = _spread_pct(bid, ask)
+        age = _quote_age_sec(quote)
+        conn.execute(
+            "INSERT INTO quotes (ts,symbol,bid,ask,mid,bid_date,ask_date,spread_pct,age_sec,context,decision,sandbox) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (datetime.datetime.now().isoformat(), symbol, bid, ask, mid,
+             quote.get("bid_date"), quote.get("ask_date"),
+             round(sp, 4) if sp is not None else None,
+             round(age, 1) if age is not None else None,
+             context, decision, 1 if sandbox else 0),
+        )
+        conn.commit()
+    except Exception:
+        pass
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+
+def prune(keep_full_days: int = 90) -> int:
+    """After keep_full_days, keep only decision-point rows (placement/reprice/fill);
+    drop routine re-quotes. Returns rows deleted. Safe to call anytime."""
+    conn = _connect()
+    if conn is None:
         return 0
-    score = 0.0
-    mid = (bid + ask) / 2
-    if mid > 0:
-        spread_pct = (ask - bid) / mid
-        score += max(0.0, 50.0 * (1 - spread_pct * 2))  # 0% spread=50, 50%=0
-    vol = volume or 0
-    score += min(30.0, vol / 500 * 30)
-    oi = open_interest or 0
-    score += min(20.0, oi / 1000 * 20)
-    return int(round(score))
+    try:
+        cutoff = (datetime.datetime.now() - datetime.timedelta(days=keep_full_days)).isoformat()
+        cur = conn.execute(
+            "DELETE FROM quotes WHERE ts < ? AND context NOT IN ('placement','reprice','fill')",
+            (cutoff,),
+        )
+        conn.commit()
+        return cur.rowcount
+    except Exception:
+        return 0
+    finally:
+        try: conn.close()
+        except Exception: pass
 
 
-def liquidity_label(score: int) -> tuple[str, str]:
-    """Returns (label, emoji)."""
-    if score >= 70: return "Good",  "🟢"
-    if score >= 45: return "Fair",  "🟡"
-    if score >= 20: return "Thin",  "🟠"
-    return              "Poor",  "🔴"
+# ── convenience: validate + log in one call (the chokepoint) ────────────────
+
+def check_and_log(quote: dict, symbol: str, context: str, sandbox: bool) -> Tuple[bool, str]:
+    """Validate a quote AND log it with the decision. Returns (ok, reason).
+    This is what the orchestrator calls at each get_quote site."""
+    ok, reason = validate_quote(quote, sandbox)
+    log_quote(quote, symbol, context, reason, sandbox)
+    return ok, reason
+
+
+if __name__ == "__main__":
+    # Self-test against realistic quote shapes (incl. the real sandbox quote + the phantom).
+    import json
+    now_ms = int(datetime.datetime.now().timestamp() * 1000)
+    old_ms = now_ms - 901_000  # ~901s old, like the real sandbox quote
+
+    cases = [
+        ("real sandbox UVXY (901s old, tight)", {"bid":25.32,"ask":25.34,"bid_date":old_ms,"ask_date":old_ms}, True),
+        ("same quote but LIVE (should reject stale)", {"bid":25.32,"ask":25.34,"bid_date":old_ms,"ask_date":old_ms}, False),
+        ("fresh live quote", {"bid":0.65,"ask":0.70,"bid_date":now_ms,"ask_date":now_ms}, False),
+        ("$0 bid (phantom-ish)", {"bid":0.0,"ask":0.60,"bid_date":now_ms,"ask_date":now_ms}, True),
+        ("phantom $0.53 (bid0.30/ask0.75 = wide)", {"bid":0.30,"ask":0.75,"bid_date":now_ms,"ask_date":now_ms}, True),
+    ]
+    print("VALIDATE_QUOTE tests:")
+    for label, q, sb in cases:
+        ok, reason = validate_quote(q, sb)
+        print(f"  [{'PASS' if ok else 'BLOCK'}] {label:45} -> {reason}")
+
+    print("\nSQLITE logging test:")
+    for label, q, sb in cases:
+        check_and_log(q, "UVXY", "test", sb)
+    conn = _connect()
+    n = conn.execute("SELECT COUNT(*) FROM quotes").fetchone()[0]
+    print(f"  rows logged: {n}")
+    print("  sample row:", conn.execute("SELECT ts,symbol,bid,ask,spread_pct,age_sec,decision,sandbox FROM quotes ORDER BY id DESC LIMIT 1").fetchone())
+    conn.close()

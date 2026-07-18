@@ -1,7 +1,3458 @@
 nohup: ignoring input
-nohup: failed to run command 'streamlit': No such file or directory
 
   You can now view your Streamlit app in your browser.
 
-  URL: http://0.0.0.0:8502
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.100.142:8501
+  External URL: http://66.108.59.15:8501
 
+2026-03-17 10:14:59.744 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-03-17 10:19:37.827 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-03-17 10:53:39.229 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-03-17 10:53:39.397 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-03-17 10:53:39.453 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-03-17 10:53:39.683 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-03-17 10:53:39.694 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-03-17 10:53:39.697 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-03-17 10:53:39.700 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-03-17 11:08:43.731 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-03-17 11:09:41.952 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-03-17 11:11:03.747 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-03-17 11:11:03.943 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-03-17 11:11:03.996 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-03-17 11:11:05.512 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-03-17 11:11:05.618 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-03-17 11:11:05.668 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-03-17 11:11:05.760 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-03-17 11:11:05.958 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-03-17 11:11:05.965 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-03-17 11:11:05.968 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-03-17 11:11:05.970 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-03-17 11:11:14.912 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-03-17 12:16:16.458 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-03-17 12:16:21.546 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-03-17 12:16:48.125 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=23.5 (86%) VVIX=117 (89%)
+   Spike Score: 61.1 (Possible Peak)  Crisis: False  Collapse: False
+[17:26:14] Fetching market state…
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=23.5 (86%) VVIX=117 (89%)
+   Spike Score: 61.1 (Possible Peak)  Crisis: False  Collapse: False
+Subject: [VIX Suite] EXTREME · VIX 23.5 · UVXY $46.08 · Mar 16 2026 05:26 PM
+✅ Email sent to onoshin333@gmail.com
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=23.5 (86%) VVIX=117 (89%)
+   Spike Score: 61.1 (Possible Peak)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=22.1 (83%) VVIX=113 (85%)
+   Spike Score: 58.3 (Expansion)  Crisis: False  Collapse: True
+[10:09:00] Fetching market state…
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=22.1 (83%) VVIX=113 (85%)
+   Spike Score: 58.4 (Expansion)  Crisis: False  Collapse: True
+Subject: [VIX Suite] EXTREME · VIX 22.1 · UVXY $44.61 · Mar 17 2026 10:09 AM
+✅ Email sent to onoshin333@gmail.com
+📊 Capturing Volatility Triangle snapshot...
+📊 Fetching UVXY data from 2025-03-17 to 2026-03-17...
+   ✅ Got 251 days of data
+   ✅ Saved: VIX=22.1 (83%) VVIX=113 (85%)
+   Spike Score: 56.5 (Expansion)  Crisis: False  Collapse: True
+   VIX: $46.08  Percentile (52w rank): 25.0%
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=22.1 (83%) VVIX=22 (83%)
+   Spike Score: 52.5 (Expansion)  Crisis: False  Collapse: True
+📊 Fetching UVXY data from 2025-03-17 to 2026-03-17...
+   ✅ Got 252 days of data
+   VIX: $22.14  Percentile (52w rank): 82.9%
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=22.1 (83%) VVIX=113 (85%)
+   Spike Score: 58.4 (Expansion)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=22.2 (83%) VVIX=113 (84%)
+   Spike Score: 58.8 (Expansion)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=22.2 (83%) VVIX=113 (84%)
+   Spike Score: 56.6 (Expansion)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=22.2 (83%) VVIX=113 (84%)
+   Spike Score: 56.6 (Expansion)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=22.2 (83%) VVIX=113 (84%)
+   Spike Score: 59.2 (Expansion)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=22.3 (83%) VVIX=112 (83%)
+   Spike Score: 58.8 (Expansion)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=22.3 (83%) VVIX=112 (83%)
+   Spike Score: 58.8 (Expansion)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=22.0 (83%) VVIX=110 (81%)
+   Spike Score: 57.7 (Expansion)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=22.0 (83%) VVIX=110 (81%)
+   Spike Score: 57.7 (Expansion)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=22.0 (83%) VVIX=110 (81%)
+   Spike Score: 57.7 (Expansion)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=22.0 (83%) VVIX=110 (81%)
+   Spike Score: 57.8 (Expansion)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=22.0 (83%) VVIX=110 (81%)
+   Spike Score: 57.8 (Expansion)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=21.9 (83%) VVIX=109 (81%)
+   Spike Score: 57.6 (Expansion)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=21.9 (83%) VVIX=109 (81%)
+   Spike Score: 57.6 (Expansion)  Crisis: False  Collapse: True
+[12:16:12] Fetching market state…
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=22.9 (85%) VVIX=112 (83%)
+   Spike Score: 62.0 (Possible Peak)  Crisis: False  Collapse: True
+Subject: [VIX Suite] EXTREME · VIX 22.9 · UVXY $45.49 · Mar 17 2026 12:16 PM
+✅ Email sent to onoshin333@gmail.com
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=22.9 (85%) VVIX=112 (83%)
+   Spike Score: 62.0 (Possible Peak)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+📊 Fetching UVXY data from 2025-03-17 to 2026-03-17...
+   ✅ Got 276 days of data
+   VIX: $45.49  Percentile (52w rank): 23.4%
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=22.9 (85%) VVIX=45 (23%)
+   Spike Score: 50.0 (Expansion)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=111.7 (83%) VVIX=24 (87%)
+   Spike Score: 67.8 (Possible Peak)  Crisis: True  Collapse: False
+[12:16:17] Fetching market state…
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=22.9 (85%) VVIX=112 (83%)
+   Spike Score: 62.0 (Possible Peak)  Crisis: False  Collapse: True
+Subject: [VIX Suite] EXTREME · VIX 22.9 · UVXY $45.49 · Mar 17 2026 12:16 PM
+✅ Email sent to onoshin333@gmail.com
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=22.9 (85%) VVIX=112 (83%)
+   Spike Score: 61.9 (Possible Peak)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=22.9 (85%) VVIX=112 (83%)
+   Spike Score: 61.9 (Possible Peak)  Crisis: False  Collapse: True
+📊 Fetching UVXY data from 2025-03-17 to 2026-03-17...
+   ✅ Got 252 days of data
+   VIX: $22.90  Percentile (52w rank): 84.9%
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=22.9 (85%) VVIX=112 (83%)
+   Spike Score: 62.0 (Possible Peak)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=22.9 (85%) VVIX=112 (83%)
+   Spike Score: 62.0 (Possible Peak)  Crisis: False  Collapse: True
+  Stopping...
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.100.142:8501
+  External URL: http://184.152.44.137:8501
+
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.7 (67%) VVIX=106 (71%)
+   Spike Score: 41.5 (Expansion)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.7 (67%) VVIX=106 (71%)
+   Spike Score: 41.5 (Expansion)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.6 (67%) VVIX=105 (71%)
+   Spike Score: 41.3 (Expansion)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.6 (67%) VVIX=105 (71%)
+   Spike Score: 41.0 (Expansion)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.5 (67%) VVIX=105 (71%)
+   Spike Score: 40.8 (Expansion)  Crisis: False  Collapse: False
+  Stopping...
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.100.142:8501
+  External URL: http://184.152.44.137:8501
+
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.5 (67%) VVIX=105 (71%)
+   Spike Score: 40.8 (Expansion)  Crisis: False  Collapse: False
+  Stopping...
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.100.142:8501
+  External URL: http://184.152.44.137:8501
+
+2026-04-09 16:17:44.516 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 16:17:44.687 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 16:17:44.742 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 16:17:44.796 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 16:17:44.844 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-04-09 16:17:45.031 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 16:17:45.042 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 16:17:45.045 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 16:17:45.048 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 16:20:35.729 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 16:20:35.862 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 16:20:35.914 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 16:20:35.967 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 16:20:36.034 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-04-09 16:20:36.207 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 16:20:36.217 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 16:20:36.220 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 16:20:36.222 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 16:48:00.110 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 16:48:42.213 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 16:48:42.388 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 16:48:42.466 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 16:48:42.514 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 16:48:42.563 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-04-09 16:48:42.741 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 16:48:42.751 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 16:48:42.753 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 16:48:42.756 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 16:58:38.685 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 16:58:39.306 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 16:58:39.439 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 16:58:39.494 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 16:58:39.547 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 16:58:39.627 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-04-09 16:58:39.825 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 16:58:39.837 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 16:58:39.839 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 16:58:39.842 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.5 (66%) VVIX=105 (71%)
+   Spike Score: 40.6 (Expansion)  Crisis: False  Collapse: False
+  📦 Backup created: /home/shin/.vix_suite/backups/real_trade_log_20260409_164750.json
+  ✅ Closed short leg V1-REAL-20260223144523-S10 $56.0 exp 2026-04-10 → expired_worthless
+  ✅ Closed short leg V5-REAL-20260228174712-S4 $56.0 exp 2026-04-10 → expired_worthless
+  ✅ Closed short leg V5-REAL-20260228174712-S4 $56.0 exp 2026-04-10 → expired_worthless
+  ✅ Closed short leg V4-REAL-20260317111104-S2 $56.0 exp 2026-04-10 → expired_worthless
+  ✅ Closed short leg V5-REAL-20260317145121-S1 $54.0 exp 2026-03-27 → expired_worthless
+  ✅ Closed short leg V5-REAL-20260317145121-S2 $57.0 exp 2026-04-10 → expired_worthless
+  ✅ Closed short leg V5-REAL-20260317145121-S2 $57.0 exp 2026-04-10 → expired_worthless
+  ✅ Added short leg $45.0 exp 2026-04-17 × 4 to V1-REAL-20260223144523
+  ✅ Added short leg $46.0 exp 2026-04-17 × 3 to V5-REAL-20260228174712
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.5 (66%) VVIX=105 (71%)
+   Spike Score: 40.4 (Expansion)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.5 (66%) VVIX=105 (71%)
+   Spike Score: 40.4 (Expansion)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.5 (66%) VVIX=105 (71%)
+   Spike Score: 40.4 (Expansion)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.5 (66%) VVIX=105 (71%)
+   Spike Score: 40.4 (Expansion)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.5 (66%) VVIX=105 (71%)
+   Spike Score: 40.4 (Expansion)  Crisis: False  Collapse: False
+  Stopping...
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.100.142:8501
+  External URL: http://184.152.44.137:8501
+
+  Stopping...
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.100.142:8501
+  External URL: http://184.152.44.137:8501
+
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.5 (66%) VVIX=105 (71%)
+   Spike Score: 40.4 (Expansion)  Crisis: False  Collapse: False
+  Stopping...
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.100.142:8501
+  External URL: http://184.152.44.137:8501
+
+2026-04-09 17:06:28.438 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:06:28.564 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:06:28.637 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:06:28.687 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:06:28.754 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-04-09 17:06:28.923 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:06:28.933 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:06:28.937 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:06:28.940 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:08:05.384 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:08:05.558 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:08:05.611 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:08:05.662 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:08:05.714 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-04-09 17:08:05.895 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:08:05.905 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:08:05.907 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:08:05.910 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.5 (66%) VVIX=105 (71%)
+   Spike Score: 40.4 (Expansion)  Crisis: False  Collapse: False
+  Stopping...
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.100.142:8501
+  External URL: http://184.152.44.137:8501
+
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.5 (66%) VVIX=105 (71%)
+   Spike Score: 40.4 (Expansion)  Crisis: False  Collapse: False
+  Stopping...
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.100.142:8501
+  External URL: http://184.152.44.137:8501
+
+2026-04-09 17:42:58.112 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:42:58.242 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:42:58.293 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:42:58.341 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:42:58.393 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-04-09 17:42:58.606 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:42:58.617 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:42:58.621 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:42:58.623 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:43:09.750 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:43:09.887 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:43:09.939 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:43:09.987 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:43:10.035 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-04-09 17:43:10.211 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:43:10.221 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:43:10.224 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:43:10.227 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:56:03.445 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:56:03.568 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:56:03.615 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:56:03.668 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:56:03.723 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-04-09 17:56:03.876 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:56:03.883 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:56:03.885 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:56:03.888 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.5 (66%) VVIX=105 (71%)
+   Spike Score: 40.4 (Expansion)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.5 (66%) VVIX=105 (71%)
+   Spike Score: 40.4 (Expansion)  Crisis: False  Collapse: False
+  Stopping...
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.100.142:8501
+  External URL: http://184.152.44.137:8501
+
+2026-04-09 17:56:50.484 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:56:50.617 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:56:50.664 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:56:50.716 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:56:50.768 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-04-09 17:56:50.967 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:56:50.977 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:56:50.980 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 17:56:50.983 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 18:01:16.410 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 18:01:16.528 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 18:01:16.573 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 18:01:16.627 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 18:01:16.679 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-04-09 18:01:16.899 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 18:01:16.909 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 18:01:16.912 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 18:01:16.914 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 18:01:45.076 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 18:01:45.228 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 18:01:45.277 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 18:01:45.287 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 18:01:45.335 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-04-09 18:01:45.546 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 18:01:45.557 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 18:01:45.559 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 18:01:45.562 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.5 (66%) VVIX=105 (71%)
+   Spike Score: 40.4 (Expansion)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.5 (66%) VVIX=105 (71%)
+   Spike Score: 40.4 (Expansion)  Crisis: False  Collapse: False
+  📦 Backup created: /home/shin/.vix_suite/backups/real_trade_log_20260409_180138.json
+  ✅ Closed short leg V1-REAL-20260223144523-S12 $57.0 exp 2026-04-17 → expired_worthless
+  ✅ Closed short leg V5-REAL-20260228174712-S7 $57.0 exp 2026-04-17 → expired_worthless
+  ✅ Closed short leg V5-REAL-20260317145121-S1 $54.0 exp 2026-03-27 → expired_worthless
+  ✅ Added short leg $46.0 exp 2026-04-17 × 3 to V1-REAL-20260223144523
+  Stopping...
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.100.142:8501
+  External URL: http://184.152.44.137:8501
+
+2026-04-09 18:12:10.638 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 18:12:10.823 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 18:12:10.874 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 18:12:10.920 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 18:12:10.998 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-04-09 18:12:11.201 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 18:12:11.212 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 18:12:11.216 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-09 18:12:11.219 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-10 12:53:32.758 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-10 12:53:32.790 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-10 12:53:32.804 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-10 12:53:32.815 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-10 12:53:32.827 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-10 12:53:32.839 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-10 12:53:32.859 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-10 12:53:32.880 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-04-10 12:53:33.140 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-10 12:53:33.148 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-10 12:56:58.791 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-10 12:56:58.839 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-10 12:56:58.843 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-10 12:56:58.881 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-10 12:56:58.892 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-10 12:56:58.903 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-10 12:56:58.914 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-10 12:56:58.934 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-10 12:56:58.956 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-04-10 12:56:59.134 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-10 12:56:59.142 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-10 18:42:13.574 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-10 19:10:26.890 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-10 19:10:27.056 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-10 19:10:27.108 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-10 19:10:27.151 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-10 19:10:27.208 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-04-10 19:10:27.436 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-10 19:10:27.447 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-10 19:10:27.449 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-10 19:10:27.451 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-10 19:10:38.827 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-10 19:16:15.461 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-10 19:16:15.607 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-10 19:16:15.656 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-10 19:16:15.702 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-10 19:16:15.750 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-04-10 19:16:15.929 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-10 19:16:15.939 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-10 19:16:15.941 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-10 19:16:15.945 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.5 (66%) VVIX=105 (71%)
+   Spike Score: 40.4 (Expansion)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.5 (66%) VVIX=105 (71%)
+   Spike Score: 40.4 (Expansion)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=20.0 (69%) VVIX=108 (75%)
+   Spike Score: 45.3 (Expansion)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=20.0 (69%) VVIX=108 (75%)
+   Spike Score: 45.3 (Expansion)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.2 (66%) VVIX=107 (74%)
+   Spike Score: 42.9 (Expansion)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.2 (66%) VVIX=107 (74%)
+   Spike Score: 42.9 (Expansion)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.2 (66%) VVIX=107 (74%)
+   Spike Score: 42.9 (Expansion)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.2 (66%) VVIX=107 (74%)
+   Spike Score: 42.9 (Expansion)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.2 (66%) VVIX=107 (74%)
+   Spike Score: 42.9 (Expansion)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.2 (66%) VVIX=107 (74%)
+   Spike Score: 42.9 (Expansion)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.2 (66%) VVIX=107 (74%)
+   Spike Score: 42.9 (Expansion)  Crisis: False  Collapse: True
+  Stopping...
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.100.142:8501
+  External URL: http://184.152.44.137:8501
+
+2026-04-10 19:52:53.460 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.2 (66%) VVIX=107 (74%)
+   Spike Score: 42.9 (Expansion)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.2 (66%) VVIX=107 (74%)
+   Spike Score: 42.9 (Expansion)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.2 (66%) VVIX=107 (74%)
+   Spike Score: 42.9 (Expansion)  Crisis: False  Collapse: True
+  Stopping...
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.100.142:8501
+  External URL: http://184.152.44.137:8501
+
+2026-04-10 20:13:35.048 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+📊 Capturing Volatility Triangle snapshot...
+📊 Fetching UVXY data from 2025-04-10 to 2026-04-10...
+   ✅ Got 250 days of data
+   VIX: $19.23  Percentile (52w rank): 66.4%
+📊 Capturing Volatility Triangle snapshot...
+📊 Capturing Volatility Triangle snapshot...
+📊 Capturing Volatility Triangle snapshot...
+  Stopping...
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.100.142:8501
+  External URL: http://184.152.44.137:8501
+
+2026-04-10 20:15:34.441 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.2 (66%) VVIX=107 (74%)
+   Spike Score: 42.9 (Collapse)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.2 (66%) VVIX=107 (74%)
+   Spike Score: 42.9 (Collapse)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.2 (66%) VVIX=107 (74%)
+   Spike Score: 42.9 (Collapse)  Crisis: False  Collapse: True
+  Stopping...
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.100.142:8501
+  External URL: http://184.152.44.137:8501
+
+2026-04-11 13:22:23.768 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:22:23.793 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:22:23.807 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:22:23.821 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:22:23.833 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:22:23.845 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:22:23.866 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:22:23.888 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-04-11 13:22:24.175 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:22:24.184 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:23:32.647 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:23:32.667 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:23:32.680 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:23:32.691 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:23:32.703 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:23:32.714 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:23:32.734 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:23:32.755 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-04-11 13:23:32.965 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:23:32.973 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:32:58.367 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:32:58.396 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:32:58.401 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:32:58.438 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:32:58.450 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:32:58.460 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:32:58.471 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:32:58.491 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:32:58.510 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-04-11 13:32:58.736 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:32:58.744 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:33:21.680 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:33:21.707 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:33:21.710 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:33:22.244 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:33:22.279 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:33:22.293 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:33:22.304 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:33:22.316 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:33:22.327 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:33:22.347 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:33:22.367 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-04-11 13:33:22.592 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:33:22.601 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.2 (66%) VVIX=107 (74%)
+   Spike Score: 42.9 (Collapse)  Crisis: False  Collapse: True
+📊 Fetching UVXY data from 2025-04-10 to 2026-04-10...
+   ✅ Got 250 days of data
+   VIX: $19.23  Percentile (52w rank): 66.4%
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.2 (66%) VVIX=107 (74%)
+   Spike Score: 42.9 (Collapse)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.2 (66%) VVIX=107 (74%)
+   Spike Score: 42.9 (Collapse)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.2 (66%) VVIX=107 (74%)
+   Spike Score: 42.9 (Collapse)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.2 (66%) VVIX=107 (74%)
+   Spike Score: 42.9 (Collapse)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.2 (66%) VVIX=107 (74%)
+   Spike Score: 42.9 (Collapse)  Crisis: False  Collapse: True
+  Stopping...
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.100.142:8501
+  External URL: http://184.152.44.137:8501
+
+2026-04-11 13:53:20.359 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:53:20.379 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:53:20.391 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:53:20.402 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:53:20.414 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:53:20.426 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:53:20.448 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:53:20.470 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-04-11 13:53:20.697 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:53:20.706 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:53:29.940 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:53:29.971 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:53:29.983 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:53:29.996 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:53:30.007 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:53:30.021 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:53:30.040 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:53:30.061 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-04-11 13:53:30.296 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:53:30.304 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.2 (66%) VVIX=107 (74%)
+   Spike Score: 42.9 (Collapse)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.2 (66%) VVIX=107 (74%)
+   Spike Score: 42.9 (Collapse)  Crisis: False  Collapse: True
+📊 Fetching UVXY data from 2025-04-11 to 2026-04-11...
+   ✅ Got 250 days of data
+   VIX: $19.23  Percentile (52w rank): 66.4%
+  Stopping...
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.100.142:8501
+  External URL: http://184.152.44.137:8501
+
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.2 (66%) VVIX=107 (74%)
+   Spike Score: 42.9 (Collapse)  Crisis: False  Collapse: True
+  Stopping...
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.100.142:8501
+  External URL: http://184.152.44.137:8501
+
+2026-04-11 13:59:10.981 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:59:11.020 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:59:11.033 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:59:11.045 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:59:11.056 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:59:11.067 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:59:11.087 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:59:11.108 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-04-11 13:59:11.396 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-11 13:59:11.406 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.2 (66%) VVIX=107 (74%)
+   Spike Score: 42.9 (Collapse)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.2 (66%) VVIX=107 (74%)
+   Spike Score: 42.9 (Collapse)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.2 (59%) VVIX=103 (62%)
+   Spike Score: 33.2 (Calm)  Crisis: False  Collapse: True
+📊 Fetching UVXY data from 2025-04-14 to 2026-04-14...
+   ✅ Got 250 days of data
+   VIX: $18.19  Percentile (52w rank): 59.0%
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.2 (59%) VVIX=103 (62%)
+   Spike Score: 33.2 (Calm)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.3 (60%) VVIX=103 (62%)
+   Spike Score: 33.7 (Calm)  Crisis: False  Collapse: True
+  Stopping...
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.100.142:8501
+  External URL: http://184.152.44.137:8501
+
+2026-04-14 09:16:31.612 Script compilation error
+Traceback (most recent call last):
+  File "/home/shin/vix_suite/venv/lib/python3.10/site-packages/streamlit/runtime/scriptrunner/script_runner.py", line 574, in _run_script
+    code = self._script_cache.get_bytecode(script_path)
+  File "/home/shin/vix_suite/venv/lib/python3.10/site-packages/streamlit/runtime/scriptrunner/script_cache.py", line 72, in get_bytecode
+    filebody = magic.add_magic(filebody, script_path)
+  File "/home/shin/vix_suite/venv/lib/python3.10/site-packages/streamlit/runtime/scriptrunner/magic.py", line 45, in add_magic
+    tree = ast.parse(code, script_path, "exec")
+  File "/usr/lib/python3.10/ast.py", line 50, in parse
+    return compile(source, filename, mode, flags,
+  File "/home/shin/vix_suite/app.py", line 6747
+    except Exception as _e:
+IndentationError: unexpected indent
+2026-04-14 09:16:31.616 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.3 (60%) VVIX=103 (62%)
+   Spike Score: 33.7 (Calm)  Crisis: False  Collapse: True
+📊 Fetching UVXY data from 2025-04-14 to 2026-04-14...
+   ✅ Got 250 days of data
+   VIX: $18.30  Percentile (52w rank): 59.8%
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.3 (60%) VVIX=103 (62%)
+   Spike Score: 33.7 (Calm)  Crisis: False  Collapse: True
+  Stopping...
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.100.142:8501
+  External URL: http://184.152.44.137:8501
+
+2026-04-14 09:16:53.527 Script compilation error
+Traceback (most recent call last):
+  File "/home/shin/vix_suite/venv/lib/python3.10/site-packages/streamlit/runtime/scriptrunner/script_runner.py", line 574, in _run_script
+    code = self._script_cache.get_bytecode(script_path)
+  File "/home/shin/vix_suite/venv/lib/python3.10/site-packages/streamlit/runtime/scriptrunner/script_cache.py", line 72, in get_bytecode
+    filebody = magic.add_magic(filebody, script_path)
+  File "/home/shin/vix_suite/venv/lib/python3.10/site-packages/streamlit/runtime/scriptrunner/magic.py", line 45, in add_magic
+    tree = ast.parse(code, script_path, "exec")
+  File "/usr/lib/python3.10/ast.py", line 50, in parse
+    return compile(source, filename, mode, flags,
+  File "/home/shin/vix_suite/app.py", line 6747
+    except Exception as _e:
+IndentationError: unexpected indent
+2026-04-14 09:16:53.528 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2026-04-14 09:16:55.911 Script compilation error
+Traceback (most recent call last):
+  File "/home/shin/vix_suite/venv/lib/python3.10/site-packages/streamlit/runtime/scriptrunner/script_runner.py", line 574, in _run_script
+    code = self._script_cache.get_bytecode(script_path)
+  File "/home/shin/vix_suite/venv/lib/python3.10/site-packages/streamlit/runtime/scriptrunner/script_cache.py", line 72, in get_bytecode
+    filebody = magic.add_magic(filebody, script_path)
+  File "/home/shin/vix_suite/venv/lib/python3.10/site-packages/streamlit/runtime/scriptrunner/magic.py", line 45, in add_magic
+    tree = ast.parse(code, script_path, "exec")
+  File "/usr/lib/python3.10/ast.py", line 50, in parse
+    return compile(source, filename, mode, flags,
+  File "/home/shin/vix_suite/app.py", line 6747
+    except Exception as _e:
+IndentationError: unexpected indent
+2026-04-14 09:16:55.912 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+  Stopping...
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.100.142:8501
+  External URL: http://184.152.44.137:8501
+
+2026-04-14 09:23:41.159 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-14 09:23:41.190 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-14 09:23:41.203 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-14 09:23:41.215 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-14 09:23:41.224 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-14 09:23:41.233 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-14 09:23:41.251 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-14 09:23:41.269 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-04-14 09:23:41.517 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-14 09:23:41.526 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-14 09:27:33.484 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-14 15:57:55.152 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-14 15:57:55.192 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-14 15:57:55.206 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-14 15:57:55.218 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-14 15:57:55.229 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-14 15:57:55.240 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-14 15:57:55.259 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-14 15:57:55.281 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-04-14 15:57:55.529 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-14 15:57:55.537 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.3 (60%) VVIX=103 (62%)
+   Spike Score: 33.8 (Calm)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.3 (60%) VVIX=103 (62%)
+   Spike Score: 33.8 (Calm)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.4 (60%) VVIX=103 (62%)
+   Spike Score: 33.8 (Calm)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.3 (60%) VVIX=103 (62%)
+   Spike Score: 33.8 (Calm)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.3 (60%) VVIX=103 (62%)
+   Spike Score: 33.8 (Calm)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.4 (60%) VVIX=96 (30%)
+   Spike Score: 31.3 (Calm)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.4 (60%) VVIX=96 (30%)
+   Spike Score: 31.3 (Calm)  Crisis: False  Collapse: True
+  Stopping...
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.100.142:8501
+  External URL: http://184.152.44.137:8501
+
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.4 (60%) VVIX=95 (29%)
+   Spike Score: 30.7 (Calm)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.4 (60%) VVIX=95 (29%)
+   Spike Score: 30.7 (Calm)  Crisis: False  Collapse: True
+📊 Fetching UVXY data from 2025-04-14 to 2026-04-14...
+   ✅ Got 251 days of data
+   VIX: $18.35  Percentile (52w rank): 59.8%
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.4 (60%) VVIX=95 (29%)
+   Spike Score: 30.7 (Calm)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.4 (60%) VVIX=95 (29%)
+   Spike Score: 30.6 (Calm)  Crisis: False  Collapse: True
+📊 Fetching UVXY data from 2025-04-14 to 2026-04-14...
+   ✅ Got 251 days of data
+   VIX: $18.35  Percentile (52w rank): 59.8%
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.4 (60%) VVIX=95 (29%)
+   Spike Score: 30.6 (Calm)  Crisis: False  Collapse: True
+  Stopping...
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.100.142:8501
+  External URL: http://184.152.44.137:8501
+
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.4 (60%) VVIX=95 (29%)
+   Spike Score: 30.9 (Calm)  Crisis: False  Collapse: True
+📊 Fetching UVXY data from 2025-04-14 to 2026-04-14...
+   ✅ Got 251 days of data
+   VIX: $18.39  Percentile (52w rank): 60.2%
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.4 (60%) VVIX=95 (29%)
+   Spike Score: 30.9 (Calm)  Crisis: False  Collapse: True
+📊 Fetching UVXY data from 2025-04-14 to 2026-04-14...
+   ✅ Got 251 days of data
+   VIX: $18.39  Percentile (52w rank): 60.2%
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.4 (60%) VVIX=95 (29%)
+   Spike Score: 30.9 (Calm)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.4 (60%) VVIX=95 (29%)
+   Spike Score: 30.9 (Calm)  Crisis: False  Collapse: True
+  Stopping...
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.100.142:8501
+  External URL: http://184.152.44.137:8501
+
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.4 (60%) VVIX=95 (29%)
+   Spike Score: 30.9 (Calm)  Crisis: False  Collapse: True
+📊 Fetching UVXY data from 2025-04-14 to 2026-04-14...
+   ✅ Got 251 days of data
+   VIX: $18.37  Percentile (52w rank): 60.2%
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.4 (60%) VVIX=95 (29%)
+   Spike Score: 30.9 (Calm)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.4 (60%) VVIX=95 (29%)
+   Spike Score: 30.9 (Calm)  Crisis: False  Collapse: True
+📊 Fetching UVXY data from 2025-04-14 to 2026-04-14...
+   ✅ Got 251 days of data
+   VIX: $18.37  Percentile (52w rank): 60.2%
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.4 (60%) VVIX=95 (29%)
+   Spike Score: 30.9 (Calm)  Crisis: False  Collapse: True
+  Stopping...
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.100.142:8501
+  External URL: http://184.152.44.137:8501
+
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.4 (60%) VVIX=95 (30%)
+   Spike Score: 31.0 (Calm)  Crisis: False  Collapse: True
+📊 Fetching UVXY data from 2025-04-14 to 2026-04-14...
+   ✅ Got 251 days of data
+   VIX: $18.36  Percentile (52w rank): 59.8%
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.4 (60%) VVIX=95 (30%)
+   Spike Score: 31.0 (Calm)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.4 (60%) VVIX=95 (30%)
+   Spike Score: 31.0 (Calm)  Crisis: False  Collapse: True
+📊 Fetching UVXY data from 2025-04-14 to 2026-04-14...
+   ✅ Got 251 days of data
+   VIX: $18.36  Percentile (52w rank): 59.8%
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.4 (60%) VVIX=95 (30%)
+   Spike Score: 31.0 (Calm)  Crisis: False  Collapse: True
+  Stopping...
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.100.142:8501
+  External URL: http://184.152.44.137:8501
+
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.4 (60%) VVIX=95 (30%)
+   Spike Score: 31.0 (Calm)  Crisis: False  Collapse: True
+📊 Fetching UVXY data from 2025-04-14 to 2026-04-14...
+   ✅ Got 251 days of data
+   VIX: $18.36  Percentile (52w rank): 59.8%
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.4 (60%) VVIX=95 (30%)
+   Spike Score: 31.0 (Calm)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+📊 Fetching UVXY data from 2025-04-14 to 2026-04-14...
+   ✅ Got 276 days of data
+   VIX: $18.36  Percentile (52w rank): 59.8%
+   ✅ Saved: VIX=18.4 (60%) VVIX=95 (30%)
+   Spike Score: 30.5 (Calm)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.4 (60%) VVIX=95 (30%)
+   Spike Score: 31.0 (Calm)  Crisis: False  Collapse: True
+  Stopping...
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.100.142:8501
+  External URL: http://184.152.44.137:8501
+
+
+1 Failed download:
+['^VIX']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['^VVIX']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['^VIX3M']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['^VIX9D']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['UVXY']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['^VIX']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['^VVIX']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['^VIX3M']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['^VIX9D']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['UVXY']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['^VIX']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['^VIX3M']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['^VIX9D']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['^VVIX']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+
+1 Failed download:
+['^VIX3M']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['^VIX']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['^VIX']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['^VIX9D']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['^VIX9D']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['UVXY']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['^VIX']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['^VVIX']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['^VIX']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['^VVIX']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['^VIX3M']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['^VIX9D']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['UVXY']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['^VIX']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['^VVIX']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['^VIX3M']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['UVXY']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['UVXY']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['^VIX']: TypeError("'NoneType' object is not subscriptable")
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.4 (60%) VVIX=95 (30%)
+   Spike Score: 31.0 (Calm)  Crisis: False  Collapse: True
+📊 Fetching UVXY data from 2025-04-14 to 2026-04-14...
+   ✅ Got 251 days of data
+   VIX: $18.36  Percentile (52w rank): 59.8%
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.4 (60%) VVIX=95 (30%)
+   Spike Score: 31.0 (Calm)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+📊 Fetching UVXY data from 2025-04-14 to 2026-04-14...
+   ✅ Got 251 days of data
+   ✅ Saved: VIX=18.4 (60%) VVIX=95 (30%)
+   Spike Score: 31.0 (Calm)  Crisis: False  Collapse: True
+   VIX: $18.36  Percentile (52w rank): 59.8%
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.4 (60%) VVIX=95 (30%)
+   Spike Score: 31.0 (Calm)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+📊 Capturing Volatility Triangle snapshot...
+📊 Capturing Volatility Triangle snapshot...
+📊 Capturing Volatility Triangle snapshot...
+📊 Capturing Volatility Triangle snapshot...
+  ⚠️ ^VIX: No objects to concatenate
+📊 Capturing Volatility Triangle snapshot...
+📊 Capturing Volatility Triangle snapshot...
+📊 Capturing Volatility Triangle snapshot...
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=17.8 (54%) VVIX=95 (28%)
+   Spike Score: 31.5 (Calm)  Crisis: False  Collapse: True
+📊 Fetching UVXY data from 2025-04-15 to 2026-04-15...
+📊 Capturing Volatility Triangle snapshot...
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=17.9 (56%) VVIX=97 (37%)
+   Spike Score: 34.6 (Calm)  Crisis: False  Collapse: True
+  Stopping...
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.100.142:8501
+  External URL: http://184.152.44.137:8501
+
+2026-04-16 17:22:54.901 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-17 08:26:48.363 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-17 08:26:48.365 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-17 08:51:02.938 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-17 08:51:02.941 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=17.9 (57%) VVIX=97 (37%)
+   Spike Score: 34.9 (Calm)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=17.9 (57%) VVIX=97 (37%)
+   Spike Score: 34.9 (Calm)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=17.8 (54%) VVIX=97 (37%)
+   Spike Score: 33.6 (Calm)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=17.7 (54%) VVIX=97 (37%)
+   Spike Score: 32.9 (Calm)  Crisis: False  Collapse: True
+  Stopping...
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.100.142:8501
+  External URL: http://184.152.44.137:8501
+
+2026-04-17 09:01:10.890 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-17 09:01:10.905 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=17.7 (54%) VVIX=97 (37%)
+   Spike Score: 32.9 (Calm)  Crisis: False  Collapse: True
+  Stopping...
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.100.142:8501
+  External URL: http://184.152.44.137:8501
+
+2026-04-17 09:23:25.212 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-17 09:23:25.217 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-17 10:38:58.612 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-17 10:38:58.771 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-17 10:38:58.819 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-17 10:38:58.865 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-17 10:38:58.913 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-04-17 10:38:59.082 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-17 10:38:59.092 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-17 10:38:59.095 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-17 10:38:59.098 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-20 09:38:14.174 Uncaught app execution
+Traceback (most recent call last):
+  File "/home/shin/vix_suite/venv/lib/python3.10/site-packages/streamlit/runtime/scriptrunner/exec_code.py", line 129, in exec_func_with_error_handling
+    result = func()
+  File "/home/shin/vix_suite/venv/lib/python3.10/site-packages/streamlit/runtime/scriptrunner/script_runner.py", line 672, in code_to_exec
+    exec(code, module.__dict__)  # noqa: S102
+  File "/home/shin/vix_suite/app.py", line 7976, in <module>
+    main()
+  File "/home/shin/vix_suite/app.py", line 6888, in main
+    render_signal_dashboard(trade_log=rtl)
+  File "/home/shin/vix_suite/app.py", line 1255, in render_signal_dashboard
+    now = datetime.utcnow()
+UnboundLocalError: local variable 'datetime' referenced before assignment
+2026-04-20 11:41:35.539 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-20 11:41:35.556 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-20 11:41:35.567 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-20 11:41:35.579 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-20 11:41:35.590 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-20 11:41:35.599 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-04-20 11:41:35.812 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-04-20 12:59:19.074 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-20 12:59:19.088 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-20 12:59:19.101 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-20 12:59:19.113 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-20 12:59:19.125 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-20 12:59:19.137 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-04-20 12:59:19.364 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=17.2 (46%) VVIX=97 (37%)
+   Spike Score: 29.5 (Calm)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=17.8 (55%) VVIX=94 (26%)
+   Spike Score: 32.6 (Calm)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=17.7 (54%) VVIX=94 (26%)
+   Spike Score: 32.1 (Calm)  Crisis: False  Collapse: True
+📊 Fetching UVXY data from 2025-04-17 to 2026-04-17...
+   ✅ Got 251 days of data
+   VIX: $17.74  Percentile (52w rank): 54.6%
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=17.7 (54%) VVIX=94 (26%)
+   Spike Score: 32.3 (Calm)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+📊 Fetching UVXY data from 2025-04-17 to 2026-04-17...
+   ✅ Saved: VIX=17.7 (54%) VVIX=94 (26%)
+   Spike Score: 32.3 (Calm)  Crisis: False  Collapse: True
+   ✅ Got 276 days of data
+   VIX: $37.49  Percentile (52w rank): 13.5%
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=17.7 (54%) VVIX=94 (26%)
+   Spike Score: 32.2 (Calm)  Crisis: False  Collapse: True
+📊 Fetching UVXY data from 2025-04-17 to 2026-04-17...
+   ✅ Got 251 days of data
+   VIX: $17.68  Percentile (52w rank): 54.2%
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=17.7 (54%) VVIX=95 (26%)
+   Spike Score: 32.5 (Calm)  Crisis: False  Collapse: True
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=17.7 (54%) VVIX=95 (26%)
+   Spike Score: 32.5 (Calm)  Crisis: False  Collapse: True
+Warning: could not load real trade log: RealShortLeg.__init__() missing 1 required positional argument: 'fill_price'
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=17.5 (51%) VVIX=95 (28%)
+   Spike Score: 31.3 (Calm)  Crisis: False  Collapse: True
+Warning: could not load real trade log: RealShortLeg.__init__() missing 1 required positional argument: 'fill_price'
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.9 (65%) VVIX=95 (28%)
+   Spike Score: 46.2 (Expansion)  Crisis: False  Collapse: False
+📊 Fetching UVXY data from 2025-04-20 to 2026-04-20...
+   ✅ Got 251 days of data
+   VIX: $18.88  Percentile (52w rank): 64.9%
+Warning: could not load real trade log: RealShortLeg.__init__() missing 1 required positional argument: 'fill_price'
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.9 (65%) VVIX=95 (28%)
+   Spike Score: 46.2 (Expansion)  Crisis: False  Collapse: False
+Warning: could not load real trade log: RealShortLeg.__init__() missing 1 required positional argument: 'fill_price'
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.9 (65%) VVIX=95 (28%)
+   Spike Score: 46.2 (Expansion)  Crisis: False  Collapse: False
+Warning: could not load real trade log: RealShortLeg.__init__() missing 1 required positional argument: 'fill_price'
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.9 (65%) VVIX=95 (28%)
+   Spike Score: 46.2 (Expansion)  Crisis: False  Collapse: False
+📊 Fetching UVXY data from 2025-04-20 to 2026-04-20...
+   ✅ Got 251 days of data
+   VIX: $18.88  Percentile (52w rank): 64.9%
+Warning: could not load real trade log: RealShortLeg.__init__() missing 1 required positional argument: 'fill_price'
+Warning: could not load real trade log: RealShortLeg.__init__() missing 1 required positional argument: 'fill_price'
+Warning: could not load real trade log: RealShortLeg.__init__() missing 1 required positional argument: 'fill_price'
+Warning: could not load real trade log: RealShortLeg.__init__() missing 1 required positional argument: 'fill_price'
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.9 (65%) VVIX=95 (28%)
+   Spike Score: 46.2 (Expansion)  Crisis: False  Collapse: False
+Warning: could not load real trade log: RealShortLeg.__init__() missing 1 required positional argument: 'fill_price'
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.3 (69%) VVIX=99 (51%)
+   Spike Score: 54.4 (Expansion)  Crisis: False  Collapse: False
+Warning: could not load real trade log: RealShortLeg.__init__() missing 1 required positional argument: 'fill_price'
+Warning: could not load real trade log: RealShortLeg.__init__() missing 1 required positional argument: 'fill_price'
+Warning: could not load real trade log: RealShortLeg.__init__() missing 1 required positional argument: 'fill_price'
+Warning: could not load real trade log: RealShortLeg.__init__() missing 1 required positional argument: 'fill_price'
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.1 (67%) VVIX=99 (47%)
+   Spike Score: 52.0 (Expansion)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.1 (67%) VVIX=99 (47%)
+   Spike Score: 52.0 (Expansion)  Crisis: False  Collapse: False
+Warning: could not load real trade log: RealShortLeg.__init__() missing 1 required positional argument: 'fill_price'
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.1 (67%) VVIX=99 (47%)
+   Spike Score: 52.0 (Expansion)  Crisis: False  Collapse: False
+Warning: could not load real trade log: RealShortLeg.__init__() missing 1 required positional argument: 'fill_price'
+Warning: could not load real trade log: RealShortLeg.__init__() missing 1 required positional argument: 'fill_price'
+Warning: could not load real trade log: RealShortLeg.__init__() missing 1 required positional argument: 'fill_price'
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.1 (67%) VVIX=99 (47%)
+   Spike Score: 52.0 (Expansion)  Crisis: False  Collapse: False
+Warning: could not load real trade log: RealShortLeg.__init__() missing 1 required positional argument: 'fill_price'
+Warning: could not load real trade log: RealShortLeg.__init__() missing 1 required positional argument: 'fill_price'
+Warning: could not load real trade log: RealShortLeg.__init__() missing 1 required positional argument: 'fill_price'
+Warning: could not load real trade log: RealShortLeg.__init__() missing 1 required positional argument: 'fill_price'
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.6 (70%) VVIX=101 (58%)
+   Spike Score: 57.6 (Expansion)  Crisis: False  Collapse: False
+📊 Fetching UVXY data from 2025-04-21 to 2026-04-21...
+   ✅ Got 252 days of data
+   VIX: $19.64  Percentile (52w rank): 70.6%
+Warning: could not load real trade log: RealShortLeg.__init__() missing 1 required positional argument: 'fill_price'
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.6 (71%) VVIX=101 (58%)
+   Spike Score: 58.0 (Expansion)  Crisis: False  Collapse: False
+Warning: could not load real trade log: RealShortLeg.__init__() missing 1 required positional argument: 'fill_price'
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.6 (71%) VVIX=101 (58%)
+   Spike Score: 58.0 (Expansion)  Crisis: False  Collapse: False
+  Stopping...
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.100.142:8501
+  External URL: http://184.152.44.137:8501
+
+2026-04-23 10:32:15.529 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 10:32:15.639 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 10:32:15.686 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 10:32:15.731 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 10:32:15.778 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-04-23 10:32:15.961 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 10:32:15.971 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 10:32:15.975 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 10:32:15.977 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:20:08.876 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:20:09.066 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:20:09.117 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:20:09.163 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:20:09.210 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-04-23 11:20:09.388 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:20:09.398 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:20:09.400 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:20:09.403 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:26:03.144 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:26:03.345 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:26:03.392 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:26:03.438 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:26:03.486 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:26:03.550 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-04-23 11:26:03.721 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:26:03.732 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:26:03.734 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:26:03.737 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:27:14.141 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:27:14.262 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:27:14.310 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:27:14.359 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:27:14.406 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-04-23 11:27:14.559 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:27:14.570 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:27:14.572 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:27:14.574 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:28:42.921 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:28:43.082 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:28:43.133 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:28:43.225 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:28:43.274 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:28:43.323 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:28:43.374 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:28:43.426 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-04-23 11:28:43.589 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:28:43.600 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:28:43.602 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:28:43.604 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:29:11.878 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:29:12.039 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:29:12.093 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:29:12.162 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:29:12.215 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-04-23 11:29:12.415 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:29:12.425 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:29:12.427 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:29:12.429 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:29:44.971 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:29:45.143 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:29:45.199 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:29:45.246 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:29:45.341 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:29:45.389 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:29:45.437 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:29:45.485 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:29:45.533 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-04-23 11:29:45.698 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:29:45.708 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:29:45.710 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-23 11:29:45.712 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.2 (69%) VVIX=99 (52%)
+   Spike Score: 57.4 (Expansion)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.9 (65%) VVIX=98 (44%)
+   Spike Score: 52.7 (Expansion)  Crisis: False  Collapse: False
+  Stopping...
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.100.142:8501
+  External URL: http://184.152.44.137:8501
+
+2026-04-24 12:27:09.240 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-24 12:27:09.283 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-24 12:27:09.298 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-24 12:27:09.312 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-24 12:27:09.323 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-24 12:27:09.334 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-24 12:27:09.356 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-24 12:27:09.367 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-24 12:27:09.377 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-04-24 12:27:09.597 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-24 12:27:09.606 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-24 12:40:24.943 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-24 12:40:24.979 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-24 12:40:24.992 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-24 12:40:25.004 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-24 12:40:25.016 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-24 12:40:25.028 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-24 12:40:25.053 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-24 12:40:25.066 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-24 12:40:25.078 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-04-24 12:40:25.303 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-24 12:40:25.312 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-24 12:40:29.825 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-24 12:40:29.856 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-24 12:40:29.868 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-24 12:40:29.881 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-24 12:40:29.893 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-24 12:40:29.906 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-24 12:40:29.928 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-24 12:40:29.941 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-24 12:40:29.954 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+/home/shin/vix_suite/real_trade_ui.py:299: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  vix_level  = float(vix_data["Close"].iloc[-1])
+2026-04-24 12:40:30.241 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-24 12:40:30.250 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-24 14:53:56.618 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-24 14:53:56.621 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-24 15:32:45.512 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-24 15:32:45.521 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-24 15:32:51.152 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-24 15:32:51.155 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.6 (63%) VVIX=96 (33%)
+   Spike Score: 43.4 (Expansion)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.6 (63%) VVIX=96 (33%)
+   Spike Score: 43.4 (Expansion)  Crisis: False  Collapse: False
+📊 Fetching UVXY data from 2025-04-24 to 2026-04-24...
+   ✅ Got 252 days of data
+   VIX: $18.73  Percentile (52w rank): 64.7%
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.5 (62%) VVIX=96 (31%)
+   Spike Score: 42.3 (Expansion)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.5 (62%) VVIX=96 (31%)
+   Spike Score: 42.3 (Expansion)  Crisis: False  Collapse: False
+  Stopping...
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.100.142:8501
+  External URL: http://184.152.44.137:8501
+
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.5 (62%) VVIX=95 (31%)
+   Spike Score: 42.7 (Expansion)  Crisis: False  Collapse: False
+  Stopping...
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.100.142:8501
+  External URL: http://184.152.44.137:8501
+
+2026-04-24 15:37:47.681 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-04-24 15:37:47.686 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.5 (62%) VVIX=95 (31%)
+   Spike Score: 42.5 (Expansion)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.2 (69%) VVIX=98 (48%)
+   Spike Score: 47.6 (Expansion)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.5 (62%) VVIX=95 (28%)
+   Spike Score: 37.7 (Calm)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.0 (67%) VVIX=94 (25%)
+   Spike Score: 43.7 (Expansion)  Crisis: False  Collapse: False
+📊 Fetching UVXY data from 2025-04-28 to 2026-04-28...
+   ✅ Got 252 days of data
+   VIX: $18.99  Percentile (52w rank): 66.7%
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.0 (67%) VVIX=94 (25%)
+   Spike Score: 43.7 (Expansion)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.0 (67%) VVIX=94 (25%)
+   Spike Score: 43.8 (Expansion)  Crisis: False  Collapse: False
+  Stopping...
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.100.142:8501
+  External URL: http://184.152.44.137:8501
+
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.7 (65%) VVIX=95 (27%)
+   Spike Score: 40.7 (Expansion)  Crisis: False  Collapse: False
+📊 Fetching UVXY data from 2025-04-28 to 2026-04-28...
+   ✅ Got 252 days of data
+   VIX: $18.68  Percentile (52w rank): 65.1%
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.7 (65%) VVIX=95 (27%)
+   Spike Score: 40.7 (Expansion)  Crisis: False  Collapse: False
+📊 Fetching UVXY data from 2025-04-28 to 2026-04-28...
+   ✅ Got 252 days of data
+   VIX: $18.53  Percentile (52w rank): 62.7%
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.5 (63%) VVIX=95 (27%)
+   Spike Score: 39.3 (Calm)  Crisis: False  Collapse: False
+[11:03:06] Fetching market state…
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.5 (63%) VVIX=95 (27%)
+   Spike Score: 39.2 (Calm)  Crisis: False  Collapse: False
+Subject: [VIX Suite] HIGH · VIX 18.5 · UVXY $37.95 · Apr 28 2026 11:03 AM
+✅ Email sent to onoshin333@gmail.com
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.5 (63%) VVIX=95 (27%)
+   Spike Score: 39.2 (Calm)  Crisis: False  Collapse: False
+📊 Fetching UVXY data from 2025-04-28 to 2026-04-28...
+   ✅ Got 252 days of data
+   VIX: $18.61  Percentile (52w rank): 63.9%
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.6 (64%) VVIX=95 (27%)
+   Spike Score: 39.8 (Calm)  Crisis: False  Collapse: False
+  Stopping...
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.100.142:8501
+  External URL: http://184.152.44.137:8501
+
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.6 (63%) VVIX=94 (26%)
+   Spike Score: 40.0 (Expansion)  Crisis: False  Collapse: False
+📊 Fetching UVXY data from 2025-04-28 to 2026-04-28...
+📊 Fetching UVXY data from 2025-04-28 to 2026-04-28...
+   ✅ Got 252 days of data
+   VIX: $18.57  Percentile (52w rank): 63.1%
+   ✅ Got 252 days of data
+   VIX: $18.57  Percentile (52w rank): 63.1%
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.6 (63%) VVIX=19 (63%)
+   Spike Score: 47.3 (Expansion)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.6 (63%) VVIX=94 (26%)
+   Spike Score: 39.9 (Calm)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.6 (63%) VVIX=94 (26%)
+   Spike Score: 39.9 (Calm)  Crisis: False  Collapse: False
+  Stopping...
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.100.142:8501
+  External URL: http://184.152.44.137:8501
+
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.2 (60%) VVIX=93 (21%)
+   Spike Score: 35.9 (Calm)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.2 (60%) VVIX=93 (21%)
+   Spike Score: 35.9 (Calm)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.1 (60%) VVIX=91 (13%)
+   Spike Score: 32.6 (Calm)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.1 (60%) VVIX=91 (13%)
+   Spike Score: 32.6 (Calm)  Crisis: False  Collapse: False
+📊 Fetching UVXY data from 2025-04-29 to 2026-04-29...
+   ✅ Got 252 days of data
+   VIX: $18.13  Percentile (52w rank): 59.9%
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.1 (60%) VVIX=91 (13%)
+   Spike Score: 32.6 (Calm)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.1 (60%) VVIX=91 (13%)
+   Spike Score: 32.5 (Calm)  Crisis: False  Collapse: False
+📊 Fetching UVXY data from 2025-04-29 to 2026-04-29...
+   ✅ Got 252 days of data
+   VIX: $18.13  Percentile (52w rank): 59.9%
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.1 (60%) VVIX=91 (13%)
+   Spike Score: 32.4 (Calm)  Crisis: False  Collapse: False
+  Stopping...
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.100.142:8501
+  External URL: http://184.152.44.137:8501
+
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.2 (60%) VVIX=91 (13%)
+   Spike Score: 33.0 (Calm)  Crisis: False  Collapse: False
+📊 Fetching UVXY data from 2025-04-29 to 2026-04-29...
+   ✅ Got 252 days of data
+   VIX: $18.17  Percentile (52w rank): 60.3%
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.2 (60%) VVIX=91 (13%)
+   Spike Score: 33.0 (Calm)  Crisis: False  Collapse: False
+📊 Fetching UVXY data from 2025-04-29 to 2026-04-29...
+   ✅ Got 252 days of data
+   VIX: $18.17  Percentile (52w rank): 60.3%
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.2 (60%) VVIX=91 (13%)
+   Spike Score: 33.0 (Calm)  Crisis: False  Collapse: False
+  Stopping...
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.100.142:8501
+  External URL: http://184.152.44.137:8501
+
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.3 (62%) VVIX=92 (18%)
+   Spike Score: 34.3 (Calm)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.3 (62%) VVIX=96 (33%)
+   Spike Score: 40.0 (Expansion)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.3 (62%) VVIX=96 (33%)
+   Spike Score: 40.2 (Expansion)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=18.8 (69%) VVIX=98 (50%)
+   Spike Score: 49.5 (Expansion)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.1 (73%) VVIX=99 (55%)
+   Spike Score: 54.4 (Expansion)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=19.2 (73%) VVIX=99 (55%)
+   Spike Score: 54.5 (Expansion)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=16.8 (46%) VVIX=88 (6%)
+   Spike Score: 27.3 (Calm)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=16.8 (46%) VVIX=88 (6%)
+   Spike Score: 27.3 (Calm)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=16.8 (46%) VVIX=88 (6%)
+   Spike Score: 27.3 (Calm)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=15.8 (23%) VVIX=89 (8%)
+   Spike Score: 14.3 (Calm)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=15.9 (24%) VVIX=87 (4%)
+   Spike Score: 17.9 (Calm)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=15.9 (24%) VVIX=87 (4%)
+   Spike Score: 17.9 (Calm)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=15.5 (18%) VVIX=88 (7%)
+   Spike Score: 22.3 (Calm)  Crisis: False  Collapse: False
+📊 Fetching UVXY data from 2025-07-10 to 2026-07-10...
+   ✅ Got 252 days of data
+   VIX: $15.53  Percentile (52w rank): 17.9%
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=15.5 (18%) VVIX=88 (7%)
+   Spike Score: 22.2 (Calm)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=15.6 (18%) VVIX=88 (7%)
+   Spike Score: 22.3 (Calm)  Crisis: False  Collapse: False
+📊 Capturing Volatility Triangle snapshot...
+   ✅ Saved: VIX=15.7 (21%) VVIX=89 (10%)
+   Spike Score: 24.2 (Calm)  Crisis: False  Collapse: False
+  Stopping...

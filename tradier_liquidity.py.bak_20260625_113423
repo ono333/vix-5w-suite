@@ -14,12 +14,11 @@ from pathlib import Path
 MIN_BID: float = 0.10
 MAX_SPREAD_PCT: float = 0.80
 MAX_SPREAD_ABS: float = 2.00
-MIN_OPEN_INTEREST: int = 10  # reject strikes with fewer contracts outstanding (dead strikes)
 
 SKIP_LOG_PATH = os.path.expanduser("~/.vix_suite/liquidity_skips.json")
 
 
-def check_liquidity(bid: float, ask: float, open_interest: int | None = None) -> tuple[bool, str | None]:
+def check_liquidity(bid: float, ask: float) -> tuple[bool, str | None]:
     if bid <= MIN_BID:
         return False, f"bid ${bid:.2f} <= ${MIN_BID:.2f} floor"
     if ask <= 0:
@@ -31,8 +30,6 @@ def check_liquidity(bid: float, ask: float, open_interest: int | None = None) ->
     spread_pct = spread_abs / mid
     if spread_pct > MAX_SPREAD_PCT and spread_abs > MAX_SPREAD_ABS:
         return False, f"spread {spread_pct:.0%} / ${spread_abs:.2f} exceeds both limits"
-    if open_interest is not None and open_interest < MIN_OPEN_INTEREST:
-        return False, f"open interest {open_interest} < {MIN_OPEN_INTEREST} floor"
     return True, None
 
 

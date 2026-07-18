@@ -22,11 +22,10 @@ from datetime import date, datetime, timedelta
 from math import log, sqrt, exp
 from pathlib import Path
 from typing import List, Optional
-from market_calendar import is_market_open, get_next_trading_day, format_calendar_warning
 
 # ── Config ────────────────────────────────────────────────────────────────────
 SMTP_USER  = os.environ.get("SMTP_USER", "onoshin333@gmail.com")
-SMTP_PASS  = os.environ.get("SMTP_PASS", "")
+SMTP_PASS  = os.environ.get("SMTP_PASS", "zluxsjyxfurdrkty")
 TO_EMAIL   = os.environ.get("SMTP_TO",   "onoshin333@gmail.com")
 STORE_DIR  = Path.home() / ".vix_suite"
 
@@ -165,29 +164,12 @@ def _v4_signal(ms: dict) -> List[str]:
         return bullets
 
     # Suggest diagonal: long ATM LEAP + short far OTM call
-    # Sigma must be defined before OTM band selector
-    sigma     = min(2.60, max(0.80, (ms.get("vix", 25) / 100) * 4.5))
-
-    # Sigma must be defined before OTM band selector
-    sigma     = min(2.60, max(0.80, (ms.get("vix", 25) / 100) * 4.5))
-
-    # Long leg: ~15% ITM LEAP (convexity anchor, lower strike than short)
-    # Short leg: OTM % derived from VIX regime band
-    if   sigma < 0.17:  _s_otm = 0.10   # calm: 10% OTM
-    elif sigma < 0.22:  _s_otm = 0.07   # low
-    elif sigma < 0.25:  _s_otm = 0.05   # neutral
-    elif sigma < 0.35:  _s_otm = 0.08   # elevated
-    elif sigma < 0.50:  _s_otm = 0.10   # crisis
-    else:               _s_otm = 0.12   # panic/extreme: 12% OTM (mid of 10–15% band)
-
-    long_strike  = round(uvxy * 0.85, 1)            # ~15% ITM LEAP
-    short_strike = round(uvxy * (1 + _s_otm), 1)   # regime-aware OTM
-    # Guard: short must always exceed long
-    if short_strike <= long_strike:
-        short_strike = long_strike + 2
+    long_strike  = round(uvxy * 1.00, 1)
+    short_strike = round(uvxy * 1.30, 1)
 
     long_dte  = 90
     short_dte = 21
+    sigma     = min(2.60, max(0.80, (ms.get("vix", 25) / 100) * 4.5))
 
     long_px  = _bs_call_price(uvxy, long_strike,  long_dte  / 365, sigma)
     short_px = _bs_call_price(uvxy, short_strike, short_dte / 365, sigma)
@@ -336,13 +318,7 @@ def _position_alerts(ms: dict) -> List[str]:
 
             # Short leg DTE
             short_exp = getattr(pos, "current_short_expiration", None)
-            # Try to get DTE from short leg directly if current_short_expiration missing
-            if short_exp:
-                short_dte_val = _dte(str(short_exp))
-            else:
-                short = getattr(pos, "current_short_leg", None)
-                short_exp2 = getattr(short, "expiration_date", None) if short else None
-                short_dte_val = _dte(str(short_exp2)) if short_exp2 else 0
+            short_dte_val = _dte(str(short_exp)) if short_exp else 999
 
             pnl_icon = "✅" if pnl >= 0 else "🔴"
             bullets.append(
@@ -453,68 +429,12 @@ def build_alert_email(ms: dict) -> tuple[str, str]:
 # ── Send ──────────────────────────────────────────────────────────────────────
 
 def send_alert(dry_run: bool = False) -> bool:
-    """Send alert email — skips on market holidays with a notice email."""
-    today = date.today()
-    if not is_market_open(today):
-        next_day = get_next_trading_day(today)
-        subject  = f"[VIX Suite] Market Closed — {today.strftime('%a %b %d %Y')} · Next trading day: {next_day.strftime('%a %b %d')}"
-        html     = f"""
-        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
-          <div style="background:#1E4D2B;color:white;padding:12px 20px;border-radius:6px 6px 0 0;">
-            <strong>VIX 5% Weekly Suite</strong>
-          </div>
-          <div style="background:#f9f9f9;border:1px solid #ddd;padding:20px;border-radius:0 0 6px 6px;">
-            <h3 style="color:#555;margin-top:0;">⛔ Market Closed — No Signal Today</h3>
-            <p style="color:#333;">
-              <strong>{today.strftime('%A, %B %d %Y')}</strong> is a market holiday.
-              No position data or signals have been generated.
-            </p>
-            <p style="color:#333;">
-              Next trading day: <strong>{next_day.strftime('%A, %B %d %Y')}</strong>
-            </p>
-            <p style="color:#888;font-size:12px;margin-bottom:0;">
-              Auto-generated · Do not act on stale signals from previous days.
-            </p>
-          </div>
-        </div>"""
-        _send_email(subject, html, dry_run=dry_run)
-        print(f"[Calendar] Market closed ({today}). Holiday notice sent. Next: {next_day}")
-        return True  # successful run, just no signal
     """Fetch market state, build alert, send email. Returns True on success."""
     print(f"[{datetime.now():%H:%M:%S}] Fetching market state…")
     ms = _get_market_state()
 
     if not ms["ok"]:
         print(f"⚠️  Market data unavailable: {ms.get('error')}")
-
-    # ── Member email hook ──────────────────────────────────────────────────
-    # Fire Thursday/Friday member email after first successful snapshot
-    # Only between 10:00–10:45am ET and only if data is fresh
-    try:
-        from datetime import datetime as _dt
-        import pytz as _pytz
-        _et  = _pytz.timezone("America/New_York")
-        _now = _dt.now(_et)
-        _wd  = _now.weekday()  # 3=Thu, 4=Fri
-        _h   = _now.hour
-        _m   = _now.minute
-        _in_window = (_h == 10 and 0 <= _m <= 45)
-        if ms["ok"] and _in_window and _wd in (0, 3, 4):
-            import subprocess, sys
-            if _wd == 3:
-                _script = "thursday_member_alert.py"
-            elif _wd == 4:
-                _script = "friday_member_signal.py"
-            else:
-                _script = "monday_member_signal.py"
-            print(f"[Member Email] Triggering {_script}...")
-            subprocess.Popen(
-                [sys.executable, f"/home/shin/vix_suite/{_script}"],
-                cwd="/home/shin/vix_suite"
-            )
-    except Exception as _me:
-        print(f"[Member Email] Hook error: {_me}")
-    # ── End member email hook ──────────────────────────────────────────────
 
     subject, html = build_alert_email(ms)
     print(f"Subject: {subject}")

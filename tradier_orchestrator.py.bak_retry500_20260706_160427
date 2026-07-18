@@ -218,23 +218,8 @@ class TradierClient:
             "Accept":        "application/json",
         })
 
-    def _retry_5xx(self, fn, *args, **kwargs):
-        """Call fn (a requests method); retry on transient 5xx with backoff.
-        Only 500/502/503/504 retry; 4xx and success return/raise immediately."""
-        backoffs = [1, 3, 7]
-        for attempt in range(len(backoffs) + 1):
-            try:
-                r = fn(*args, **kwargs)
-            except requests.exceptions.RequestException:
-                if attempt < len(backoffs):
-                    time.sleep(backoffs[attempt]); continue
-                raise
-            if r.status_code in (500, 502, 503, 504) and attempt < len(backoffs):
-                time.sleep(backoffs[attempt]); continue
-            return r
-
     def _get(self, path, params=None):
-        r = self._retry_5xx(self.session.get, f"{self.base}{path}", params=params, timeout=15)
+        r = self.session.get(f"{self.base}{path}", params=params, timeout=15)
         r.raise_for_status()
         return r.json()
 
@@ -276,52 +261,13 @@ class TradierClient:
         q = data.get("quotes", {}).get("quote", {})
         return q if isinstance(q, dict) else {}
 
-    def has_working_order(self, option_symbol: str) -> bool:
-        """True if an open/pending order already exists for this option_symbol.
-        Used to avoid double-placing after a 500 that actually created the order."""
-        try:
-            data = self._get(f"/accounts/{self.account}/orders")
-            o = data.get("orders", {})
-            if not o or o == "null":
-                return False
-            orders = o.get("order", [])
-            if isinstance(orders, dict): orders = [orders]
-            for x in orders:
-                if x.get("option_symbol") == option_symbol and \
-                   x.get("status") in ("open", "pending", "partially_filled"):
-                    return True
-        except Exception:
-            pass
-        return False
-
     def place_order(self, symbol, option_symbol, side, quantity, price) -> dict:
-        payload = {
+        return self._post(f"/accounts/{self.account}/orders", {
             "class": "option", "symbol": symbol,
             "option_symbol": option_symbol, "side": side,
             "quantity": str(quantity), "type": "limit",
             "duration": "day", "price": f"{price:.2f}",
-        }
-        url = f"{self.base}/accounts/{self.account}/orders"
-        backoffs = [1, 3, 7]
-        for attempt in range(len(backoffs) + 1):
-            # Before a RETRY (not the first try), verify the prior 500 didn't
-            # already create the order -> if it did, don't double-place.
-            if attempt > 0 and self.has_working_order(option_symbol):
-                return {"order": {"status": "already_working",
-                                  "note": "order existed after 5xx; not re-placed"}}
-            try:
-                r = self.session.post(url, data=payload,
-                                      headers={"Authorization": f"Bearer {self.token}",
-                                               "Accept": "application/json"},
-                                      timeout=15)
-            except requests.exceptions.RequestException:
-                if attempt < len(backoffs):
-                    time.sleep(backoffs[attempt]); continue
-                raise
-            if r.status_code in (500, 502, 503, 504) and attempt < len(backoffs):
-                time.sleep(backoffs[attempt]); continue
-            r.raise_for_status()
-            return r.json()
+        })
 
     def cancel_order(self, order_id: int) -> dict:
         r = self.session.delete(
