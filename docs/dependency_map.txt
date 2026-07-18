@@ -28,3 +28,10 @@ tradier_orchestrator         <- live_strike_finder, shadow_strategist
 variant_generator            <- app, daily_signal, position_ui, real_trade_ui
 vix_suite_config             <- app, intraday_alert
 vol_triangle                 <- alert_engine, app, daily_signal, intraday_alert
+
+ENTRY POINTS (pinned to root — do not move):
+systemd: tradier_orchestrator, tradier_long_manager+tradier_executor, alert_engine,
+         daily_signal, intraday_alert, monday/friday_member_signal, thursday_member_alert,
+         app (streamlit 8501), tradier_monitor (streamlit 8502), shadow_strategist (ExecStartPost)
+cron:    vol_triangle.capture_snapshot 16:45 ET weekdays (writes snapshot read by load_snap at 10:15)
+         DB backup 18:00 weekdays -> ~/backups/
