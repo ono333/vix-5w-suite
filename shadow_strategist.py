@@ -7,12 +7,26 @@ have done, and marks/settles them over time so a real forward history accrues.
 
 Strategies (all fills recorded at MID; bid stored as take-bid reference):
   S1 'vertical'   : short ~7DTE call (delta <= DELTA_CAP) + long wing ~+$3, same expiry
+                    NO entry gates — this is the naive CONTROL arm.
   S2 'diagonal'   : same short call + long call in the ~25-46 DTE monthly at the
                     same-or-next strike. Long is kept; a new weekly short is
                     re-sold ("roll") after each short expiry while the long lives.
   S3 'long_spike' : BTO ~75-130 DTE call (delta ~ LONG_DELTA) when VIX percentile
                     < SPIKE_ENTRY_PCT. STC when mark >= TP_MULT x cost, or
                     percentile >= SPIKE_EXIT_PCT, or DTE < LONG_MIN_DTE.
+  S4 'vertical_gated'    : same structure as S1, but entry requires
+                    net credit >= GATE_CREDIT_PCT x wing width AND no
+                    backwardation (risk_measures slope_ratio < GATE_SLOPE_MAX).
+                    Gated-vs-S1 = does gating add value?
+  S5 'vertical_defended' : same entries as S1, but at ~daily check, if the
+                    short's chain delta >= DEFENSE_DELTA it is mechanically
+                    rolled up-and-out (BTC + STO next weekly, higher strike).
+                    Defended-vs-S1 = does roll-at-0.50 beat hold-through?
+  S6 'ratio_wing' : same weekly short as S1, protected not by a same-expiry
+                    wing but by PERSISTENT inventory of RATIO_LONGS far-OTM
+                    ~100DTE longs (delta ~ RATIO_LONG_DELTA), topped up when
+                    one is closed/expired; longs time-stopped at
+                    RATIO_LONG_MIN_DTE. Cheap-long insurance question.
 
 Tables created in ~/.vix_suite/market_data.db (existing tables untouched):
   vix_history, shadow_positions, shadow_trades, shadow_marks
@@ -60,6 +74,18 @@ SPIKE_EXIT_PCT = 75.0   # sell spike
 TP_MULT = 2.5           # take profit at 2.5x cost
 LONG_MIN_DTE = 21       # time-stop for S3 long
 MIN_PCTILE_HISTORY = 60  # trading days of VIX closes needed before S3 acts
+
+# --- S4 gates (mirror live engine's floors) ---
+GATE_CREDIT_PCT = 0.03   # net credit must be >= 3% of wing width
+GATE_SLOPE_MAX = 1.0     # risk_measures slope_ratio >= this => backwardation => skip
+
+# --- S5 defense ---
+DEFENSE_DELTA = 0.50     # roll the short when its chain delta reaches this
+
+# --- S6 ratio wings ---
+RATIO_LONGS = 2          # persistent far-OTM long inventory per short book
+RATIO_LONG_DELTA = 0.10  # target delta for cheap longs
+RATIO_LONG_MIN_DTE = 21  # time-stop: STC stub and let top-up replace it
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS vix_history(
@@ -149,6 +175,18 @@ def vix_percentile(conn, today_iso, vix_close):
     return round(100.0 * below / len(rows), 1)
 
 
+def latest_slope(conn):
+    """Most recent slope_ratio from risk_logger's risk_measures table.
+    Returns None (gate treated as pass, logged) if table/column absent."""
+    try:
+        r = conn.execute(
+            "SELECT slope_ratio FROM risk_measures "
+            "ORDER BY date DESC LIMIT 1").fetchone()
+        return r[0] if r else None
+    except sqlite3.Error:
+        return None
+
+
 # ------------------------------------------------------------ selection -----
 def pick_exp(exps, lo, hi, target=None):
     win = [e for e in exps if lo <= dte(e) <= hi]
@@ -234,6 +272,14 @@ def has_open_short(conn, strategy, expiry):
     return conn.execute(
         "SELECT 1 FROM shadow_positions WHERE strategy=? AND expiry=? "
         "AND qty<0 AND status='open' LIMIT 1", (strategy, expiry)).fetchone()
+
+
+def has_live_short(conn, strategy, today_iso):
+    """Any open short not expiring today — used by the defended arm so a
+    rolled short (now in a later expiry) blocks a fresh weekly entry."""
+    return conn.execute(
+        "SELECT 1 FROM shadow_positions WHERE strategy=? AND expiry>? "
+        "AND qty<0 AND status='open' LIMIT 1", (strategy, today_iso)).fetchone()
 
 
 def open_rows(conn, strategy=None):
@@ -336,22 +382,115 @@ def run(force=False):
 
     wexp = pick_exp(exps, *SHORT_DTE)
 
-    # --- S1 vertical ----------------------------------------------------------
-    if wexp and not has_open_short(conn, "vertical", wexp):
-        s = pick_short(calls(wexp))
-        w = pick_wing(calls(wexp), s["strike"]) if s else None
-        if s and w and w["strike"] > s["strike"]:
-            sid = uuid.uuid4().hex[:8]
-            sm, wm = mid(s), mid(w)
-            open_leg(conn, sid, "vertical", s, -1, sm, ts, spot, vix, pct, "short leg")
-            open_leg(conn, sid, "vertical", w, +1, wm, ts, spot, vix, pct, "wing")
-            log(f"shadow: VERTICAL STO {s['strike']}C {wexp} @ {sm:.2f} "
-                f"(bid {s.get('bid')}) / BTO {w['strike']}C @ {wm:.2f} "
-                f"-> net {sm - wm:.2f}")
+    # --- S5 defense: roll defended shorts whose chain delta >= DEFENSE_DELTA -
+    for pid, sid, strat, occ, expiry, strike, qty, op in open_rows(conn, "vertical_defended"):
+        if qty >= 0 or expiry < today:
+            continue
+        ch = calls(expiry)
+        o = next((x for x in ch if x["strike"] == strike), None)
+        d = ((o or {}).get("greeks") or {}).get("delta")
+        if o is None or d is None:
+            log(f"shadow: DEFENSE no chain/delta for {occ}; skip check")
+            continue
+        if d < DEFENSE_DELTA:
+            continue
+        btc = mid(o)
+        close_position(conn, pid, btc, ts, "BTC", f"defense delta={d:.2f}")
+        log(f"shadow: DEFENDED BTC {occ} @ {btc:.2f} (delta {d:.2f})")
+        nexp = pick_exp(exps, dte(expiry) + 1, dte(expiry) + 9)
+        roll = None
+        if nexp:
+            cands = [x for x in calls(nexp)
+                     if (x.get("greeks") or {}).get("delta") is not None
+                     and x["greeks"]["delta"] <= DELTA_CAP
+                     and x["strike"] > strike
+                     and (x.get("bid") or 0) >= MIN_BID]
+            roll = min(cands, key=lambda x: x["strike"]) if cands else None
+        if roll:
+            rm = mid(roll)
+            open_leg(conn, sid, "vertical_defended", roll, -1, rm, ts,
+                     spot, vix, pct, f"defense roll from {strike:g}C {expiry}")
+            log(f"shadow: DEFENDED roll STO {roll['strike']:g}C {nexp} @ {rm:.2f}")
         else:
-            log(f"shadow: VERTICAL declined ({'no short candidate' if not s else 'no wing'})")
+            log("shadow: DEFENDED roll declined (no candidate) — flat after BTC")
+
+    # --- S1/S4/S5 verticals (shared snapshot: same cached chain) --------------
+    def enter_vertical(strat, s, w, note_extra=""):
+        sid = uuid.uuid4().hex[:8]
+        sm, wm = mid(s), mid(w)
+        open_leg(conn, sid, strat, s, -1, sm, ts, spot, vix, pct, "short leg")
+        open_leg(conn, sid, strat, w, +1, wm, ts, spot, vix, pct, "wing")
+        log(f"shadow: {strat.upper()} STO {s['strike']:g}C {wexp} @ {sm:.2f} "
+            f"(bid {s.get('bid')}) / BTO {w['strike']:g}C @ {wm:.2f} "
+            f"-> net {sm - wm:.2f}{note_extra}")
+
+    s_pick = pick_short(calls(wexp)) if wexp else None
+    w_pick = pick_wing(calls(wexp), s_pick["strike"]) if s_pick else None
+    pair_ok = s_pick and w_pick and w_pick["strike"] > s_pick["strike"]
+
+    if wexp and not has_open_short(conn, "vertical", wexp):
+        if pair_ok:
+            enter_vertical("vertical", s_pick, w_pick)
+        else:
+            log(f"shadow: VERTICAL declined ({'no short candidate' if not s_pick else 'no wing'})")
     elif wexp:
         log(f"shadow: VERTICAL holds open short for {wexp}")
+
+    # --- S4 gated vertical ----------------------------------------------------
+    if wexp and not has_open_short(conn, "vertical_gated", wexp):
+        if not pair_ok:
+            log("shadow: GATED declined (no short/wing candidate)")
+        else:
+            net = mid(s_pick) - mid(w_pick)
+            width = w_pick["strike"] - s_pick["strike"]
+            slope = latest_slope(conn)
+            if slope is not None and slope >= GATE_SLOPE_MAX:
+                log(f"shadow: GATED stand-down (slope_ratio {slope:.3f} >= {GATE_SLOPE_MAX})")
+            elif net < GATE_CREDIT_PCT * width:
+                log(f"shadow: GATED declined (net {net:.2f} < "
+                    f"{GATE_CREDIT_PCT:.0%} x width {width:g})")
+            else:
+                extra = " [slope n/a]" if slope is None else f" [slope {slope:.3f}]"
+                enter_vertical("vertical_gated", s_pick, w_pick, extra)
+
+    # --- S5 defended vertical (same entries as S1; defense handled above) -----
+    # has_live_short (not per-expiry): a defense-rolled short in a later
+    # expiry must block a fresh weekly entry, else the arm doubles up.
+    if wexp and not has_live_short(conn, "vertical_defended", today):
+        if pair_ok:
+            enter_vertical("vertical_defended", s_pick, w_pick)
+        else:
+            log("shadow: DEFENDED declined (no short/wing candidate)")
+
+    # --- S6 ratio_wing: weekly short + persistent far-OTM long inventory ------
+    if wexp and not has_open_short(conn, "ratio_wing", wexp):
+        if s_pick:
+            sm = mid(s_pick)
+            open_leg(conn, uuid.uuid4().hex[:8], "ratio_wing", s_pick, -1, sm,
+                     ts, spot, vix, pct, "short leg")
+            log(f"shadow: RATIO_WING STO {s_pick['strike']:g}C {wexp} @ {sm:.2f}")
+        else:
+            log("shadow: RATIO_WING short declined (no candidate)")
+    rw_longs = [r for r in open_rows(conn, "ratio_wing") if r[6] > 0]
+    for pid, _sid, _st, occ, expiry, strike, q, op in rw_longs:
+        if dte(expiry) < RATIO_LONG_MIN_DTE:
+            m = marks.get(pid)
+            if m is not None:
+                close_position(conn, pid, m, ts, "STC",
+                               f"time_stop dte={dte(expiry)}")
+                log(f"shadow: RATIO_WING STC stub {occ} @ {m:.2f}")
+    rw_longs = [r for r in open_rows(conn, "ratio_wing") if r[6] > 0]
+    need = RATIO_LONGS - sum(r[6] for r in rw_longs)
+    if need > 0:
+        lexp = pick_exp(exps, *LONG_DTE, target=LONG_DTE_TARGET)
+        lg = pick_by_delta(calls(lexp), RATIO_LONG_DELTA) if lexp else None
+        if lg:
+            lm = mid(lg)
+            open_leg(conn, uuid.uuid4().hex[:8], "ratio_wing", lg, +need, lm,
+                     ts, spot, vix, pct, f"inventory top-up x{need}")
+            log(f"shadow: RATIO_WING BTO {need}x {lg['strike']:g}C {lexp} @ {lm:.2f}")
+        else:
+            log("shadow: RATIO_WING top-up declined (no candidate)")
 
     # --- S2 diagonal -----------------------------------------------------------
     diag_open = open_rows(conn, "diagonal")
@@ -389,7 +528,7 @@ def run(force=False):
             f"({nhist}/{MIN_PCTILE_HISTORY}; seed with --seed-vix)")
     elif open_rows(conn, "long_spike"):
         log("shadow: LONG_SPIKE holds")
-    elif pct < SPIKE_ENTRY_PCT or not conn.execute("SELECT 1 FROM shadow_positions WHERE strategy='long_spike' LIMIT 1").fetchone():  # bootstrap: first-ever entry skips calm gate
+    elif pct < SPIKE_ENTRY_PCT:
         lexp = pick_exp(exps, *LONG_DTE, target=LONG_DTE_TARGET)
         lg = pick_by_delta(calls(lexp), LONG_DELTA) if lexp else None
         if lg:
@@ -411,9 +550,10 @@ def run(force=False):
 # ---------------------------------------------------------------- report ----
 def report():
     conn = connect()
-    print(f"{'strategy':<12}{'open':>6}{'closed':>8}{'realized':>12}"
+    print(f"{'strategy':<19}{'open':>6}{'closed':>8}{'realized':>12}"
           f"{'unrealized':>12}{'total':>10}")
-    for strat in ("vertical", "diagonal", "long_spike"):
+    for strat in ("vertical", "vertical_gated", "vertical_defended",
+                  "ratio_wing", "diagonal", "long_spike"):
         closed = conn.execute(
             "SELECT qty,open_price,close_price FROM shadow_positions "
             "WHERE strategy=? AND status!='open'", (strat,)).fetchall()
@@ -429,7 +569,7 @@ def report():
                 "ORDER BY id DESC LIMIT 1", (pid,)).fetchone()
             if m and m[0] is not None:
                 unreal += (m[0] - op) * q * 100
-        print(f"{strat:<12}{len(opens):>6}{len(closed):>8}"
+        print(f"{strat:<19}{len(opens):>6}{len(closed):>8}"
               f"{realized:>12.2f}{unreal:>12.2f}{realized + unreal:>10.2f}")
     tb = conn.execute(
         "SELECT COUNT(*), AVG(price - bid) FROM shadow_trades "
@@ -448,7 +588,7 @@ def seed_vix(path):
         for row in csv.reader(f):
             if len(row) < 2:
                 continue
-            d, v = row[0].strip(), (row[4] if len(row) >= 5 else row[1]).strip()
+            d, v = row[0].strip(), row[1].strip()
             try:
                 if "/" in d:  # CBOE format MM/DD/YYYY
                     d = datetime.strptime(d, "%m/%d/%Y").date().isoformat()
