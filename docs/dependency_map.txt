@@ -1,0 +1,30 @@
+alert_engine                 <- app
+assignment_engine            <- app
+backup_manager               <- app, trade_log
+daily_signal                 <- alert_engine, app
+enums                        <- app, daily_signal, position_ui, regime_detector, trade_log, variant_generator
+event_calendar               <- app
+exit_detector                <- app
+friday_member_signal         <- app
+gdrive_backup                <- app, backup_ui
+live_strike_finder           <- app, daily_signal
+market_calendar              <- alert_engine, daily_signal, friday_member_signal, intraday_alert, monday_member_signal, thursday_member_alert, tradier_orchestrator
+market_data                  <- tradier_orchestrator
+notification_engine          <- app
+premium_harvest_engine       <- app
+real_trade_log               <- alert_engine, app, daily_signal, intraday_alert, real_trade_ui
+real_trade_ui                <- app
+reconcile                    <- app
+regime_detector              <- app, daily_signal, post_mortem, variant_generator
+regime_tracker               <- app
+robustness_scorer            <- app
+roll_manager                 <- daily_signal, intraday_alert
+thursday_member_alert        <- app
+trade_log                    <- app, daily_signal, intraday_alert, position_ui
+tradier_exec_log             <- tradier_orchestrator
+tradier_executor             <- tradier_long_manager
+tradier_liquidity            <- tradier_orchestrator
+tradier_orchestrator         <- live_strike_finder, shadow_strategist
+variant_generator            <- app, daily_signal, position_ui, real_trade_ui
+vix_suite_config             <- app, intraday_alert
+vol_triangle                 <- alert_engine, app, daily_signal, intraday_alert
