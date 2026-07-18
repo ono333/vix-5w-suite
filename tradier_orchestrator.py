@@ -852,7 +852,7 @@ def run(sandbox: bool = True, preview: bool = False, check_only: bool = False):
                     continue
 
                 try:
-                    LOG.log(f"  BTO ${best['strike']:.0f}C {exp} "
+                    LOG.log(f"  BTO ${best['strike']:g}C {exp} "
                             f"δ={best['delta']:.3f} ask=${best['ask']:.2f}")
                     liq_ok, liq_reason = True, None  # already checked above
                     if not preview:
@@ -875,7 +875,7 @@ def run(sandbox: bool = True, preview: bool = False, check_only: bool = False):
                             variants[key] = variant_state
                             save_state({**state, "variants": variants})
                             actions_taken.append(
-                                f"{key}: BTO ${best['strike']:.0f}C {exp} "
+                                f"{key}: BTO ${best['strike']:g}C {exp} "
                                 f"@ ${result['fill_price']:.2f}")
                 except Exception as e:
                     LOG.log(f"  ❌ Long entry error: {e}")
@@ -885,7 +885,7 @@ def run(sandbox: bool = True, preview: bool = False, check_only: bool = False):
             if isinstance(long_exp, str):
                 long_exp = date.fromisoformat(long_exp)
             long_dte = (long_exp - today).days if long_exp else 999
-            LOG.log(f"  ✅ Long: ${long_pos['strike']:.0f}C exp {long_exp} "
+            LOG.log(f"  ✅ Long: ${long_pos['strike']:g}C exp {long_exp} "
                     f"(DTE={long_dte})")
 
             # Roll if DTE < threshold
@@ -898,7 +898,7 @@ def run(sandbox: bool = True, preview: bool = False, check_only: bool = False):
                             chain    = client.get_option_chain("UVXY", new_exp)
                             best_new = find_long_strike(chain)
                             if best_new:
-                                LOG.log(f"  Roll to ${best_new['strike']:.0f}C {new_exp}")
+                                LOG.log(f"  Roll to ${best_new['strike']:g}C {new_exp}")
                                 liq_ok, liq_reason = check_liquidity(
                                     best_new["bid"], best_new["ask"], best_new.get("open_interest"))
                                 if not liq_ok:
@@ -944,7 +944,7 @@ def run(sandbox: bool = True, preview: bool = False, check_only: bool = False):
                                         save_state({**state, "variants": variants})
                                         actions_taken.append(
                                             f"{key}: Rolled long to "
-                                            f"${best_new['strike']:.0f}C {new_exp}")
+                                            f"${best_new['strike']:g}C {new_exp}")
                         except Exception as e:
                             LOG.log(f"  ❌ Roll error: {e}")
 
@@ -1006,7 +1006,7 @@ def run(sandbox: bool = True, preview: bool = False, check_only: bool = False):
                                 LOG.log(f"  ↳ No strike at {_exp} δ≤{_dc:.2f}")
                                 continue
                             if _best["strike"] <= long_strike:
-                                LOG.log(f"  ↳ ${_best['strike']:.0f}C ≤ long ${long_strike:.0f}C — skip")
+                                LOG.log(f"  ↳ ${_best['strike']:g}C ≤ long ${long_strike:g}C — skip")
                                 continue
                             liq_ok, liq_reason = check_liquidity(_best["bid"], _best["ask"], _best.get("open_interest"))
                             if not liq_ok:
@@ -1027,7 +1027,7 @@ def run(sandbox: bool = True, preview: bool = False, check_only: bool = False):
                         if used_note:
                             LOG.log(f"  ℹ️ Fallback used: {used_note}")
 
-                        LOG.log(f"  STO ${best['strike']:.0f}C {used_exp} "
+                        LOG.log(f"  STO ${best['strike']:g}C {used_exp} "
                                 f"δ={best['delta']:.3f} bid=${best['bid']:.2f}")
                         if not preview:
                             result = place_with_reprice(
@@ -1049,7 +1049,7 @@ def run(sandbox: bool = True, preview: bool = False, check_only: bool = False):
                                 variants[key] = variant_state
                                 save_state({**state, "variants": variants})
                                 actions_taken.append(
-                                    f"{key}: STO ${best['strike']:.0f}C {used_exp} "
+                                    f"{key}: STO ${best['strike']:g}C {used_exp} "
                                     f"@ ${result['fill_price']:.2f}"
                                     + (f" [{used_note}]" if used_note else ""))
                             elif result["status"] == "market_closed":
@@ -1064,7 +1064,7 @@ def run(sandbox: bool = True, preview: bool = False, check_only: bool = False):
             if isinstance(short_exp, str):
                 short_exp = date.fromisoformat(short_exp)
             short_dte = (short_exp - today).days if short_exp else 0
-            LOG.log(f"  ✅ Short: ${short_pos['strike']:.0f}C exp {short_exp} "
+            LOG.log(f"  ✅ Short: ${short_pos['strike']:g}C exp {short_exp} "
                     f"(DTE={short_dte})")
 
             # Emergency roll check — get live delta
@@ -1128,7 +1128,7 @@ def run(sandbox: bool = True, preview: bool = False, check_only: bool = False):
                                 LOG.log(f"  ↳ No strike at {_exp} δ≤{_dc:.2f}")
                                 continue
                             if _best["strike"] <= long_strike:
-                                LOG.log(f"  ↳ ${_best['strike']:.0f}C ≤ long ${long_strike:.0f}C — skip")
+                                LOG.log(f"  ↳ ${_best['strike']:g}C ≤ long ${long_strike:g}C — skip")
                                 continue
                             liq_ok, liq_reason = check_liquidity(_best["bid"], _best["ask"], _best.get("open_interest"))
                             if not liq_ok:
@@ -1146,7 +1146,7 @@ def run(sandbox: bool = True, preview: bool = False, check_only: bool = False):
                         else:
                             if used_note:
                                 LOG.log(f"  ℹ️ Fallback used: {used_note}")
-                            LOG.log(f"  STO ${best['strike']:.0f}C {used_exp} "
+                            LOG.log(f"  STO ${best['strike']:g}C {used_exp} "
                                     f"δ={best['delta']:.3f} bid=${best['bid']:.2f}")
                             if not preview:
                                 result = place_with_reprice(
@@ -1168,7 +1168,7 @@ def run(sandbox: bool = True, preview: bool = False, check_only: bool = False):
                                     variants[key] = variant_state
                                     save_state({**state, "variants": variants})
                                     actions_taken.append(
-                                        f"{key}: STO ${best['strike']:.0f}C {used_exp} "
+                                        f"{key}: STO ${best['strike']:g}C {used_exp} "
                                         f"@ ${result['fill_price']:.2f}"
                                         + (f" [{used_note}]" if used_note else ""))
                                 elif result["status"] == "market_closed":
@@ -1409,7 +1409,7 @@ def _send_delta_alert(flagged: list[dict]):
         rows = "".join(
             f"<tr>"
             f"<td style='padding:8px 14px;color:#fff;font-weight:700'>{f['variant']}</td>"
-            f"<td style='padding:8px 14px;color:#ff9800'>${f['strike']:.0f}C {f['expiry']}</td>"
+            f"<td style='padding:8px 14px;color:#ff9800'>${f['strike']:g}C {f['expiry']}</td>"
             f"<td style='padding:8px 14px;color:#ff3366;font-weight:700'>δ={f['delta']:.3f}</td>"
             f"<td style='padding:8px 14px;color:#aaa'>ceil {f['delta_ceil']:.2f}</td>"
             f"</tr>"
