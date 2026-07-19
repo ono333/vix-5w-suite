@@ -1300,6 +1300,11 @@ def render_signal_dashboard(trade_log=None):
     # ── Volatility Triangle Panel ────────────────────────────────────────
     st.markdown("---")
     st.subheader("🔺 Volatility Triangle")
+    try:
+        from vol_triangle import get_latest_snapshot
+        snap = get_latest_snapshot()
+    except Exception:
+        snap = None
     if snap:
         _age = ""
         try:
@@ -2463,11 +2468,13 @@ def render_post_mortem(trade_log=None):
                 st.write(f"**P&L:** ${trade.total_pnl:,.0f}")
             with col2:
                 duration = 0
-                if trade.exit_date and trade.entry_date:
+                _exit_d = (getattr(trade, "exit_date", None)
+                           or getattr(trade, "close_date", None))
+                if _exit_d and trade.entry_date:
                     from datetime import datetime
                     try:
-                        entry = datetime.strptime(trade.entry_date, "%Y-%m-%d")
-                        exit = datetime.strptime(trade.exit_date, "%Y-%m-%d")
+                        entry = datetime.strptime(trade.entry_date[:10], "%Y-%m-%d")
+                        exit = datetime.strptime(str(_exit_d)[:10], "%Y-%m-%d")
                         duration = (exit - entry).days
                     except:
                         pass
