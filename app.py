@@ -1150,8 +1150,8 @@ def send_roll_notification_email(positions_needing_roll, recipient: str = "onosh
         <tr style="border-bottom:1px solid #dee2e6;">
             <td style="padding:10px;font-weight:bold;">{pos.variant_name}</td>
             <td style="padding:10px;">{pos.contracts}</td>
-            <td style="padding:10px;">${pos.long_strike:.0f}</td>
-            <td style="padding:10px;">{f'${short.strike:.0f}' if short else 'N/A'}</td>
+            <td style="padding:10px;">${pos.long_strike:g}</td>
+            <td style="padding:10px;">{f'${short.strike:g}' if short else 'N/A'}</td>
             <td style="padding:10px;color:{dte_color};font-weight:bold;">{dte} days</td>
             <td style="padding:10px;">{f'${short.entry_credit:.2f}' if short else '$0.00'}</td>
         </tr>
@@ -1303,7 +1303,6 @@ def render_signal_dashboard(trade_log=None):
     if snap:
         _age = ""
         try:
-            from datetime import datetime
             _cap = datetime.fromisoformat(snap.captured_at)
             _age_min = (datetime.now() - _cap).seconds // 60
             _age = f" · {_age_min}m ago" if _age_min > 0 else " · just now"
@@ -1648,7 +1647,7 @@ Score = 0.30×VIX_pct + 0.25×VVIX_pct + 0.20×UVXY_momentum
                 if _st == "ok":
                     _lsf_rows.append({
                         "Variant":      _vk,
-                        "Rec. Strike":  f"${_r['strike']:.0f}C",
+                        "Rec. Strike":  f"${_r['strike']:g}C",
                         "Delta":        f"{_r['delta']:.3f}",
                         "Bid":          f"${_r['bid']:.2f}",
                         "Mid":          f"${_r['mid']:.2f}",
@@ -1832,14 +1831,14 @@ Score = 0.30×VIX_pct + 0.25×VVIX_pct + 0.20×UVXY_momentum
                         detail_col1, detail_col2, detail_col3, detail_col4 = st.columns(4)
                         with detail_col1:
                             st.markdown("**📈 Long Leg**")
-                            st.write(f"Strike: ${pos.long_strike:.0f}")
+                            st.write(f"Strike: ${pos.long_strike:g}")
                             st.write(f"DTE: {long_dte} days")
                             st.write(f"Entry: ${pos.long_entry_price:.2f}")
                         with detail_col2:
                             st.markdown("**📉 Short Leg**")
                             short_leg = pos.current_short_leg
                             if short_leg and short_leg.status == "open":
-                                st.write(f"Strike: ${short_leg.strike:.0f}")
+                                st.write(f"Strike: ${short_leg.strike:g}")
                                 st.write(f"DTE: {short_leg.days_to_expiry()} days")
                                 st.write(f"Credit: ${short_leg.entry_credit:.2f}")
                             else:
@@ -2134,8 +2133,8 @@ Score = 0.30×VIX_pct + 0.25×VVIX_pct + 0.20×UVXY_momentum
                     
                     col1, col2, col3 = st.columns(3)
                     with col1:
-                        st.write(f"**Long Strike:** ${long_strike:.0f}")
-                        st.write(f"**Short Strike:** ${short_strike:.0f}")
+                        st.write(f"**Long Strike:** ${long_strike:g}")
+                        st.write(f"**Short Strike:** ${short_strike:g}")
                     with col2:
                         if long_cost > 0:
                             st.write(f"**Long Cost:** ${long_cost:.2f}")
@@ -2186,10 +2185,10 @@ Score = 0.30×VIX_pct + 0.25×VVIX_pct + 0.20×UVXY_momentum
                     
                     col1, col2 = st.columns(2)
                     with col1:
-                        st.write(f"Long Strike: ${long_strike:.0f}")
+                        st.write(f"Long Strike: ${long_strike:g}")
                         st.write(f"Long DTE: {variant.long_dte_weeks}w")
                     with col2:
-                        st.write(f"Short Strike: ${short_strike:.0f}")
+                        st.write(f"Short Strike: ${short_strike:g}")
                         st.write(f"Est Credit: ${est_credit:.2f}")
         
         # Freeze button
@@ -2644,7 +2643,7 @@ def render_variant_analytics(trade_log=None):
             "Status":        pos.status.upper(),
             "Entry":         pos.entry_date,
             "Regime":        getattr(pos, "entry_regime", ""),
-            "Long Strike":   f"${pos.long_strike:.0f}",
+            "Long Strike":   f"${pos.long_strike:g}",
             "Long Exp":      pos.long_expiration,
             "Long DTE":      long_remaining,
             "Long % Used":   f"{long_pct_used:.0f}%",
@@ -2652,7 +2651,7 @@ def render_variant_analytics(trade_log=None):
             "Long P&L":      lpnl if pos.long_current_price > 0 else 0.0,
             "Long Cost $":   lc,
             "Long Fill":     f"${getattr(pos,'long_fill_price', getattr(pos,'long_entry_price',0)):.2f}",
-            "Short Strike":  f"${short.strike:.0f}" if short else "—",
+            "Short Strike":  f"${short.strike:g}" if short else "—",
             "Short Exp":     short.expiration_date if short else "—",
             "Short DTE":     pos.days_to_expiry() if hasattr(pos,"days_to_expiry") else 0,
             "Short Fill":    f"${getattr(short, 'fill_price', getattr(short, 'entry_credit', 0.0)):.2f}" if short else "—",
@@ -2815,9 +2814,9 @@ def render_variant_analytics(trade_log=None):
                 all_rolls.append({
                     "Date":       getattr(r, "roll_date", getattr(r, "exit_date", "")),
                     "Variant":    pos.variant_name,
-                    "Old Strike": f"${getattr(r, 'old_strike', 0):.0f}",
+                    "Old Strike": f"${getattr(r, 'old_strike', 0):g}",
                     "Old Exit":   f"${getattr(r, 'old_exit_price', getattr(r, 'exit_price', 0.0)):.2f}",
-                    "New Strike": f"${getattr(r, 'new_strike', 0):.0f}",
+                    "New Strike": f"${getattr(r, 'new_strike', 0):g}",
                     "New Credit": f"${getattr(r, 'new_credit', 0.0):.2f}",
                     "Net Credit": f"${getattr(r, 'roll_credit', 0.0):.2f}",
                     "Underlying": f"${getattr(r, 'underlying_price', 0.0):.2f}",
@@ -4713,7 +4712,7 @@ def _render_paper_roll_long_form(trade_log, pos):
     
     st.info(f"""
     **Current Long Leg:**
-    - Strike: ${pos.long_strike:.0f}
+    - Strike: ${pos.long_strike:g}
     - Expiration: {pos.long_expiration} ({long_dte} DTE)
     - Entry Price: ${pos.long_entry_price:.2f}
     - Current Price: ${pos.long_current_price:.2f}
@@ -4841,7 +4840,7 @@ def _render_paper_close_short_form(trade_log, pos):
     
     st.info(f"""
     **Current Short Leg:**
-    - Strike: ${short.strike:.0f}
+    - Strike: ${short.strike:g}
     - Expiration: {short.expiration_date}
     - Entry Credit: ${short.entry_credit:.2f}
     - Current Price: ${short.current_price:.2f}
@@ -4895,7 +4894,7 @@ def _render_paper_close_long_form(trade_log, pos):
     
     st.info(f"""
     **Current Long Leg:**
-    - Strike: ${pos.long_strike:.0f}
+    - Strike: ${pos.long_strike:g}
     - Expiration: {pos.long_expiration}
     - Entry Price: ${pos.long_entry_price:.2f}
     - Current Price: ${pos.long_current_price:.2f}
@@ -5246,172 +5245,172 @@ def render_paper_trade_log(trade_log=None):
             )
         
         # Multi-Leg Trade Entry Form
-    with st.expander("➕ Add Trade Manually", expanded=False):
-        st.markdown("Record a diagonal spread (Long LEAP + Short Weekly) executed outside the system.")
+        with st.expander("➕ Add Trade Manually", expanded=False):
+            st.markdown("Record a diagonal spread (Long LEAP + Short Weekly) executed outside the system.")
         
-        manual_variant = st.selectbox(
-            "Variant",
-            options=[role.value for role in VariantRole],
-            key="manual_trade_variant"
-        )
-        
-        st.markdown("---")
-        
-        # LONG LEG
-        st.markdown("##### 📈 Long Leg (LEAP Call)")
-        long_col1, long_col2, long_col3 = st.columns(3)
-        with long_col1:
-            long_strike = st.number_input(
-                "Long Strike",
-                min_value=1.0, max_value=200.0, value=40.0, step=0.5,
-                key="manual_long_strike"
-            )
-        with long_col2:
-            long_expiration = st.date_input(
-                "Long Expiration",
-                key="manual_long_expiration"
-            )
-        with long_col3:
-            long_debit = st.number_input(
-                "Long Debit ($)",
-                min_value=0.01, max_value=50.0, value=3.50, step=0.05,
-                key="manual_long_debit",
-                help="Price paid per contract for LEAP"
+            manual_variant = st.selectbox(
+                "Variant",
+                options=[role.value for role in VariantRole],
+                key="manual_trade_variant"
             )
         
-        st.markdown("---")
+            st.markdown("---")
         
-        # SHORT LEG
-        short_col1, short_col2, short_col3 = st.columns(3)
-        with short_col1:
-            short_strike = st.number_input(
-                "Short Strike",
-                min_value=1.0, max_value=200.0, value=38.0, step=0.5,
-                key="manual_short_strike"
-            )
-        with short_col2:
-            short_expiration = st.date_input(
-                "Short Expiration",
-                key="manual_short_expiration"
-            )
-        with short_col3:
-            short_credit = st.number_input(
-                "Short Credit ($)",
-                min_value=0.01, max_value=20.0, value=0.80, step=0.05,
-                key="manual_short_credit",
-                help="Credit received per contract for weekly"
-            )
-        
-        st.markdown("---")
-        
-        # POSITION INFO
-        pos_col1, pos_col2 = st.columns(2)
-        with pos_col1:
-            manual_contracts = st.number_input(
-                "Contracts",
-                min_value=1, max_value=100, value=5, step=1,
-                key="manual_trade_contracts"
-            )
-        with pos_col2:
-            manual_notes = st.text_input(
-                "Notes (optional)",
-                key="manual_trade_notes"
-            )
-        
-        # Calculate net debit/credit
-        net_position = short_credit - long_debit
-        net_type = "CREDIT" if net_position > 0 else "DEBIT"
-        total_cost = abs(net_position) * manual_contracts * 100
-        
-        st.markdown(f"""
-        **Position Summary:**
-        - Net {net_type}: **${abs(net_position):.2f}** per spread
-        - Total {'Credit' if net_position > 0 else 'Cost'}: **${total_cost:.2f}** for {manual_contracts} contracts
-        - Max Risk: ${long_debit * manual_contracts * 100:.2f} (if LEAP expires worthless)
-        """)
-        
-        from datetime import date as _date
-        manual_entry_date = st.date_input("Entry Date", value=_date.today(), key="manual_entry_date", help="Actual trade date — can be backdated")
-
-        if st.button("📥 Record Diagonal Spread", key="manual_trade_submit"):
-            try:
-                variant_names = {
-                    "v1_income_harvester": "V1 Income Harvester",
-                    "v2_mean_reversion": "V2 Mean Reversion",
-                    "v3_shock_absorber": "V3 Shock Absorber",
-                    "v4_tail_hunter": "V4 Tail Hunter",
-                    "v5_regime_allocator": "V5 Regime Allocator",
-                }
-                variant_name = variant_names.get(manual_variant, manual_variant)
-                
-                # Calculate entry commission
-                fee_per_contract = 0.65
-                entry_commission = fee_per_contract * manual_contracts * 2  # Long buy + Short sell
-                
-                # Store as diagonal position with proper roll tracking
-                pos = trade_log.open_diagonal(
-                    variant_id=manual_variant.upper(),
-                    variant_name=variant_name,
-                    contracts=manual_contracts,
-                    long_strike=long_strike,
-                    long_expiration=long_expiration.isoformat(),
-                    long_price=long_debit,
-                    short_strike=short_strike,
-                    short_expiration=short_expiration.isoformat(),
-                    short_credit=short_credit,
-                    entry_regime="CALM",  # Default
-                    entry_vix_level=0.0,  # Not specified
-                    fee_per_contract=fee_per_contract,
-                    notes=manual_notes,
-                    entry_date=manual_entry_date.isoformat(),
+            # LONG LEG
+            st.markdown("##### 📈 Long Leg (LEAP Call)")
+            long_col1, long_col2, long_col3 = st.columns(3)
+            with long_col1:
+                long_strike = st.number_input(
+                    "Long Strike",
+                    min_value=1.0, max_value=200.0, value=40.0, step=0.5,
+                    key="manual_long_strike"
                 )
-                st.success(f"✅ Recorded {variant_name} diagonal spread! (ID: {pos.position_id})")
-                st.rerun()
-            except Exception as e:
-                st.error(f"❌ Error: {e}")
-    
-    st.markdown("---")
-    
-    # Get trades based on filter
-    if status_filter == "Open":
-        trades = trade_log.get_open_trades()
-    elif status_filter == "Closed":
-        trades = trade_log.get_closed_trades()
-    else:
-        trades = trade_log.get_all_trades()
-    
-    # Apply variant filter
-    if variant_filter != "All":
-        trades = [t for t in trades if t.variant_role.value == variant_filter]
-    
-    # Display trades
-    if not trades:
-        st.info("No trades found. Execute signals to create trades.")
-        return
-    
-    st.subheader(f"Trades ({len(trades)})")
-    
-    for trade in sorted(trades, key=lambda t: t.entry_date, reverse=True):
-        status_icon = "🟢" if trade.status.value == "open" else "🔴"
-        pnl_color = "green" if trade.total_pnl >= 0 else "red"
+            with long_col2:
+                long_expiration = st.date_input(
+                    "Long Expiration",
+                    key="manual_long_expiration"
+                )
+            with long_col3:
+                long_debit = st.number_input(
+                    "Long Debit ($)",
+                    min_value=0.01, max_value=50.0, value=3.50, step=0.05,
+                    key="manual_long_debit",
+                    help="Price paid per contract for LEAP"
+                )
         
-        with st.expander(
-            f"{status_icon} {trade.variant_name} | {trade.entry_date.strftime('%Y-%m-%d')} | "
-            f"${trade.total_pnl:+,.0f}",
-            expanded=False
-        ):
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.write(f"**Trade ID:** {trade.position_id}")
-                st.write(f"**Signal ID:** {trade.signal_id}")
-                st.write(f"**Entry:** {trade.entry_date.strftime('%Y-%m-%d %H:%M')}")
-            with col2:
-                st.write(f"**Regime:** {trade.entry_regime.value}")
-                st.write(f"**Contracts:** {trade.total_contracts}")
-                st.write(f"**Days Held:** {trade.days_held}")
-            with col3:
-                st.write(f"**Entry Debit:** ${trade.entry_debit:,.2f}")
-                st.markdown(f"**P&L:** <span style='color:{pnl_color}'>${trade.total_pnl:+,.2f}</span>", unsafe_allow_html=True)
+            st.markdown("---")
+        
+            # SHORT LEG
+            short_col1, short_col2, short_col3 = st.columns(3)
+            with short_col1:
+                short_strike = st.number_input(
+                    "Short Strike",
+                    min_value=1.0, max_value=200.0, value=38.0, step=0.5,
+                    key="manual_short_strike"
+                )
+            with short_col2:
+                short_expiration = st.date_input(
+                    "Short Expiration",
+                    key="manual_short_expiration"
+                )
+            with short_col3:
+                short_credit = st.number_input(
+                    "Short Credit ($)",
+                    min_value=0.01, max_value=20.0, value=0.80, step=0.05,
+                    key="manual_short_credit",
+                    help="Credit received per contract for weekly"
+                )
+        
+            st.markdown("---")
+        
+            # POSITION INFO
+            pos_col1, pos_col2 = st.columns(2)
+            with pos_col1:
+                manual_contracts = st.number_input(
+                    "Contracts",
+                    min_value=1, max_value=100, value=5, step=1,
+                    key="manual_trade_contracts"
+                )
+            with pos_col2:
+                manual_notes = st.text_input(
+                    "Notes (optional)",
+                    key="manual_trade_notes"
+                )
+        
+            # Calculate net debit/credit
+            net_position = short_credit - long_debit
+            net_type = "CREDIT" if net_position > 0 else "DEBIT"
+            total_cost = abs(net_position) * manual_contracts * 100
+        
+            st.markdown(f"""
+            **Position Summary:**
+            - Net {net_type}: **${abs(net_position):.2f}** per spread
+            - Total {'Credit' if net_position > 0 else 'Cost'}: **${total_cost:.2f}** for {manual_contracts} contracts
+            - Max Risk: ${long_debit * manual_contracts * 100:.2f} (if LEAP expires worthless)
+            """)
+        
+            from datetime import date as _date
+            manual_entry_date = st.date_input("Entry Date", value=_date.today(), key="manual_entry_date", help="Actual trade date — can be backdated")
+
+            if st.button("📥 Record Diagonal Spread", key="manual_trade_submit"):
+                try:
+                    variant_names = {
+                        "v1_income_harvester": "V1 Income Harvester",
+                        "v2_mean_reversion": "V2 Mean Reversion",
+                        "v3_shock_absorber": "V3 Shock Absorber",
+                        "v4_tail_hunter": "V4 Tail Hunter",
+                        "v5_regime_allocator": "V5 Regime Allocator",
+                    }
+                    variant_name = variant_names.get(manual_variant, manual_variant)
+                
+                    # Calculate entry commission
+                    fee_per_contract = 0.65
+                    entry_commission = fee_per_contract * manual_contracts * 2  # Long buy + Short sell
+                
+                    # Store as diagonal position with proper roll tracking
+                    pos = trade_log.open_diagonal(
+                        variant_id=manual_variant.upper(),
+                        variant_name=variant_name,
+                        contracts=manual_contracts,
+                        long_strike=long_strike,
+                        long_expiration=long_expiration.isoformat(),
+                        long_price=long_debit,
+                        short_strike=short_strike,
+                        short_expiration=short_expiration.isoformat(),
+                        short_credit=short_credit,
+                        entry_regime="CALM",  # Default
+                        entry_vix_level=0.0,  # Not specified
+                        fee_per_contract=fee_per_contract,
+                        notes=manual_notes,
+                        entry_date=manual_entry_date.isoformat(),
+                    )
+                    st.success(f"✅ Recorded {variant_name} diagonal spread! (ID: {pos.position_id})")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error: {e}")
+    
+        st.markdown("---")
+    
+        # Get trades based on filter
+        if status_filter == "Open":
+            trades = trade_log.get_open_trades()
+        elif status_filter == "Closed":
+            trades = trade_log.get_closed_trades()
+        else:
+            trades = trade_log.get_all_trades()
+    
+        # Apply variant filter
+        if variant_filter != "All":
+            trades = [t for t in trades if t.variant_role.value == variant_filter]
+    
+        # Display trades
+        if not trades:
+            st.info("No trades found. Execute signals to create trades.")
+            return
+    
+        st.subheader(f"Trades ({len(trades)})")
+    
+        for trade in sorted(trades, key=lambda t: t.entry_date, reverse=True):
+            status_icon = "🟢" if trade.status.value == "open" else "🔴"
+            pnl_color = "green" if trade.total_pnl >= 0 else "red"
+        
+            with st.expander(
+                f"{status_icon} {trade.variant_name} | {trade.entry_date.strftime('%Y-%m-%d')} | "
+                f"${trade.total_pnl:+,.0f}",
+                expanded=False
+            ):
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.write(f"**Trade ID:** {trade.position_id}")
+                    st.write(f"**Signal ID:** {trade.signal_id}")
+                    st.write(f"**Entry:** {trade.entry_date.strftime('%Y-%m-%d %H:%M')}")
+                with col2:
+                    st.write(f"**Regime:** {trade.entry_regime.value}")
+                    st.write(f"**Contracts:** {trade.total_contracts}")
+                    st.write(f"**Days Held:** {trade.days_held}")
+                with col3:
+                    st.write(f"**Entry Debit:** ${trade.entry_debit:,.2f}")
+                    st.markdown(f"**P&L:** <span style='color:{pnl_color}'>${trade.total_pnl:+,.2f}</span>", unsafe_allow_html=True)
 
 
 # ═══ REAL TRADING FUNCTIONS ════════════════════════════════════
@@ -5636,9 +5635,9 @@ def render_real_trade_log():
                     "Variant":     pos.variant_name,
                     "Broker":      f"{pos.broker} {pos.account_id}",
                     "Contracts":   pos.contracts,
-                    "Long":        f"${pos.long_strike:.0f} exp {pos.long_expiration}",
+                    "Long":        f"${pos.long_strike:g} exp {pos.long_expiration}",
                     "Long Fill":   f"${pos.long_fill_price:.2f}",
-                    "Short":       f"${short.strike:.0f} exp {short.expiration_date}" if short else "—",
+                    "Short":       f"${short.strike:g} exp {short.expiration_date}" if short else "—",
                     "Short Fill":  f"${short.fill_price:.2f}" if short else "—",
                     "DTE":         dte,
                     "Net Credits": f"${pos.net_short_credits:,.0f}",
@@ -5673,7 +5672,7 @@ def render_real_trade_log():
                         st.markdown(f"**Regime** {pos.entry_regime}")
                         st.markdown(f"**Contracts** {pos.contracts}")
                     with col2:
-                        st.markdown(f"**Long** ${pos.long_strike:.0f} exp {pos.long_expiration}")
+                        st.markdown(f"**Long** ${pos.long_strike:g} exp {pos.long_expiration}")
                         st.markdown(f"**Long fill** ${pos.long_fill_price:.2f}  "
                                     f"*(cost: ${pos.long_cost:,.0f})*")
                         _lc = pos.long_current_price
@@ -5685,7 +5684,7 @@ def render_real_trade_log():
                             st.markdown("**Long current** *(pending refresh)*")
                     with col3:
                         if short:
-                            st.markdown(f"**Short** ${short.strike:.0f} exp {short.expiration_date}")
+                            st.markdown(f"**Short** ${short.strike:g} exp {short.expiration_date}")
                             st.markdown(f"**Short fill** ${short.fill_price:.2f}")
                             st.markdown(f"**Short mid** ${short.entry_credit:.2f}")
                         else:
@@ -5847,7 +5846,7 @@ def render_real_trade_log():
                                     rtl._save()
                                     reset_real_trade_log_cache(st.session_state.get("real_account", "fidelity"))
                                     st.session_state[f"r_showing_add_short_{pid}"] = False
-                                    st.success(f"✅ Added short ${as_strike:.0f} exp {as_exp}")
+                                    st.success(f"✅ Added short ${as_strike:g} exp {as_exp}")
                                     st.rerun()
                             except Exception as e:
                                 st.error(f"Error: {e}")
@@ -5963,11 +5962,11 @@ def render_real_trade_log():
                         for r in pos.roll_history:
                             roll_rows.append({
                                 "Date":       getattr(r, "roll_date", ""),
-                                "Old Strike": f"${getattr(r, 'old_strike', 0):.0f}",
+                                "Old Strike": f"${getattr(r, 'old_strike', 0):g}",
                                 "Old Exp":    getattr(r, "old_expiration", ""),
                                 "Old Exit":   f"${getattr(r, 'old_exit_price', 0):.2f}",
                                 "Old Fill":   f"${getattr(r, 'old_fill_price', getattr(r, 'old_exit_price', 0)):.2f}",
-                                "New Strike": f"${getattr(r, 'new_strike', 0):.0f}",
+                                "New Strike": f"${getattr(r, 'new_strike', 0):g}",
                                 "New Exp":    getattr(r, "new_expiration", ""),
                                 "New Credit": f"${getattr(r, 'new_credit', 0):.2f}",
                                 "New Fill":   f"${getattr(r, 'new_fill_price', getattr(r, 'new_credit', 0)):.2f}",
@@ -6004,11 +6003,11 @@ def render_real_trade_log():
                         st.markdown("**Roll History**")
                         rh = [{
                             "Date":       r.roll_date,
-                            "Old Strike": f"${r.old_strike:.0f}",
+                            "Old Strike": f"${r.old_strike:g}",
                             "BB Mid":     f"${getattr(r, 'old_exit_price', getattr(r, 'exit_price', 0.0)):.2f}",
                             "BB Fill":    f"${getattr(r, 'old_fill_price', getattr(r, 'exit_price', 0.0)):.2f}",
                             "BB Slip":    f"${getattr(r,'old_fill_price',0)-getattr(r,'old_exit_price',0):+.2f}",
-                            "New Strike": f"${r.new_strike:.0f}",
+                            "New Strike": f"${r.new_strike:g}",
                             "Cr Mid":     f"${getattr(r, 'new_credit', r.new_credit):.2f}",
                             "Cr Fill":    f"${getattr(r, 'new_fill_price', r.new_credit):.2f}",
                             "Cr Slip":    f"${getattr(r,'new_fill_price',r.new_credit)-r.new_credit:+.2f}",
@@ -6085,7 +6084,7 @@ def render_real_trade_log():
                     "Entry":       pos.entry_date,
                     "Broker":      pos.broker,
                     "Contracts":   pos.contracts,
-                    "Long Strike": f"${pos.long_strike:.0f}",
+                    "Long Strike": f"${pos.long_strike:g}",
                     "Long Fill":   f"${pos.long_fill_price:.2f}",
                     "Short Fills": len(pos.short_legs),
                     "Net Credits": f"${pos.net_short_credits:,.0f}",
@@ -6610,9 +6609,9 @@ def render_command_dashboard(trade_log=None):
                     dte = (pd.Timestamp(leg.expiration_date) - pd.Timestamp.now()).days
                     dist = (leg.strike - snap.uvxy) / snap.uvxy * 100
                     if dte <= 3:
-                        actions.append(f"🚨 {pos.variant_name} short ${leg.strike:.0f} DTE={dte} — ROLL TODAY")
+                        actions.append(f"🚨 {pos.variant_name} short ${leg.strike:g} DTE={dte} — ROLL TODAY")
                     elif dist < 5:
-                        actions.append(f"⚠️  {pos.variant_name} short ${leg.strike:.0f} only {dist:.1f}% OTM — monitor")
+                        actions.append(f"⚠️  {pos.variant_name} short ${leg.strike:g} only {dist:.1f}% OTM — monitor")
         except Exception:
             pass
 
@@ -7202,7 +7201,7 @@ def render_tradier_positions():
                 leg_type = "Long" if qty > 0 else "Short"
                 rows.append({
                     "Symbol": sym, "Type": leg_type,
-                    "Strike": f"${strike:.0f}C",
+                    "Strike": f"${strike:g}C",
                     "Expiry": str(exp_date), "DTE": dte,
                     "Qty": int(qty),
                     "Cost/Share": f"${cost/abs(qty)/100:.2f}" if qty != 0 else "—",
@@ -7232,10 +7231,10 @@ def render_tradier_positions():
                     sh = v.get("short") or {}
                     variant_rows.append({
                         "Variant":     key,
-                        "Long Strike": f"${lg.get('strike',0):.0f}C" if lg else "—",
+                        "Long Strike": f"${lg.get('strike',0):g}C" if lg else "—",
                         "Long Expiry": lg.get("expiry","—"),
                         "Long Cost":   f"${lg.get('fill_price',0):.2f}" if lg else "—",
-                        "Short Strike":f"${sh.get('strike',0):.0f}C" if sh else "—",
+                        "Short Strike":f"${sh.get('strike',0):g}C" if sh else "—",
                         "Short Expiry":sh.get("expiry","—"),
                         "Short Credit":f"${sh.get('fill_price',0):.2f}" if sh else "—",
                     })
@@ -7761,7 +7760,7 @@ def render_assignment_log(mode: str = "real"):
                             <div style="background:#1e293b;border-radius:10px;
                                  padding:14px 18px;border:1px solid #334155;">
                                 <div style="font-size:1.05rem;font-weight:700;color:#f1f5f9;">
-                                    Sell {sugg.strike:.0f}{sugg.option_type[0]}
+                                    Sell {sugg.strike:g}{sugg.option_type[0]}
                                     · {sugg.expiration_date} · {sugg.dte}d
                                 </div>
                                 <div style="display:grid;grid-template-columns:repeat(3,1fr);
@@ -7953,7 +7952,7 @@ def render_assignment_log(mode: str = "real"):
                     step=1, key=f"ha_q_{mode}")
                 hf_notes= st.text_area("Notes", height=68, key=f"ha_n_{mode}")
             total_income = round(float(hf_credit) * int(hf_qty) * 100, 0)
-            st.info(f"{hf_type} {hf_strike:.0f} · {int(hf_qty)} contracts · "
+            st.info(f"{hf_type} {hf_strike:g} · {int(hf_qty)} contracts · "
                     f"Total income: **${total_income:,.0f}**")
             if st.form_submit_button("✅ Log Option Sold",
                                      type="primary", use_container_width=True):
@@ -7973,7 +7972,7 @@ def render_assignment_log(mode: str = "real"):
                 })
                 _save(HARV_FILE, all_h)
                 st.session_state[rerun_key] = True
-                st.success(f"✅ Logged {hf_type} {hf_strike:.0f} · ${total_income:,.0f} income")
+                st.success(f"✅ Logged {hf_type} {hf_strike:g} · ${total_income:,.0f} income")
 
     # ══════════════════════════════
     # TAB 3: ADD NEW ASSIGNMENT
