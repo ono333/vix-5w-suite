@@ -8,3 +8,4 @@ tradier_orchestrator.lock
 *.bak_*
 VIX3M_History.csv
 VIX9D_History.csv
+*.bak
