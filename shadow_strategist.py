@@ -36,6 +36,7 @@ Usage:
   python3 shadow_strategist.py --report        # P&L summary per strategy
   python3 shadow_strategist.py --seed-vix F    # seed VIX history from CSV (date,close)
   python3 shadow_strategist.py --force         # run even if market is closed
+  python3 shadow_strategist.py --marks-only    # mark + defend only, NO entries (off-day cron)
 
 Optional live take-bid hook — one line in tradier_orchestrator.py where a live
 fill is confirmed (you have bid/ask from the quote used to place the order):
@@ -291,7 +292,7 @@ def open_rows(conn, strategy=None):
 
 
 # ------------------------------------------------------------------ run -----
-def run(force=False):
+def run(force=False, marks_only=False):
     c = get_client()
     ts = datetime.now().isoformat(timespec="seconds")
     today = date.today().isoformat()
@@ -413,6 +414,15 @@ def run(force=False):
             log(f"shadow: DEFENDED roll STO {roll['strike']:g}C {nexp} @ {rm:.2f}")
         else:
             log("shadow: DEFENDED roll declined (no candidate) — flat after BTC")
+
+    # --- marks-only pass ends here: settle/mark/S3-exit/S5-defense done, ------
+    #     no new entries. Used by the daily off-day cron so the defended arm
+    #     sees delta>=0.50 crossings same-day instead of only Mon/Fri.
+    if marks_only:
+        conn.commit()
+        conn.close()
+        log("shadow: marks-only run complete")
+        return
 
     # --- S1/S4/S5 verticals (shared snapshot: same cached chain) --------------
     def enter_vertical(strat, s, w, note_extra=""):
@@ -630,4 +640,5 @@ if __name__ == "__main__":
     elif "--seed-vix" in sys.argv:
         seed_vix(sys.argv[sys.argv.index("--seed-vix") + 1])
     else:
-        run(force="--force" in sys.argv)
+        run(force="--force" in sys.argv,
+            marks_only="--marks-only" in sys.argv)
