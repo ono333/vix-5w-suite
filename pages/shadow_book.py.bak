@@ -17,8 +17,7 @@ import streamlit as st
 
 DB_PATH = os.path.expanduser("~/.vix_suite/market_data.db")
 STRATS = ["vertical", "vertical_gated", "vertical_defended",
-          "ratio_wing", "diagonal", "long_spike",
-          "spread_2w", "spread_5w", "spread_10w"]
+          "ratio_wing", "diagonal", "long_spike"]
 
 st.set_page_config(page_title="Shadow Book", layout="wide")
 st.title("Shadow Book")
