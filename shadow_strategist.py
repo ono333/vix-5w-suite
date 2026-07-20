@@ -80,6 +80,12 @@ MIN_PCTILE_HISTORY = 60  # trading days of VIX closes needed before S3 acts
 GATE_CREDIT_PCT = 0.03   # net credit must be >= 3% of wing width
 GATE_SLOPE_MAX = 1.0     # risk_measures slope_ratio >= this => backwardation => skip
 
+# --- S8/S9/S10 defined-risk vertical spreads (width sweep) ---
+SPREAD_WIDTHS = {"spread_2w": 2.0, "spread_5w": 5.0, "spread_10w": 10.0}
+SPREAD_SHORT_DELTA = 0.22   # short-leg delta target (same across widths)
+SPREAD_RISK_BUDGET = 6000.0  # $ max-loss budget -> contracts scale inverse to width
+SPREAD_DEFENSE_DELTA = 0.50  # roll trigger on the short
+
 # --- S5 defense ---
 DEFENSE_DELTA = 0.50     # roll the short when its chain delta reaches this
 
@@ -415,6 +421,26 @@ def run(force=False, marks_only=False):
         else:
             log("shadow: DEFENDED roll declined (no candidate) — flat after BTC")
 
+    # --- S8-10 spread defense/roll (runs daily incl. marks-only) -------------
+    for strat in SPREAD_WIDTHS:
+        for pid, sid, st, occ, expiry, strike, qty, op in open_rows(conn, strat):
+            if qty >= 0 or expiry < today:
+                continue
+            ch = calls(expiry)
+            o = next((x for x in ch if x["strike"] == strike), None)
+            d = ((o or {}).get("greeks") or {}).get("delta")
+            itm_near = (dte(expiry) <= 1 and spot >= strike)
+            if o is None or d is None:
+                continue
+            if d < SPREAD_DEFENSE_DELTA and not itm_near:
+                continue
+            # BTC the short; the paired long leg settles/expires on its own row.
+            btc = mid(o)
+            close_position(conn, pid, btc, ts, "BTC",
+                           f"spread defense delta={d:.2f}" if d is not None else "itm")
+            log(f"shadow: {strat.upper()} BTC {occ} @ {btc:.2f} "
+                f"(delta {d:.2f}) — will re-enter on next entry day")
+
     # --- marks-only pass ends here: settle/mark/S3-exit/S5-defense done, ------
     #     no new entries. Used by the daily off-day cron so the defended arm
     #     sees delta>=0.50 crossings same-day instead of only Mon/Fri.
@@ -502,6 +528,43 @@ def run(force=False, marks_only=False):
         else:
             log("shadow: RATIO_WING top-up declined (no candidate)")
 
+    # --- S8-10 defined-risk vertical spreads (width sweep, constant risk) -----
+    # Short by delta (same as other arms); long = short + width, same expiry.
+    # Contracts scale inverse to width so max-loss budget is equal across arms.
+    # This is the diagonal's structural fix: same-expiry long -> no cross-month
+    # long decay possible; max loss capped at (width - credit) at entry.
+    slope_now = latest_slope(conn)
+    for strat, width in SPREAD_WIDTHS.items():
+        if not wexp or has_open_short(conn, strat, wexp):
+            continue
+        s = pick_by_delta(calls(wexp), SPREAD_SHORT_DELTA)
+        if not s or (s.get("bid") or 0) < MIN_BID:
+            log(f"shadow: {strat.upper()} declined (no short at delta {SPREAD_SHORT_DELTA})")
+            continue
+        lng = pick_at_or_above(calls(wexp), s["strike"] + width)
+        if not lng:
+            log(f"shadow: {strat.upper()} declined (no long at +{width:g})")
+            continue
+        actual_width = lng["strike"] - s["strike"]
+        sm, lm = mid(s), mid(lng)
+        net = sm - lm
+        contracts = max(1, int(SPREAD_RISK_BUDGET / (actual_width * 100)))
+        if slope_now is not None and slope_now >= GATE_SLOPE_MAX:
+            log(f"shadow: {strat.upper()} stand-down (slope {slope_now:.3f} >= {GATE_SLOPE_MAX})")
+            continue
+        if net < GATE_CREDIT_PCT * actual_width:
+            log(f"shadow: {strat.upper()} declined (net {net:.2f} < "
+                f"{GATE_CREDIT_PCT:.0%} x width {actual_width:g})")
+            continue
+        sid = uuid.uuid4().hex[:8]
+        open_leg(conn, sid, strat, s, -contracts, sm, ts, spot, vix, pct,
+                 f"short leg x{contracts}")
+        open_leg(conn, sid, strat, lng, +contracts, lm, ts, spot, vix, pct,
+                 f"long cap +{actual_width:g} x{contracts}")
+        maxloss = (actual_width - net) * 100 * contracts
+        log(f"shadow: {strat.upper()} STO {s['strike']:g}C / BTO {lng['strike']:g}C "
+            f"{wexp} net {net:.2f} x{contracts} (max loss ${maxloss:,.0f})")
+
     # --- S2 diagonal -----------------------------------------------------------
     diag_open = open_rows(conn, "diagonal")
     diag_longs = [r for r in diag_open if r[6] > 0]
@@ -563,7 +626,8 @@ def report():
     print(f"{'strategy':<19}{'open':>6}{'closed':>8}{'realized':>12}"
           f"{'unrealized':>12}{'total':>10}")
     for strat in ("vertical", "vertical_gated", "vertical_defended",
-                  "ratio_wing", "diagonal", "long_spike"):
+                  "ratio_wing", "diagonal", "long_spike",
+                  "spread_2w", "spread_5w", "spread_10w"):
         closed = conn.execute(
             "SELECT qty,open_price,close_price FROM shadow_positions "
             "WHERE strategy=? AND status!='open'", (strat,)).fetchall()
