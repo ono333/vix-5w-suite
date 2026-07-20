@@ -325,6 +325,8 @@ class RealShortLeg:
             fill = float(self.long_fill_price or 0)
         except (TypeError, ValueError):
             return 0.0
+        if getattr(self, "long_status", "open") == "expired":
+            return (0.0 - fill) * self.contracts * 100   # expired worthless
         if cur <= 0:
             return 0.0
         return (cur - fill) * self.contracts * 100
@@ -492,6 +494,8 @@ class RealShortLeg:
             fill = float(self.long_fill_price or 0)
         except (TypeError, ValueError):
             return 0.0
+        if getattr(self, "long_status", "open") == "expired":
+            return (0.0 - fill) * self.contracts * 100   # expired worthless
         if cur <= 0:
             return 0.0
         return (cur - fill) * self.contracts * 100
@@ -795,6 +799,8 @@ class RealRollRecord:
             fill = float(self.long_fill_price or 0)
         except (TypeError, ValueError):
             return 0.0
+        if getattr(self, "long_status", "open") == "expired":
+            return (0.0 - fill) * self.contracts * 100   # expired worthless
         if cur <= 0:
             return 0.0
         return (cur - fill) * self.contracts * 100
@@ -957,6 +963,8 @@ class RealRollRecord:
             fill = float(self.long_fill_price or 0)
         except (TypeError, ValueError):
             return 0.0
+        if getattr(self, "long_status", "open") == "expired":
+            return (0.0 - fill) * self.contracts * 100   # expired worthless
         if cur <= 0:
             return 0.0
         return (cur - fill) * self.contracts * 100
@@ -1240,6 +1248,8 @@ class RealDiagonalPosition:
 
     @property
     def long_pnl(self) -> float:
+        if getattr(self, "long_status", "open") == "expired":
+            return (0.0 - self.long_fill_price) * self.contracts * 100
         if self.long_current_price <= 0:
             return 0.0
         return ((self.long_current_price - self.long_fill_price)
@@ -1395,6 +1405,8 @@ class RealDiagonalPosition:
             fill = float(self.long_fill_price or 0)
         except (TypeError, ValueError):
             return 0.0
+        if getattr(self, "long_status", "open") == "expired":
+            return (0.0 - fill) * self.contracts * 100   # expired worthless
         if cur <= 0:
             return 0.0
         return (cur - fill) * self.contracts * 100
@@ -1557,6 +1569,8 @@ class RealDiagonalPosition:
             fill = float(self.long_fill_price or 0)
         except (TypeError, ValueError):
             return 0.0
+        if getattr(self, "long_status", "open") == "expired":
+            return (0.0 - fill) * self.contracts * 100   # expired worthless
         if cur <= 0:
             return 0.0
         return (cur - fill) * self.contracts * 100
