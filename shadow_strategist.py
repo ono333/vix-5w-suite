@@ -34,6 +34,7 @@ Tables created in ~/.vix_suite/market_data.db (existing tables untouched):
 Usage:
   python3 shadow_strategist.py                 # normal daily run (after orchestrator)
   python3 shadow_strategist.py --report        # P&L summary per strategy
+  python3 shadow_strategist.py --touch-report  # mid vs worst-touch settle on closed shorts
   python3 shadow_strategist.py --seed-vix F    # seed VIX history from CSV (date,close)
   python3 shadow_strategist.py --force         # run even if market is closed
   python3 shadow_strategist.py --marks-only    # mark + defend only, NO entries (off-day cron)
@@ -101,7 +102,8 @@ CREATE TABLE IF NOT EXISTS shadow_positions(
   id INTEGER PRIMARY KEY, spread_id TEXT, strategy TEXT, occ TEXT,
   expiry TEXT, strike REAL, right TEXT, qty INTEGER,
   open_price REAL, open_ts TEXT, status TEXT DEFAULT 'open',
-  close_price REAL, close_ts TEXT, note TEXT);
+  close_price REAL, close_ts TEXT, note TEXT,
+  worst_spot REAL, touch_settle REAL);
 CREATE TABLE IF NOT EXISTS shadow_trades(
   id INTEGER PRIMARY KEY, ts TEXT, strategy TEXT, action TEXT, occ TEXT,
   expiry TEXT, strike REAL, right TEXT, qty INTEGER,
@@ -166,6 +168,12 @@ def dte(expiry_iso):
 def connect():
     conn = sqlite3.connect(DB_PATH, timeout=15)
     conn.executescript(SCHEMA)
+    # migrate pre-existing DBs: add worst-touch columns if absent
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(shadow_positions)")}
+    for col in ("worst_spot", "touch_settle"):
+        if col not in cols:
+            conn.execute(f"ALTER TABLE shadow_positions ADD COLUMN {col} REAL")
+    conn.commit()
     return conn
 
 
@@ -248,9 +256,10 @@ def open_leg(conn, spread_id, strategy, opt, qty, price, ts,
              spot, vix, pct, note=""):
     conn.execute(
         "INSERT INTO shadow_positions(spread_id,strategy,occ,expiry,strike,right,"
-        "qty,open_price,open_ts,status,note) VALUES(?,?,?,?,?,?,?,?,?,'open',?)",
+        "qty,open_price,open_ts,status,note,worst_spot) "
+        "VALUES(?,?,?,?,?,?,?,?,?,'open',?,?)",
         (spread_id, strategy, opt["symbol"], opt["expiration_date"],
-         opt["strike"], "call", qty, price, ts, note))
+         opt["strike"], "call", qty, price, ts, note, spot))
     conn.execute(
         "INSERT INTO shadow_trades(ts,strategy,action,occ,expiry,strike,right,qty,"
         "price,bid,ask,spot,vix,vix_pctile,note) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -273,6 +282,42 @@ def close_position(conn, pos_id, price, ts, action, note=""):
         "INSERT INTO shadow_trades(ts,strategy,action,occ,expiry,strike,right,qty,"
         "price,note) VALUES(?,?,?,?,?,?,?,?,?,?)",
         (ts, strategy, action, occ, expiry, strike, "call", -qty, price, note))
+
+
+def record_touch_settle(conn, pos_id, width=None):
+    """For a short-call leg, compute assignment-on-touch intrinsic from the
+    highest spot seen while open, capped at the spread width (defined risk),
+    and store it in touch_settle. This is the HONEST worst-case realized value
+    the report insists on — what a mental-stop / assignment would have cost,
+    vs the mid at which the book actually settled. width=None -> uncapped
+    (single short leg); pass width for a defined-risk spread."""
+    row = conn.execute(
+        "SELECT strike, qty, worst_spot FROM shadow_positions WHERE id=?",
+        (pos_id,)).fetchone()
+    if not row:
+        return None
+    strike, qty, worst = row
+    if qty >= 0 or worst is None:      # only short legs have assignment risk
+        return None
+    intr = max(0.0, worst - strike)
+    if width is not None:
+        intr = min(intr, width)
+    touch = round(intr, 2)
+    conn.execute("UPDATE shadow_positions SET touch_settle=? WHERE id=?",
+                 (touch, pos_id))
+    return touch
+
+
+def spread_width_for(conn, spread_id):
+    """Width between the short and long strike of a spread_id (0 if not paired)."""
+    rows = conn.execute(
+        "SELECT strike, qty FROM shadow_positions WHERE spread_id=?",
+        (spread_id,)).fetchall()
+    shorts = [s for s, q in rows if q < 0]
+    longs = [s for s, q in rows if q > 0]
+    if shorts and longs:
+        return abs(longs[0] - shorts[0])
+    return None
 
 
 def has_open_short(conn, strategy, expiry):
@@ -329,8 +374,11 @@ def run(force=False, marks_only=False):
         f"{pct if pct is not None else f'n/a ({nhist}/{MIN_PCTILE_HISTORY} closes)'}")
 
     # --- settle expired positions (intrinsic at current spot as proxy) ------
-    for pid, _sid, strat, occ, expiry, strike, qty, _op in open_rows(conn):
+    for pid, sid, strat, occ, expiry, strike, qty, _op in open_rows(conn):
         if expiry < today:
+            if qty < 0:   # short leg: record honest worst-touch before closing
+                w = spread_width_for(conn, sid) if strat in SPREAD_WIDTHS else None
+                record_touch_settle(conn, pid, width=w)
             intrinsic = round(max(0.0, spot - strike), 2)
             close_position(conn, pid, intrinsic, ts, "expired",
                            f"settled@spot_proxy {spot}")
@@ -354,6 +402,18 @@ def run(force=False, marks_only=False):
                 "INSERT INTO shadow_marks(ts,position_id,strategy,occ,bid,ask,mid,spot)"
                 " VALUES(?,?,?,?,?,?,?,?)",
                 (ts, pid, strat, occ, o.get("bid"), o.get("ask"), m, spot))
+
+    # --- update worst (HIGHEST) spot seen while open, for assignment-on-touch
+    #     settlement. Short CALLS are breached when UVXY RISES, so "worst" =
+    #     the highest spot (opposite of the report's put-spread low-tracking).
+    #     NOTE: highest spot observed at MARK times (twice-weekly + daily cron),
+    #     an approximation of a true intraday high, not a tick high. Still
+    #     captures multi-day breaches honestly.
+    if spot is not None:
+        conn.execute(
+            "UPDATE shadow_positions SET worst_spot="
+            "CASE WHEN worst_spot IS NULL THEN ? ELSE MAX(worst_spot, ?) END "
+            "WHERE status='open'", (spot, spot))
 
     # --- S3 exits ------------------------------------------------------------
     for pid, _sid, strat, occ, expiry, strike, qty, op in open_rows(conn, "long_spike"):
@@ -435,6 +495,8 @@ def run(force=False, marks_only=False):
             if d < SPREAD_DEFENSE_DELTA and not itm_near:
                 continue
             # BTC the short; the paired long leg settles/expires on its own row.
+            w = spread_width_for(conn, sid)
+            record_touch_settle(conn, pid, width=w)
             btc = mid(o)
             close_position(conn, pid, btc, ts, "BTC",
                            f"spread defense delta={d:.2f}" if d is not None else "itm")
@@ -621,6 +683,36 @@ def run(force=False, marks_only=False):
 
 
 # ---------------------------------------------------------------- report ----
+def touch_report():
+    """Honesty check: for closed SHORT legs, compare the mid at which the book
+    settled against the assignment-on-touch value (worst spot seen). The gap is
+    the tail the report warns mid-marking hides."""
+    conn = connect()
+    print(f"{'strategy':<19}{'occ':<22}{'strike':>7}{'worst':>7}"
+          f"{'mid_stl':>9}{'touch_stl':>10}{'gap':>8}")
+    rows = conn.execute(
+        "SELECT strategy,occ,strike,worst_spot,close_price,touch_settle "
+        "FROM shadow_positions WHERE qty<0 AND touch_settle IS NOT NULL "
+        "ORDER BY strategy,close_ts").fetchall()
+    if not rows:
+        print("  (no closed short legs with touch data yet)")
+        conn.close()
+        return
+    tot_mid = tot_touch = 0.0
+    for strat, occ, strike, worst, mid_stl, touch in rows:
+        mid_stl = mid_stl or 0.0
+        gap = (touch - mid_stl) * 100   # extra loss per contract touch reveals
+        tot_mid += mid_stl
+        tot_touch += touch
+        print(f"{strat:<19}{occ:<22}{strike:>7g}{worst or 0:>7.2f}"
+              f"{mid_stl:>9.2f}{touch:>10.2f}{gap:>8.0f}")
+    print(f"\n  Across closed shorts: mid-settle avg {tot_mid/len(rows):.2f}, "
+          f"touch-settle avg {tot_touch/len(rows):.2f} per contract.")
+    print("  Positive gap = worst-touch would have realized a larger loss than")
+    print("  the mid the book settled at — the negative-skew tail, made visible.")
+    conn.close()
+
+
 def report():
     conn = connect()
     print(f"{'strategy':<19}{'open':>6}{'closed':>8}{'realized':>12}"
@@ -701,6 +793,8 @@ def log_live_takebid(occ, bid, ask, fill_price, variant=""):
 if __name__ == "__main__":
     if "--report" in sys.argv:
         report()
+    elif "--touch-report" in sys.argv:
+        touch_report()
     elif "--seed-vix" in sys.argv:
         seed_vix(sys.argv[sys.argv.index("--seed-vix") + 1])
     else:
