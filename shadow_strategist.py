@@ -35,6 +35,7 @@ Usage:
   python3 shadow_strategist.py                 # normal daily run (after orchestrator)
   python3 shadow_strategist.py --report        # P&L summary per strategy
   python3 shadow_strategist.py --touch-report  # mid vs worst-touch settle on closed shorts
+  python3 shadow_strategist.py --roll-report   # defensive-buyback event study (roll vs capped loss)
   python3 shadow_strategist.py --seed-vix F    # seed VIX history from CSV (date,close)
   python3 shadow_strategist.py --force         # run even if market is closed
   python3 shadow_strategist.py --marks-only    # mark + defend only, NO entries (off-day cron)
@@ -111,6 +112,11 @@ CREATE TABLE IF NOT EXISTS shadow_trades(
 CREATE TABLE IF NOT EXISTS shadow_marks(
   id INTEGER PRIMARY KEY, ts TEXT, position_id INTEGER, strategy TEXT, occ TEXT,
   bid REAL, ask REAL, mid REAL, spot REAL);
+CREATE TABLE IF NOT EXISTS shadow_roll_events(
+  id INTEGER PRIMARY KEY, ts TEXT, strategy TEXT, occ TEXT, strike REAL,
+  contracts INTEGER, entry_credit REAL, buyback_mid REAL, width REAL,
+  capped_loss REAL, touch_settle REAL, vix REAL, vix_pctile REAL,
+  spot REAL, worst_spot REAL, kind TEXT);
 """
 
 
@@ -320,6 +326,47 @@ def spread_width_for(conn, spread_id):
     return None
 
 
+def spread_entry_credit(conn, spread_id):
+    """Net credit collected at entry: short open_price - long open_price.
+    Returns (net_credit, contracts) or (None, 1) if not a clean pair."""
+    rows = conn.execute(
+        "SELECT qty, open_price FROM shadow_positions WHERE spread_id=?",
+        (spread_id,)).fetchall()
+    short = next(((abs(q), p) for q, p in rows if q < 0), None)
+    long_ = next(((q, p) for q, p in rows if q > 0), None)
+    if short and long_:
+        return round(short[1] - long_[1], 2), short[0]
+    if short:
+        return round(short[1], 2), short[0]     # naked short (defended arm)
+    return None, 1
+
+
+def log_roll_event(conn, pid, sid, strat, occ, strike, buyback_mid, ts,
+                   vix, pct, spot, kind):
+    """Capture the economics of a defensive buyback for later event-study:
+    how expensive was the roll (vega-inflated in a spike?) vs the entry credit
+    and vs the capped loss you'd take by NOT rolling. Answers whether rolling a
+    breached UVXY spread in a spike beats taking the defined-risk loss."""
+    width = spread_width_for(conn, sid)
+    net, contracts = spread_entry_credit(conn, sid)
+    row = conn.execute(
+        "SELECT worst_spot, touch_settle FROM shadow_positions WHERE id=?",
+        (pid,)).fetchone()
+    worst, touch = (row or (None, None))
+    capped = (round(width - net, 2) if width is not None and net is not None
+              else None)
+    conn.execute(
+        "INSERT INTO shadow_roll_events(ts,strategy,occ,strike,contracts,"
+        "entry_credit,buyback_mid,width,capped_loss,touch_settle,vix,vix_pctile,"
+        "spot,worst_spot,kind) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (ts, strat, occ, strike, contracts, net, round(buyback_mid, 2), width,
+         capped, touch, vix, pct, spot, worst, kind))
+    ratio = (buyback_mid / net) if net else None
+    rstr = f"{ratio:.1f}x credit" if ratio else "n/a"
+    log(f"shadow: ROLL-EVENT {strat} {occ} buyback {buyback_mid:.2f} "
+        f"({rstr}) vix_pct {pct} spot {spot}")
+
+
 def has_open_short(conn, strategy, expiry):
     return conn.execute(
         "SELECT 1 FROM shadow_positions WHERE strategy=? AND expiry=? "
@@ -461,7 +508,10 @@ def run(force=False, marks_only=False):
             continue
         if d < DEFENSE_DELTA:
             continue
+        record_touch_settle(conn, pid, width=None)   # naked short, uncapped
         btc = mid(o)
+        log_roll_event(conn, pid, sid, "vertical_defended", occ, strike, btc,
+                       ts, vix, pct, spot, "defended_roll")
         close_position(conn, pid, btc, ts, "BTC", f"defense delta={d:.2f}")
         log(f"shadow: DEFENDED BTC {occ} @ {btc:.2f} (delta {d:.2f})")
         nexp = pick_exp(exps, dte(expiry) + 1, dte(expiry) + 9)
@@ -498,6 +548,8 @@ def run(force=False, marks_only=False):
             w = spread_width_for(conn, sid)
             record_touch_settle(conn, pid, width=w)
             btc = mid(o)
+            log_roll_event(conn, pid, sid, strat, occ, strike, btc, ts,
+                           vix, pct, spot, "spread_defense")
             close_position(conn, pid, btc, ts, "BTC",
                            f"spread defense delta={d:.2f}" if d is not None else "itm")
             log(f"shadow: {strat.upper()} BTC {occ} @ {btc:.2f} "
@@ -683,6 +735,42 @@ def run(force=False, marks_only=False):
 
 
 # ---------------------------------------------------------------- report ----
+def roll_report():
+    """Event study: every defensive buyback, with the economics that answer
+    'does rolling a breached spread in a spike beat taking the capped loss?'
+    Key columns: buyback (cost to close the short), capped_loss (what the
+    defined-risk loss would have been if left to expire), vix_pctile (spike
+    level). If buyback > capped_loss in high percentiles, rolling is the more
+    expensive choice — the vega-inflation the flat-IV backtest couldn't see."""
+    conn = connect()
+    rows = conn.execute(
+        "SELECT ts,strategy,occ,strike,contracts,entry_credit,buyback_mid,"
+        "width,capped_loss,touch_settle,vix_pctile,spot,worst_spot,kind "
+        "FROM shadow_roll_events ORDER BY ts").fetchall()
+    if not rows:
+        print("(no roll/defense events logged yet)")
+        conn.close()
+        return
+    print(f"{'date':<11}{'strat':<17}{'strike':>7}{'vixpct':>7}"
+          f"{'entry_cr':>9}{'buyback':>9}{'capped':>8}{'roll_vs_cap':>12}")
+    for (ts, strat, occ, strike, ct, cr, bb, w, capped, touch, vp, spot,
+         worst, kind) in rows:
+        cr = cr or 0.0; bb = bb or 0.0; capped = capped if capped is not None else 0.0
+        # roll_vs_cap > 0 => buyback cost MORE than the capped loss (roll was
+        # the worse choice); < 0 => rolling was cheaper than taking the loss.
+        rvc = round((bb - capped) * 100 * (ct or 1))
+        verdict = "roll worse" if rvc > 0 else "roll better"
+        print(f"{str(ts)[:10]:<11}{strat:<17}{strike:>7g}"
+              f"{vp if vp is not None else 0:>7.0f}{cr:>9.2f}{bb:>9.2f}"
+              f"{capped:>8.2f}{rvc:>+9} {verdict}")
+    print("\nroll_vs_cap = (buyback - capped_loss) x 100 x contracts.")
+    print("  positive => the defensive buyback cost MORE than simply taking")
+    print("  the defined-risk capped loss would have — rolling was the worse")
+    print("  choice at that spike level. Watch whether this turns positive")
+    print("  as vix_pctile rises (the vega-inflation the flat-IV backtest hid).")
+    conn.close()
+
+
 def touch_report():
     """Honesty check: for closed SHORT legs, compare the mid at which the book
     settled against the assignment-on-touch value (worst spot seen). The gap is
@@ -795,6 +883,8 @@ if __name__ == "__main__":
         report()
     elif "--touch-report" in sys.argv:
         touch_report()
+    elif "--roll-report" in sys.argv:
+        roll_report()
     elif "--seed-vix" in sys.argv:
         seed_vix(sys.argv[sys.argv.index("--seed-vix") + 1])
     else:
