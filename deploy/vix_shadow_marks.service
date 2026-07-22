@@ -1,0 +1,11 @@
+[Unit]
+Description=VIX Shadow Book — marks-only pass (off-day defense/mark)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=shin
+WorkingDirectory=/home/shin/vix_suite
+EnvironmentFile=/etc/vix_orchestrator.env
+ExecStart=/home/shin/vix_suite/venv/bin/python3 /home/shin/vix_suite/shadow_strategist.py --marks-only --force

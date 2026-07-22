@@ -1,0 +1,9 @@
+[Unit]
+Description=VIX Shadow Book marks-only — Tue/Wed/Thu 15:45 ET
+
+[Timer]
+OnCalendar=Tue,Wed,Thu 15:45
+Persistent=false
+
+[Install]
+WantedBy=timers.target
